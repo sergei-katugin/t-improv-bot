@@ -1,0 +1,16 @@
+app = "t-impro-bot"
+primary_region = "arn"  # Stockholm — ближайший к Кипру
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  DATABASE_URL = "sqlite+aiosqlite:////data/impro.db"
+
+[mounts]
+  source = "impro_data"
+  destination = "/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
