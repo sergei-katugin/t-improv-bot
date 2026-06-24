@@ -1,0 +1,11 @@
+aiogram>=3.10
+SQLAlchemy>=2.0.36
+aiosqlite==0.20.0
+alembic==1.13.1
+pydantic-settings>=2.4
+APScheduler==3.10.4
+aiohttp>=3.9
+greenlet>=3.0
+qrcode[pil]>=7.4
+Pillow>=10.0
+aiogram3-calendar>=0.1.2
