@@ -166,5 +166,11 @@ async def main():
 
 
 if __name__ == "__main__":
-    run_migrations()
+    import os
+
+    if os.environ.get("SKIP_MIGRATIONS") not in ("1", "true", "True"):
+        run_migrations()
+    else:
+        logger.info("SKIP_MIGRATIONS set — skipping alembic migrations on startup")
+
     asyncio.run(main())
