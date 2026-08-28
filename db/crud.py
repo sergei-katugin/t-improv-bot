@@ -243,6 +243,16 @@ async def update_show(session: AsyncSession, show_id: int, **fields) -> Show | N
     return show
 
 
+async def delete_show(session: AsyncSession, show_id: int) -> bool:
+    show = await get_show(session, show_id)
+    if show is None:
+        return False
+    await session.delete(show)
+    await session.commit()
+    logger.info("deleted show id=%s", show_id)
+    return True
+
+
 async def count_active_registrations(session: AsyncSession, show_id: int) -> int:
     result = await session.execute(
         select(func.coalesce(func.sum(Registration.guests + 1), 0))

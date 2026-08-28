@@ -967,10 +967,11 @@ async def show_detail(callback: CallbackQuery, callback_data: AdminShowActionCb,
         text += f"\n📝 {show.poster_text}"
 
     from aiogram.exceptions import TelegramBadRequest
+    can_delete = tg_id in ADMIN_ID_LIST
     try:
-        await callback.message.edit_text(text, reply_markup=show_detail_kb(show, is_creator))
+        await callback.message.edit_text(text, reply_markup=show_detail_kb(show, is_creator, can_delete=can_delete))
     except TelegramBadRequest:
-        await callback.message.answer(text, reply_markup=show_detail_kb(show, is_creator))
+        await callback.message.answer(text, reply_markup=show_detail_kb(show, is_creator, can_delete=can_delete))
 
 
 @router.callback_query(AdminShowActionCb.filter(F.action == "preview"))
@@ -1223,6 +1224,45 @@ async def cancel_show_confirm(callback: CallbackQuery, callback_data: AdminShowA
     )
 
 
+@router.callback_query(AdminShowActionCb.filter(F.action == "delete"))
+async def delete_show_confirm(callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession):
+    if callback.from_user.id not in ADMIN_ID_LIST:
+        await callback.answer("Удалять шоу могут только администраторы.", show_alert=True)
+        return
+
+    show_id = callback_data.show_id
+    show = await crud.get_show(session, show_id)
+    if show is None:
+        await callback.message.answer("Шоу не найдено.")
+        return
+
+    await callback.message.edit_text(
+        f"🗑 <b>Удалить шоу навсегда?</b>\n\n"
+        f"🎭 {show.title}\n"
+        f"📅 {show.show_date.strftime('%d.%m.%Y %H:%M')}\n\n"
+        f"Это удалит все записи, лог анонсов и связанные данные.\n"
+        f"<b>Действие необратимо.</b>",
+        reply_markup=confirm_kb(AdminShowActionCb(action="confirm_delete", show_id=show_id).pack(), AdminShowActionCb(action="open", show_id=show_id).pack()),
+    )
+
+
+@router.callback_query(AdminShowActionCb.filter(F.action == "confirm_delete"))
+async def delete_show_execute(callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession):
+    if callback.from_user.id not in ADMIN_ID_LIST:
+        await callback.answer("Удалять шоу могут только администраторы.", show_alert=True)
+        return
+
+    show_id = callback_data.show_id
+    show = await crud.get_show(session, show_id)
+    if show is None:
+        await callback.message.edit_text("Шоу не найдено.")
+        return
+
+    await crud.delete_show(session, show_id)
+    await callback.message.edit_text(f"🗑 Шоу <b>{show.title}</b> удалено навсегда.")
+    await callback.message.answer("Главное меню:", reply_markup=main_menu_kb())
+
+
 @router.callback_query(AdminShowActionCb.filter(F.action == "confirm_cancel"))
 async def cancel_show_execute(callback: CallbackQuery, callback_data: AdminShowActionCb, bot: Bot, public_bot: Bot, session: AsyncSession):
     show_id = callback_data.show_id
@@ -1306,7 +1346,7 @@ async def restore_show(callback: CallbackQuery, callback_data: AdminShowActionCb
 
     tg_id = callback.from_user.id
     is_creator = (show.creator and show.creator.telegram_id == tg_id) or tg_id in ADMIN_ID_LIST
-    kb = show_detail_kb(show, is_creator)
+    kb = show_detail_kb(show, is_creator, can_delete=(callback.from_user.id in ADMIN_ID_LIST))
 
     await callback.message.edit_text(
         f"✅ Шоу <b>{show.title}</b> восстановлено и снова активно.",

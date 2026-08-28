@@ -59,7 +59,7 @@ def shows_filter_kb(current: dict) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def show_detail_kb(show: Show, is_creator_or_admin: bool) -> InlineKeyboardMarkup:
+def show_detail_kb(show: Show, is_creator_or_admin: bool, can_delete: bool = False) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="👥 Записи",          callback_data=AdminShowActionCb(action="regs", show_id=show.id).pack())
     builder.button(text="👁 Превью анонса",   callback_data=AdminShowActionCb(action="preview", show_id=show.id).pack())
@@ -79,6 +79,8 @@ def show_detail_kb(show: Show, is_creator_or_admin: bool) -> InlineKeyboardMarku
         builder.button(text="📣 Бесплатная реклама", callback_data=AdminShowActionCb(action="free_ad", show_id=show.id).pack())
         if show.is_active:
             builder.button(text="🚫 Отменить шоу", callback_data=AdminShowActionCb(action="cancel", show_id=show.id).pack())
+            if can_delete:
+                builder.button(text="🗑 Удалить шоу", callback_data=AdminShowActionCb(action="delete", show_id=show.id).pack())
         else:
             builder.button(text="↩️ Восстановить шоу", callback_data=AdminShowActionCb(action="restore", show_id=show.id).pack())
     builder.button(text="◀️ Назад", callback_data="admin_shows_list")
