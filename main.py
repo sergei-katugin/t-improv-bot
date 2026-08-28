@@ -8,7 +8,7 @@ import signal
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.types import BotCommand, ErrorEvent
+from aiogram.types import BotCommand, ErrorEvent, Update
 from aiohttp import web
 
 from config import settings
@@ -56,14 +56,33 @@ async def register_commands(admin_bot: Bot, public_bot: Bot) -> None:
     ])
 
 
-async def run_health_server() -> web.AppRunner:
+def get_webhook_base_url() -> str:
+    base_url = settings.WEBHOOK_BASE_URL or os.getenv("RENDER_EXTERNAL_URL") or os.getenv("PUBLIC_URL")
+    if not base_url:
+        raise RuntimeError("WEBHOOK_BASE_URL or RENDER_EXTERNAL_URL/PUBLIC_URL is required for webhook mode")
+    return base_url.rstrip("/")
+
+
+async def build_webhook_app(admin_bot: Bot, public_bot: Bot, admin_dp: Dispatcher, public_dp: Dispatcher) -> web.Application:
     app = web.Application()
-    app.router.add_get("/health", lambda r: web.Response(text="ok"))
-    runner = web.AppRunner(app)
-    await runner.setup()
-    port = int(os.environ.get("PORT", "8080"))
-    await web.TCPSite(runner, "0.0.0.0", port).start()
-    return runner
+
+    async def health_handler(request):
+        return web.Response(text="ok")
+
+    async def admin_webhook_handler(request):
+        payload = await request.json()
+        await admin_dp.feed_webhook_update(bot=admin_bot, update=Update(**payload))
+        return web.Response(status=200)
+
+    async def public_webhook_handler(request):
+        payload = await request.json()
+        await public_dp.feed_webhook_update(bot=public_bot, update=Update(**payload))
+        return web.Response(status=200)
+
+    app.router.add_get("/health", health_handler)
+    app.router.add_post("/telegram/admin", admin_webhook_handler)
+    app.router.add_post("/telegram/public", public_webhook_handler)
+    return app
 
 
 async def on_error(event: ErrorEvent):
@@ -121,16 +140,36 @@ async def main():
     admin_bot, admin_dp = build_admin_bot()
     public_bot, public_dp = build_public_bot()
 
-    health_runner = await run_health_server()
+    base_url = get_webhook_base_url()
+    admin_webhook_url = f"{base_url}/telegram/admin"
+    public_webhook_url = f"{base_url}/telegram/public"
+
+    app = await build_webhook_app(admin_bot, public_bot, admin_dp, public_dp)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", "8080"))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+
     await register_commands(admin_bot, public_bot)
     setup_scheduler(public_bot, admin_bot)
 
-    # Ensure webhooks are removed to avoid "Conflict: terminated by other getUpdates request"
     try:
         await admin_bot.delete_webhook(drop_pending_updates=True)
         await public_bot.delete_webhook(drop_pending_updates=True)
+        await admin_bot.set_webhook(
+            url=admin_webhook_url,
+            allowed_updates=["message", "callback_query"],
+            drop_pending_updates=True,
+        )
+        await public_bot.set_webhook(
+            url=public_webhook_url,
+            allowed_updates=["message", "callback_query"],
+            drop_pending_updates=True,
+        )
     except Exception as e:
-        logger.warning("Failed to delete webhook(s) before polling: %s", e)
+        logger.warning("Failed to configure Telegram webhooks: %s", e)
+        raise
 
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -142,27 +181,18 @@ async def main():
     loop.add_signal_handler(signal.SIGINT, _stop, "SIGINT")
     loop.add_signal_handler(signal.SIGTERM, _stop, "SIGTERM")
 
-    logger.info("Боты запущены. Ctrl+C для остановки.")
+    logger.info("Webhook-боты запущены на %s и %s", admin_webhook_url, public_webhook_url)
 
     admin_dp["public_bot"] = public_bot
 
-    admin_task = asyncio.create_task(
-        admin_dp.start_polling(admin_bot, allowed_updates=["message", "callback_query"], handle_signals=False, drop_pending_updates=True)
-    )
-    public_task = asyncio.create_task(
-        public_dp.start_polling(public_bot, allowed_updates=["message", "callback_query"], handle_signals=False, drop_pending_updates=True)
-    )
-
     await stop_event.wait()
 
-    logger.info("Останавливаю полинг...")
-    await admin_dp.stop_polling()
-    await public_dp.stop_polling()
-
-    await asyncio.gather(admin_task, public_task, return_exceptions=True)
+    logger.info("Останавливаю webhook-сервер...")
+    await admin_bot.delete_webhook(drop_pending_updates=True)
+    await public_bot.delete_webhook(drop_pending_updates=True)
 
     scheduler.shutdown(wait=False)
-    await health_runner.cleanup()
+    await runner.cleanup()
     await admin_bot.session.close()
     await public_bot.session.close()
     logger.info("Боты остановлены.")
