@@ -1106,6 +1106,8 @@ async def free_ad(callback: CallbackQuery, callback_data: AdminShowActionCb, ses
     nav_builder = InlineKeyboardBuilder()
     for ch in channels:
         nav_builder.button(text=f"➡️ {ch.username}", url=ch.url)
+    # add a back button to return to the show detail view
+    nav_builder.button(text="◀️ Назад", callback_data=AdminShowActionCb(action="open", show_id=show_id).pack())
     nav_builder.adjust(1)
 
     await callback.message.answer(
