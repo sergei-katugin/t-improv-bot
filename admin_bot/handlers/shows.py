@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import io
 import logging
 import qrcode
@@ -18,16 +20,14 @@ from db.base import AsyncSessionLocal
 from db import crud
 from db.models import UserRole
 from admin_bot.keyboards.reply import main_menu_kb
-from scheduler.jobs import build_announcement_text, send_to_channel, cache_poster_for_public_bot, MAPS_RE, DATE_RE, TIME_RE, _location_line
+from scheduler.jobs import build_announcement_text, send_to_channel, cache_poster_for_public_bot, MAPS_RE, DATE_RE, TIME_RE, _location_line, _fmt_date
 from admin_bot.keyboards.inline import (
     shows_list_kb, shows_filter_kb, show_detail_kb, show_created_kb, edit_show_fields_kb,
     confirm_kb, confirm_with_back_kb, fsm_cancel_kb, fsm_skip_cancel_kb, venue_kb, city_kb,
     team_kb, team_select_kb, settings_kb,
 )
 from admin_bot.callbacks import (
-    AdminShowCb, AdminPreviewCb, AdminShowLinkCb, AdminQrCb,
-    AdminAnnounceCb, AdminRemindCb, AdminCancelShowCb, AdminConfirmCancelCb,
-    AdminRestoreShowCb, AdminEditCb, AdminEditFieldCb, AdminFilterStatusCb,
+    AdminShowActionCb, AdminShowFieldCb, AdminFilterStatusCb,
     CityCb, VenueCb, TimePresetCb, TeamCb,
 )
 
@@ -527,16 +527,6 @@ async def _make_calendar(session: AsyncSession) -> RuCalendar:
     return RuCalendar(busy)
 
 
-_MONTHS_GEN = [
-    "", "января", "февраля", "марта", "апреля", "мая", "июня",
-    "июля", "августа", "сентября", "октября", "ноября", "декабря",
-]
-_WEEKDAYS_RU = ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье"]
-
-
-def _fmt_date(dt: datetime) -> str:
-    return f"{dt.day} {_MONTHS_GEN[dt.month]}, {_WEEKDAYS_RU[dt.weekday()]}, {dt.strftime('%H:%M')}"
-
 
 def _preview_from_data(data: dict) -> str:
     location = data.get("location", "")
@@ -860,8 +850,8 @@ async def filter_input(message: Message, state: FSMContext, session: AsyncSessio
     await _render_shows_list(message, state, session, edit=False, can_manage=_can_manage(is_super_admin, db_user))
 
 
-@router.callback_query(AdminShowCb.filter())
-async def show_detail(callback: CallbackQuery, callback_data: AdminShowCb, session: AsyncSession):
+@router.callback_query(AdminShowActionCb.filter(F.action == "open"))
+async def show_detail(callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession):
     show_id = callback_data.show_id
     await callback.answer()
 
@@ -902,8 +892,8 @@ async def show_detail(callback: CallbackQuery, callback_data: AdminShowCb, sessi
         await callback.message.answer(text, reply_markup=show_detail_kb(show, is_creator))
 
 
-@router.callback_query(AdminPreviewCb.filter())
-async def show_announcement_preview(callback: CallbackQuery, callback_data: AdminPreviewCb, session: AsyncSession):
+@router.callback_query(AdminShowActionCb.filter(F.action == "preview"))
+async def show_announcement_preview(callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession):
     show_id = callback_data.show_id
     await callback.answer()
 
@@ -915,7 +905,7 @@ async def show_announcement_preview(callback: CallbackQuery, callback_data: Admi
     from aiogram.utils.keyboard import InlineKeyboardBuilder
     from scheduler.jobs import _register_button
     back_kb = InlineKeyboardBuilder()
-    back_kb.button(text="◀️ Назад", callback_data=AdminShowCb(show_id=show_id).pack())
+    back_kb.button(text="◀️ Назад", callback_data=AdminShowActionCb(action="open", show_id=show_id).pack())
 
     preview_text = build_announcement_text(show)
     reg_btn = _register_button(show)
@@ -924,7 +914,7 @@ async def show_announcement_preview(callback: CallbackQuery, callback_data: Admi
         for row in reg_btn.inline_keyboard:
             for btn in row:
                 preview_kb.button(text=btn.text, url=btn.url)
-    preview_kb.button(text="◀️ Назад", callback_data=AdminShowCb(show_id=show_id).pack())
+    preview_kb.button(text="◀️ Назад", callback_data=AdminShowActionCb(action="open", show_id=show_id).pack())
     preview_kb.adjust(1)
 
     if show.poster_file_id:
@@ -944,8 +934,8 @@ def _show_deep_link(show_id: int) -> str:
     return f"https://t.me/{settings.PUBLIC_BOT_USERNAME}?start=show_{show_id}"
 
 
-@router.callback_query(AdminShowLinkCb.filter())
-async def send_show_link(callback: CallbackQuery, callback_data: AdminShowLinkCb):
+@router.callback_query(AdminShowActionCb.filter(F.action == "link"))
+async def send_show_link(callback: CallbackQuery, callback_data: AdminShowActionCb):
     show_id = callback_data.show_id
     await callback.answer()
     link = _show_deep_link(show_id)
@@ -956,8 +946,8 @@ async def send_show_link(callback: CallbackQuery, callback_data: AdminShowLinkCb
     )
 
 
-@router.callback_query(AdminQrCb.filter())
-async def send_show_qr(callback: CallbackQuery, callback_data: AdminQrCb, session: AsyncSession):
+@router.callback_query(AdminShowActionCb.filter(F.action == "qr"))
+async def send_show_qr(callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession):
     show_id = callback_data.show_id
     await callback.answer()
 
@@ -989,8 +979,8 @@ async def send_show_qr(callback: CallbackQuery, callback_data: AdminQrCb, sessio
     )
 
 
-@router.callback_query(AdminAnnounceCb.filter())
-async def send_manual_announcement(callback: CallbackQuery, callback_data: AdminAnnounceCb, bot: Bot, public_bot: Bot, session: AsyncSession):
+@router.callback_query(AdminShowActionCb.filter(F.action == "announce"))
+async def send_manual_announcement(callback: CallbackQuery, callback_data: AdminShowActionCb, bot: Bot, public_bot: Bot, session: AsyncSession):
     show_id = callback_data.show_id
     await callback.answer()
 
@@ -1026,8 +1016,8 @@ async def send_manual_announcement(callback: CallbackQuery, callback_data: Admin
         await callback.message.answer(f"❌ Ошибка при отправке: {e}")
 
 
-@router.callback_query(AdminRemindCb.filter())
-async def remind_viewers(callback: CallbackQuery, callback_data: AdminRemindCb, public_bot: Bot, session: AsyncSession):
+@router.callback_query(AdminShowActionCb.filter(F.action == "remind"))
+async def remind_viewers(callback: CallbackQuery, callback_data: AdminShowActionCb, public_bot: Bot, session: AsyncSession):
     show_id = callback_data.show_id
     await callback.answer()
 
@@ -1079,10 +1069,56 @@ async def remind_viewers(callback: CallbackQuery, callback_data: AdminRemindCb, 
     await callback.message.answer(result)
 
 
+# ── Free advertising ─────────────────────────────────────────────────────────
+
+@router.callback_query(AdminShowActionCb.filter(F.action == "free_ad"))
+async def free_ad(callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession):
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    from scheduler.jobs import build_announcement_text
+    from config import settings
+
+    show_id = callback_data.show_id
+    await callback.answer()
+
+    show = await crud.get_show(session, show_id)
+    if show is None:
+        await callback.message.answer("Шоу не найдено.")
+        return
+
+    channels = await crud.get_active_ad_channels(session)
+    if not channels:
+        await callback.message.answer(
+            "Нет активных рекламных каналов.\n"
+            "Добавь их в Настройки → 📣 Рекламные каналы."
+        )
+        return
+
+    text = build_announcement_text(show)
+
+    reg_url = f"https://t.me/{settings.PUBLIC_BOT_USERNAME}?start=show_{show.id}"
+    reg_kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="📝 Записаться на шоу", url=reg_url)
+    ]])
+
+    await callback.message.answer(text, reply_markup=reg_kb)
+
+    nav_builder = InlineKeyboardBuilder()
+    for ch in channels:
+        nav_builder.button(text=f"➡️ {ch.username}", url=ch.url)
+    nav_builder.adjust(1)
+
+    await callback.message.answer(
+        "⬆️ <b>Перешли сообщение выше</b> в нужный канал:\n"
+        "(нажми «Переслать» → выбери канал из списка)",
+        reply_markup=nav_builder.as_markup(),
+    )
+
+
 # ── Cancel show ──────────────────────────────────────────────────────────────
 
-@router.callback_query(AdminCancelShowCb.filter())
-async def cancel_show_confirm(callback: CallbackQuery, callback_data: AdminCancelShowCb, session: AsyncSession):
+@router.callback_query(AdminShowActionCb.filter(F.action == "cancel"))
+async def cancel_show_confirm(callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession):
     show_id = callback_data.show_id
     await callback.answer()
 
@@ -1098,12 +1134,12 @@ async def cancel_show_confirm(callback: CallbackQuery, callback_data: AdminCance
         f"Все записанные зрители получат уведомление об отмене.\n"
         f"В канал будет отправлено сообщение с перечёркнутым анонсом.\n\n"
         f"<b>Это действие нельзя отменить.</b>",
-        reply_markup=confirm_kb(AdminConfirmCancelCb(show_id=show_id).pack(), AdminShowCb(show_id=show_id).pack()),
+        reply_markup=confirm_kb(AdminShowActionCb(action="confirm_cancel", show_id=show_id).pack(), AdminShowActionCb(action="open", show_id=show_id).pack()),
     )
 
 
-@router.callback_query(AdminConfirmCancelCb.filter())
-async def cancel_show_execute(callback: CallbackQuery, callback_data: AdminConfirmCancelCb, bot: Bot, public_bot: Bot, session: AsyncSession):
+@router.callback_query(AdminShowActionCb.filter(F.action == "confirm_cancel"))
+async def cancel_show_execute(callback: CallbackQuery, callback_data: AdminShowActionCb, bot: Bot, public_bot: Bot, session: AsyncSession):
     show_id = callback_data.show_id
     await callback.answer()
 
@@ -1165,8 +1201,8 @@ async def cancel_show_execute(callback: CallbackQuery, callback_data: AdminConfi
     await callback.message.answer(result)
 
 
-@router.callback_query(AdminRestoreShowCb.filter())
-async def restore_show(callback: CallbackQuery, callback_data: AdminRestoreShowCb, session: AsyncSession):
+@router.callback_query(AdminShowActionCb.filter(F.action == "restore"))
+async def restore_show(callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession):
     show_id = callback_data.show_id
     await callback.answer()
 
@@ -1190,8 +1226,8 @@ async def restore_show(callback: CallbackQuery, callback_data: AdminRestoreShowC
 
 # ── Edit flow ────────────────────────────────────────────────────────────────
 
-@router.callback_query(AdminEditCb.filter())
-async def start_edit(callback: CallbackQuery, callback_data: AdminEditCb, state: FSMContext):
+@router.callback_query(AdminShowActionCb.filter(F.action == "edit"))
+async def start_edit(callback: CallbackQuery, callback_data: AdminShowActionCb, state: FSMContext):
     show_id = callback_data.show_id
     await callback.answer()
     await state.set_state(EditShowFSM.field)
@@ -1202,8 +1238,8 @@ async def start_edit(callback: CallbackQuery, callback_data: AdminEditCb, state:
     )
 
 
-@router.callback_query(AdminEditFieldCb.filter())
-async def choose_edit_field(callback: CallbackQuery, callback_data: AdminEditFieldCb, state: FSMContext, session: AsyncSession):
+@router.callback_query(AdminShowFieldCb.filter())
+async def choose_edit_field(callback: CallbackQuery, callback_data: AdminShowFieldCb, state: FSMContext, session: AsyncSession):
     show_id = callback_data.show_id
     field = callback_data.field
     await callback.answer()
@@ -1340,7 +1376,7 @@ async def _apply_edit(message: Message, state: FSMContext, session: AsyncSession
 
     from aiogram.utils.keyboard import InlineKeyboardBuilder
     back_kb = InlineKeyboardBuilder()
-    back_kb.button(text="◀️ К шоу", callback_data=AdminShowCb(show_id=show_id).pack())
+    back_kb.button(text="◀️ К шоу", callback_data=AdminShowActionCb(action="open", show_id=show_id).pack())
     await message.answer("✅ Поле обновлено!", reply_markup=back_kb.as_markup())
 
     if field == "show_date" and old_date and public_bot and bot:

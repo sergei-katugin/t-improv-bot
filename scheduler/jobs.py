@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import re
 from datetime import datetime, date, timedelta, timezone
@@ -6,6 +8,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from aiogram import Bot
 from aiogram.types import BufferedInputFile, InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
+from public_bot.keyboards.inline import attendance_kb
 
 from config import settings
 from db.base import AsyncSessionLocal
@@ -16,10 +19,10 @@ logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler(timezone="UTC")
 
 DAYS_MAP = {
-    "30d": 30,
-    "14d": 14,
     "7d": 7,
-    "1d_channel": 1,
+    "2d": 2,
+    "1d": 1,
+    "0d": 0,
 }
 
 
@@ -67,12 +70,10 @@ def _register_button(show) -> InlineKeyboardMarkup | None:
     ]])
 
 
-async def send_to_channel(
+async def _send_to_channel_once(
     public_bot: Bot, admin_bot: Bot, show, text: str,
-    with_button: bool = True, reply_to_message_id: int | None = None,
-) -> int | None:
-    """Send announcement to channel via public_bot. Returns channel message_id."""
-    kb = _register_button(show) if with_button else None
+    kb, reply_to_message_id: int | None,
+) -> int:
     kwargs = {"reply_to_message_id": reply_to_message_id} if reply_to_message_id else {}
     if show.poster_file_id:
         try:
@@ -89,6 +90,22 @@ async def send_to_channel(
     return msg.message_id
 
 
+async def send_to_channel(
+    public_bot: Bot, admin_bot: Bot, show, text: str,
+    with_button: bool = True, reply_to_message_id: int | None = None,
+) -> int | None:
+    """Send announcement to channel via public_bot. Returns channel message_id."""
+    from aiogram.exceptions import TelegramBadRequest
+    kb = _register_button(show) if with_button else None
+    try:
+        return await _send_to_channel_once(public_bot, admin_bot, show, text, kb, reply_to_message_id)
+    except TelegramBadRequest as e:
+        if reply_to_message_id and "message to be replied not found" in str(e):
+            logger.warning("Reply message not found for show %s, sending without reply", show.id)
+            return await _send_to_channel_once(public_bot, admin_bot, show, text, kb, None)
+        raise
+
+
 async def check_and_send_announcements(public_bot: Bot, admin_bot: Bot) -> None:
     today = datetime.now(timezone.utc).date()
     logger.info("Running daily announcement check for %s", today)
@@ -96,17 +113,18 @@ async def check_and_send_announcements(public_bot: Bot, admin_bot: Bot) -> None:
         shows = await crud.list_upcoming_shows(session)
         for show in shows:
             days_left = (show.show_date.date() - today).days
-            if days_left == 30:
-                await _maybe_send_channel(session, public_bot, admin_bot, show, "30d")
-            elif days_left == 14:
-                await _maybe_send_channel(session, public_bot, admin_bot, show, "14d")
-                await _maybe_send_personal(session, public_bot, show, 14)
-            elif days_left == 7:
+            if days_left == 7:
                 await _maybe_send_channel(session, public_bot, admin_bot, show, "7d")
                 await _maybe_send_personal(session, public_bot, show, 7)
+            elif days_left == 2:
+                await _maybe_send_channel(session, public_bot, admin_bot, show, "2d")
+                await _maybe_send_personal(session, public_bot, show, 2)
             elif days_left == 1:
-                await _maybe_send_channel(session, public_bot, admin_bot, show, "1d_channel")
+                await _maybe_send_channel(session, public_bot, admin_bot, show, "1d")
                 await _maybe_send_personal(session, public_bot, show, 1)
+            elif days_left == 0:
+                await _maybe_send_channel(session, public_bot, admin_bot, show, "0d")
+                await _maybe_send_personal(session, public_bot, show, 0)
 
 
 async def _maybe_send_channel(session, public_bot: Bot, admin_bot: Bot, show, ann_type: str) -> None:
@@ -126,14 +144,12 @@ async def _maybe_send_personal(session, bot: Bot, show, days: int) -> None:
     if not regs:
         return
     intros = {
-        14: "🔔 До шоу осталось 2 недели!",
         7: "🔔 До шоу осталась неделя!",
+        2: "🔔 До шоу осталось два дня!",
         1: "🔔 Завтра твоё шоу!",
     }
-    intro = intros[days]
     date_str = show.show_date.strftime("%d.%m.%Y %H:%M")
     location_line = _location_line(show)
-    text = f"{intro}\n\nТы записан(а) на шоу <b>{show.title}</b>\n📅 {date_str}\n{location_line}"
 
     channel_msg_id = await crud.get_last_channel_message_id(session, show.id)
     post_url = None
@@ -148,10 +164,22 @@ async def _maybe_send_personal(session, bot: Bot, show, days: int) -> None:
     sent = 0
     for reg in regs:
         try:
-            kwargs = {}
-            if post_url:
-                kwargs["link_preview_options"] = LinkPreviewOptions(url=post_url)
-            await bot.send_message(reg.user.telegram_id, text, **kwargs)
+            if days == 0:
+                text = (
+                    f"🎭 <b>Сегодня твоё шоу!</b>\n\n"
+                    f"Ты записан(а) на <b>{show.title}</b>\n"
+                    f"📅 {date_str}\n{location_line}\n\n"
+                    f"Подтверди своё участие — мы сообщим организаторам, кто придёт:"
+                )
+                kb = attendance_kb(show.id)
+                await bot.send_message(reg.user.telegram_id, text, reply_markup=kb)
+            else:
+                intro = intros[days]
+                text = f"{intro}\n\nТы записан(а) на шоу <b>{show.title}</b>\n📅 {date_str}\n{location_line}"
+                kwargs = {}
+                if post_url:
+                    kwargs["link_preview_options"] = LinkPreviewOptions(url=post_url)
+                await bot.send_message(reg.user.telegram_id, text, **kwargs)
             await crud.mark_reminded(session, reg.id, days)
             sent += 1
         except Exception as e:
@@ -181,13 +209,22 @@ def _location_line(show, plain: bool = False) -> str:
     return f"📍 {show.location}, {show.city}"
 
 
+_ANN_HEADERS = {
+    "7d": "🎭 Через неделю:",
+    "2d": "🎭 Через два дня:",
+    "1d": "🎭 Завтра:",
+    "0d": "🎭 Сегодня!",
+}
+
+_REGISTER_NOTE = "👆 Нажми кнопку — и твоё место сразу запомнится!"
+
+
 def build_announcement_text(show, ann_type: str | None = None) -> str:
     if ann_type is None:
         header = f"🎭 <b>{show.title}</b>"
     else:
-        days = DAYS_MAP.get(ann_type, 0)
-        when = "Завтра" if days == 1 else f"Через {days} дней"
-        header = f"🎭 {when}: <b>{show.title}</b>"
+        prefix = _ANN_HEADERS.get(ann_type, "🎭")
+        header = f"{prefix} <b>{show.title}</b>"
 
     poster = show.poster_text or ""
     poster_has_date = bool(DATE_RE.search(poster))
@@ -201,6 +238,11 @@ def build_announcement_text(show, ann_type: str | None = None) -> str:
     if poster:
         lines.append("")
         lines.append(poster)
+
+    if ann_type is not None:
+        lines.append("")
+        lines.append(_REGISTER_NOTE)
+
     return "\n".join(lines)
 
 

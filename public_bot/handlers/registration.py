@@ -9,12 +9,12 @@ from db import crud
 from db.models import User
 from public_bot.keyboards.inline import (
     confirm_registration_kb, show_detail_kb,
-    reminder_prefs_kb, guests_kb,
+    reminder_prefs_kb, guests_kb, attendance_kb,
 )
 from public_bot.keyboards.reply import main_menu_kb
 from public_bot.callbacks import (
     RegisterCb, ConfirmRegCb, GuestsCb, GuestsCustomCb,
-    RemindToggleCb, EditGuestsCb,
+    RemindToggleCb, EditGuestsCb, AttendanceCb,
 )
 
 router = Router()
@@ -252,9 +252,10 @@ async def confirm_registration(callback: CallbackQuery, callback_data: ConfirmRe
 
 
     await callback.message.answer(
-        "🔔 <b>Когда тебя уведомить о шоу?</b>\n"
-        "Нажми ещё раз, чтобы отключить.",
-        reply_markup=reminder_prefs_kb(show_id, remind_14d=False, remind_7d=False, remind_1d=True),
+        "🔔 <b>Напоминания</b>\n"
+        "В день шоу я напишу тебе автоматически. "
+        "Выбери дополнительные уведомления (нажми ещё раз, чтобы отключить):",
+        reply_markup=reminder_prefs_kb(show_id, remind_7d=False, remind_2d=False, remind_1d=True),
     )
 
 
@@ -264,7 +265,7 @@ async def toggle_reminder(callback: CallbackQuery, callback_data: RemindToggleCb
     field = callback_data.field
     new_val = bool(callback_data.value)
 
-    valid_fields = {"remind_14d", "remind_7d", "remind_1d"}
+    valid_fields = {"remind_7d", "remind_2d", "remind_1d"}
     if field not in valid_fields:
         await callback.answer()
         return
@@ -273,15 +274,67 @@ async def toggle_reminder(callback: CallbackQuery, callback_data: RemindToggleCb
     if reg is None:
         await callback.answer("Запись не найдена.")
         return
-    r14, r7, r1 = reg.remind_14d, reg.remind_7d, reg.remind_1d
 
     await callback.answer()
     try:
         await callback.message.edit_reply_markup(
-            reply_markup=reminder_prefs_kb(show_id, remind_14d=r14, remind_7d=r7, remind_1d=r1)
+            reply_markup=reminder_prefs_kb(
+                show_id,
+                remind_7d=reg.remind_7d,
+                remind_2d=reg.remind_2d,
+                remind_1d=reg.remind_1d,
+            )
         )
     except Exception:
         pass
+
+
+@router.callback_query(AttendanceCb.filter())
+async def handle_attendance(callback: CallbackQuery, callback_data: AttendanceCb, db_user: User, session: AsyncSession):
+    show_id = callback_data.show_id
+    action = callback_data.action
+
+    reg = await crud.get_registration(session, show_id, db_user.id)
+    if reg is None or reg.is_cancelled:
+        await callback.answer("Запись не найдена.", show_alert=True)
+        return
+
+    await callback.answer()
+
+    if action == "yes":
+        await crud.set_confirmed(session, show_id, db_user.id, True)
+        show = await crud.get_show(session, show_id)
+        guests = reg.guests or 0
+        total_str = f" (вас {1 + guests})" if guests > 0 else ""
+        try:
+            await callback.message.edit_text(
+                f"✅ Отлично, ждём тебя{total_str} на шоу <b>{show.title}</b>!\n\n"
+                f"📅 {show.show_date.strftime('%d.%m.%Y %H:%M')}"
+            )
+        except Exception:
+            pass
+
+    elif action == "no":
+        await crud.set_confirmed(session, show_id, db_user.id, False)
+        show = await crud.get_show(session, show_id)
+        try:
+            await callback.message.edit_text(
+                f"😔 Жаль! Если передумаешь — восстанови запись через «📋 Мои записи».\n\n"
+                f"Шоу: <b>{show.title}</b>, {show.show_date.strftime('%d.%m.%Y %H:%M')}"
+            )
+        except Exception:
+            pass
+
+    elif action == "guests":
+        show = await crud.get_show(session, show_id)
+        try:
+            await callback.message.edit_text(
+                f"Сколько вас придёт на <b>{show.title}</b>?\n"
+                f"Сейчас: {1 + (reg.guests or 0)} чел.",
+                reply_markup=guests_kb(show_id),
+            )
+        except Exception:
+            pass
 
 
 @router.callback_query(EditGuestsCb.filter())

@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import asyncio
 import logging
+import os
 import signal
 import subprocess
 import sys
@@ -8,6 +11,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.types import BotCommand, ErrorEvent
+from aiohttp import web
 
 from config import settings
 
@@ -18,6 +22,7 @@ from admin_bot.handlers import roles as admin_roles
 from admin_bot.handlers import onboarding as admin_onboarding
 from admin_bot.handlers import venues as admin_venues
 from admin_bot.handlers import teams as admin_teams
+from admin_bot.handlers import ad_channels as admin_ad_channels
 
 from public_bot.middlewares.user_context import UserContextMiddleware
 from public_bot.handlers import start, shows, registration, my_shows
@@ -58,6 +63,16 @@ async def register_commands(admin_bot: Bot, public_bot: Bot) -> None:
     ])
 
 
+async def run_health_server() -> web.AppRunner:
+    app = web.Application()
+    app.router.add_get("/health", lambda r: web.Response(text="ok"))
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", "8080"))
+    await web.TCPSite(runner, "0.0.0.0", port).start()
+    return runner
+
+
 async def on_error(event: ErrorEvent):
     exc = event.exception
     msg = str(exc)
@@ -78,6 +93,7 @@ def build_admin_bot() -> tuple[Bot, Dispatcher]:
     dp.include_router(admin_onboarding.router)
     dp.include_router(admin_venues.router)
     dp.include_router(admin_teams.router)
+    dp.include_router(admin_ad_channels.router)
     dp.include_router(admin_shows.router)
     dp.include_router(admin_regs.router)
     dp.include_router(admin_roles.router)
@@ -109,6 +125,7 @@ async def main():
     admin_bot, admin_dp = build_admin_bot()
     public_bot, public_dp = build_public_bot()
 
+    health_runner = await run_health_server()
     await register_commands(admin_bot, public_bot)
     setup_scheduler(public_bot, admin_bot)
 
@@ -142,6 +159,7 @@ async def main():
     await asyncio.gather(admin_task, public_task, return_exceptions=True)
 
     scheduler.shutdown(wait=False)
+    await health_runner.cleanup()
     await admin_bot.session.close()
     await public_bot.session.close()
     logger.info("Боты остановлены.")
