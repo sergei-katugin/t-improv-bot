@@ -19,6 +19,9 @@ from public_bot.callbacks import (
 
 router = Router()
 
+import logging
+logger = logging.getLogger("t_improv_bot.public.registration")
+
 
 class RegisterFSM(StatesGroup):
     enter_name = State()
@@ -224,6 +227,7 @@ async def confirm_registration(callback: CallbackQuery, callback_data: ConfirmRe
     await callback.answer()
 
     show = await crud.get_show(session, show_id)
+    logger.info("user %s attempting registration for show_id=%s attendee=%s guests=%s", db_user.id, show_id, attendee_name, guests)
     reg = await crud.register_user_safe(
         session, show_id, db_user.id, attendee_name, guests=guests, max_seats=show.max_seats
     )
@@ -249,6 +253,7 @@ async def confirm_registration(callback: CallbackQuery, callback_data: ConfirmRe
         f"За день до шоу я пришлю напоминание. Увидимся! 🎭",
         reply_markup=updated_menu,
     )
+    logger.info("user %s registered id=%s show_id=%s attendee=%s guests=%s", db_user.id, reg.id, show_id, attendee_name, guests)
 
 
     await callback.message.answer(

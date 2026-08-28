@@ -8,6 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from db.models import User, Show, Registration, AnnouncementLog, InviteToken, ManualAttendee, UserRole, Venue, Team, FreeAdChannel, _utcnow
+import logging
+
+logger = logging.getLogger("t_improv_bot.db.crud")
 
 
 # ── Users ──────────────────────────────────────────────────────────────────
@@ -40,6 +43,7 @@ async def upsert_user(
             await session.rollback()
             result = await session.execute(select(User).where(User.telegram_id == telegram_id))
             user = result.scalar_one()
+        logger.info("created user id=%s telegram_id=%s role=%s", user.id, telegram_id, role)
     else:
         user.username = username
         user.first_name = first_name
@@ -48,6 +52,7 @@ async def upsert_user(
         if telegram_id in ADMIN_ID_LIST:
             user.role = UserRole.admin
         await session.commit()
+        logger.info("updated user id=%s telegram_id=%s role=%s", user.id, telegram_id, user.role)
     await session.refresh(user)
     return user
 
@@ -88,6 +93,7 @@ async def set_user_role(session: AsyncSession, telegram_id: int, role: UserRole)
     user.role = role
     await session.commit()
     await session.refresh(user)
+    logger.info("set user role id=%s telegram_id=%s role=%s", user.id, telegram_id, role)
     return user
 
 
@@ -105,6 +111,7 @@ async def create_invite_token(session: AsyncSession, role: UserRole = UserRole.o
     session.add(invite)
     await session.commit()
     await session.refresh(invite)
+    logger.info("created invite token id=%s role=%s", invite.id, invite.role)
     return invite
 
 
@@ -114,6 +121,7 @@ async def consume_invite_token(session: AsyncSession, token: str, user_id: int) 
     )
     invite = result.scalar_one_or_none()
     if invite is None:
+        logger.info("invite token not found or used token=%s user_id=%s", token, user_id)
         return None
     invite.used_at = _utcnow()
     invite.used_by_user_id = user_id
@@ -122,6 +130,7 @@ async def consume_invite_token(session: AsyncSession, token: str, user_id: int) 
     if user:
         user.role = invite.role
     await session.commit()
+    logger.info("consumed invite id=%s by user_id=%s set role=%s", invite.id, user_id, invite.role)
     return invite
 
 
@@ -158,6 +167,7 @@ async def create_show(
     session.add(show)
     await session.commit()
     await session.refresh(show)
+    logger.info("created show id=%s title=%s creator_id=%s registrar_id=%s", show.id, title, creator_id, getattr(show, 'registrar_id', None))
     return show
 
 
@@ -229,6 +239,7 @@ async def update_show(session: AsyncSession, show_id: int, **fields) -> Show | N
     show.updated_at = _utcnow()
     await session.commit()
     await session.refresh(show)
+    logger.info("updated show id=%s fields=%s", show_id, list(fields.keys()))
     return show
 
 
@@ -266,6 +277,7 @@ async def register_user_safe(
     (as close to the INSERT as possible) to reduce the TOCTOU window."""
     count = await count_active_registrations(session, show_id)
     if count + 1 + guests > max_seats:
+        logger.info("registration prevented by capacity show_id=%s user_id=%s guests=%s count=%s max=%s", show_id, user_id, guests, count, max_seats)
         return None
     return await register_user(session, show_id, user_id, attendee_name, guests)
 
@@ -287,11 +299,13 @@ async def register_user(
         existing.confirmed = None
         await session.commit()
         await session.refresh(existing)
+        logger.info("updated registration id=%s show_id=%s user_id=%s attendee=%s guests=%s", existing.id, show_id, user_id, attendee_name, guests)
         return existing
     reg = Registration(show_id=show_id, user_id=user_id, attendee_name=attendee_name, guests=guests)
     session.add(reg)
     await session.commit()
     await session.refresh(reg)
+    logger.info("created registration id=%s show_id=%s user_id=%s attendee=%s guests=%s", reg.id, show_id, user_id, attendee_name, guests)
     return reg
 
 
@@ -304,6 +318,7 @@ async def update_registration_guests(
     reg.guests = guests
     await session.commit()
     await session.refresh(reg)
+    logger.info("updated registration guests id=%s show_id=%s user_id=%s guests=%s", reg.id, show_id, user_id, guests)
     return reg
 
 
@@ -317,6 +332,7 @@ async def cancel_registration(
     reg.cancelled_at = _utcnow()
     await session.commit()
     await session.refresh(reg)
+    logger.info("cancelled registration id=%s show_id=%s user_id=%s", reg.id, show_id, user_id)
     return reg
 
 
@@ -536,6 +552,7 @@ async def create_venue(
     session.add(venue)
     await session.commit()
     await session.refresh(venue)
+    logger.info("created venue id=%s name=%s city=%s", venue.id, name, city)
     return venue
 
 
@@ -589,6 +606,7 @@ async def create_team(session: AsyncSession, name: str, members: str | None, cre
     session.add(team)
     await session.commit()
     await session.refresh(team)
+    logger.info("created team id=%s name=%s creator_id=%s", team.id, name, creator_id)
     return team
 
 

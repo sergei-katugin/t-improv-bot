@@ -753,6 +753,7 @@ async def confirm_create(callback: CallbackQuery, state: FSMContext, bot: Bot, p
         creator_id=user.id,
         registrar_id=data.get("registrar_id"),
     )
+    logger.info("admin %s created show id=%s title=%s", tg_id, show.id, data.get('title'))
 
     await state.clear()
     try:
