@@ -85,6 +85,7 @@ async def onboarding_cb(
 
     if step == 0:
         await crud.mark_onboarding_done(session, callback.from_user.id)
+        logging.getLogger("t_improv_bot.admin.onboarding").info("onboarding completed for user=%s", callback.from_user.id)
         next_kb = InlineKeyboardBuilder()
         next_kb.button(text="🆕 Создать шоу",     callback_data="admin_create_show")
         next_kb.button(text="👥 Создать команду", callback_data="admin_team_add_from_onboarding")

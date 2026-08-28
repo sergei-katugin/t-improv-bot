@@ -55,7 +55,7 @@ class Show(Base):
     created_at = Column(DateTime, default=_utcnow)
     updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
 
-    creator = relationship("User", back_populates="shows_created")
+    creator = relationship("User", back_populates="shows_created", foreign_keys=[creator_id])
     registrar = relationship("User", foreign_keys=[registrar_id])
     registrations = relationship(
         "Registration",

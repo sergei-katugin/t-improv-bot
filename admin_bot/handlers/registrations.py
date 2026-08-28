@@ -120,8 +120,8 @@ async def process_manual_names(message: Message, state: FSMContext, session: Asy
         return
 
     count = await crud.add_manual_attendees(session, show_id, names)
-
     await message.answer(f"✅ Добавлено: {count} чел.")
+    logger.info("added %s manual attendees to show_id=%s by admin=%s", count, show_id, message.from_user.id)
     await _render_registrations(message, show_id, session, edit=False, is_super_admin=is_super_admin, db_user=db_user)
 
 
@@ -180,6 +180,6 @@ async def delete_manual_process(message: Message, state: FSMContext, session: As
 
     for att_id in to_delete:
         await crud.delete_manual_attendee(session, att_id)
-
+    logger.info("deleted %s manual attendees from show_id=%s by admin=%s", len(to_delete), show_id, message.from_user.id)
     await message.answer(f"✅ Удалено: {len(to_delete)} чел.")
     await _render_registrations(message, show_id, session, edit=False)

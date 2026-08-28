@@ -1075,6 +1075,7 @@ async def send_manual_announcement(callback: CallbackQuery, callback_data: Admin
         if msg_id:
             await crud.save_channel_message_id(session, show_id, msg_id)
         await callback.message.answer("✅ Анонс отправлен в канал!")
+        logger.info("manual announcement sent show_id=%s channel_msg_id=%s by admin=%s", show_id, msg_id, callback.from_user.id)
     except Exception as e:
         logger.error("Failed to send manual announcement: %s", e)
         await callback.message.answer(f"❌ Ошибка при отправке: {e}")
@@ -1151,6 +1152,7 @@ async def free_ad(callback: CallbackQuery, callback_data: AdminShowActionCb, ses
         return
 
     channels = await crud.get_active_ad_channels(session)
+    logger.info("admin %s opened free_ad for show_id=%s channels_count=%s", callback.from_user.id, show_id, len(channels))
     if not channels:
         await callback.message.answer(
             "Нет активных рекламных каналов.\n"
@@ -1217,6 +1219,7 @@ async def cancel_show_execute(callback: CallbackQuery, callback_data: AdminShowA
     reply_to = await crud.get_last_channel_message_id(session, show_id)
     users = await crud.get_registered_users_for_show(session, show_id)
     await crud.update_show(session, show_id, is_active=False)
+    logger.info("show cancelled id=%s by admin=%s", show_id, callback.from_user.id)
 
     await callback.message.edit_text(f"🚫 Шоу <b>{show.title}</b> отменено.")
 
@@ -1233,6 +1236,7 @@ async def cancel_show_execute(callback: CallbackQuery, callback_data: AdminShowA
                 public_bot, bot, show, channel_text,
                 with_button=False, reply_to_message_id=reply_to,
             )
+            logger.info("posted cancellation to channel for show %s reply_to=%s", show_id, reply_to)
         except Exception:
             logger.exception("Failed to post cancellation to channel for show %s", show_id)
 
@@ -1261,6 +1265,8 @@ async def cancel_show_execute(callback: CallbackQuery, callback_data: AdminShowA
         except Exception:
             failed += 1
 
+    logger.info("cancellation notifications for show %s sent=%s failed=%s", show_id, sent, failed)
+
     result = f"✅ Уведомление об отмене отправлено {sent} зрител{'ю' if sent == 1 else 'ям'}."
     if failed:
         result += f"\n⚠️ Не доставлено: {failed}."
@@ -1277,6 +1283,7 @@ async def restore_show(callback: CallbackQuery, callback_data: AdminShowActionCb
         await callback.message.answer("Шоу не найдено или уже активно.")
         return
     await crud.update_show(session, show_id, is_active=True)
+    logger.info("restored show id=%s by admin=%s", show_id, callback.from_user.id)
 
     show = await crud.get_show(session, show_id)
 
@@ -1428,6 +1435,8 @@ async def _apply_edit(message: Message, state: FSMContext, session: AsyncSession
     old_show = await crud.get_show(session, show_id)
     old_date = old_show.show_date if old_show else None
     show = await crud.update_show(session, show_id, **{field: value})
+
+    logger.info("updated show id=%s field=%s by admin=%s", show_id, field, message.from_user.id)
 
     if show is None:
         await message.answer("Шоу не найдено.")

@@ -74,6 +74,7 @@ async def _send_to_channel_once(
     public_bot: Bot, admin_bot: Bot, show, text: str,
     kb, reply_to_message_id: int | None,
 ) -> int:
+    logger.info("_send_to_channel_once start show_id=%s reply_to=%s", getattr(show, 'id', None), reply_to_message_id)
     kwargs = {"reply_to_message_id": reply_to_message_id} if reply_to_message_id else {}
     if show.poster_file_id:
         try:
@@ -85,8 +86,9 @@ async def _send_to_channel_once(
             )
             return msg.message_id
         except Exception:
-            logger.warning("Could not download poster for show %s, sending text only", show.id)
+                logger.warning("Could not download poster for show %s, sending text only", show.id)
     msg = await public_bot.send_message(settings.ANNOUNCEMENT_CHANNEL_ID, text, reply_markup=kb, **kwargs)
+            logger.info("_send_to_channel_once sent text for show_id=%s msg_id=%s", getattr(show, 'id', None), msg.message_id)
     return msg.message_id
 
 
@@ -97,6 +99,7 @@ async def send_to_channel(
     """Send announcement to channel via public_bot. Returns channel message_id."""
     from aiogram.exceptions import TelegramBadRequest
     kb = _register_button(show) if with_button else None
+    logger.info("send_to_channel attempting show_id=%s with_button=%s reply_to=%s", getattr(show, 'id', None), with_button, reply_to_message_id)
     try:
         return await _send_to_channel_once(public_bot, admin_bot, show, text, kb, reply_to_message_id)
     except TelegramBadRequest as e:

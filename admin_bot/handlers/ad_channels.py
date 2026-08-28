@@ -60,6 +60,14 @@ async def toggle_channel(callback: CallbackQuery, callback_data: AdminAdChannelC
 @router.callback_query(AdminAdChannelCb.filter(F.action == "delete"))
 async def delete_channel(callback: CallbackQuery, callback_data: AdminAdChannelCb, session: AsyncSession):
     await crud.delete_ad_channel(session, callback_data.channel_id)
+    logger.info("deleted ad channel id=%s by admin=%s", callback_data.channel_id, callback.from_user.id)
+    await callback.answer("Канал удалён.", show_alert=True)
+    await _render_channels(callback.message, session, edit=True)
+
+
+@router.callback_query(AdminAdChannelCb.filter(F.action == "delete"))
+async def delete_channel(callback: CallbackQuery, callback_data: AdminAdChannelCb, session: AsyncSession):
+    await crud.delete_ad_channel(session, callback_data.channel_id)
     await callback.answer("Канал удалён.", show_alert=True)
     await _render_channels(callback.message, session, edit=True)
 
@@ -91,4 +99,5 @@ async def add_channel_save(message: Message, state: FSMContext, session: AsyncSe
         await message.answer(f"Канал <code>{raw.lstrip('@')}</code> уже есть в списке.")
     else:
         await message.answer(f"✅ Добавлен канал {ch.username}")
+        logger.info("added ad channel id=%s username=%s by user=%s", ch.id, ch.username, message.from_user.id)
     await _render_channels(message, session, edit=False)

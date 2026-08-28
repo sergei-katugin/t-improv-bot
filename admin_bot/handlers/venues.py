@@ -1,4 +1,5 @@
 from aiogram import Router, F
+import logging
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -11,6 +12,7 @@ from admin_bot.callbacks import AdminVenueActionCb, AdminVenueFieldCb
 from admin_bot.keyboards.inline import venues_list_kb, venue_detail_kb, confirm_kb, fsm_cancel_kb
 
 router = Router()
+logger = logging.getLogger("t_improv_bot.admin.venues")
 
 
 class AddVenueFSM(StatesGroup):
@@ -135,6 +137,7 @@ async def venue_save_field(message: Message, state: FSMContext, session: AsyncSe
 
     venue = await crud.update_venue(session, venue_id, **{field: value})
     await state.clear()
+    logger.info("updated venue id=%s field=%s", venue_id, field)
     await message.answer(_venue_summary(venue), reply_markup=venue_detail_kb(venue))
 
 
@@ -144,6 +147,7 @@ async def venue_save_field(message: Message, state: FSMContext, session: AsyncSe
 async def venue_confirm_delete(callback: CallbackQuery, callback_data: AdminVenueActionCb, session: AsyncSession):
     await callback.answer()
     await crud.delete_venue(session, callback_data.venue_id)
+    logger.info("deleted venue id=%s by admin=%s", callback_data.venue_id, callback.from_user.id)
     venues = await crud.list_venues(session, active_only=False)
     await callback.message.edit_text(
         "🗑 Площадка удалена.\n\n🏛 <b>Площадки</b>:",
@@ -196,6 +200,7 @@ async def venue_add_maps_url(message: Message, state: FSMContext, session: Async
     data = await state.get_data()
     maps_url = None if message.text.strip() == "-" else message.text.strip()
     venue = await crud.create_venue(session, data["name"], data["city"], maps_url, data["default_seats"])
+    logger.info("created venue id=%s name=%s city=%s", venue.id, venue.name, venue.city)
     venues = await crud.list_venues(session, active_only=False)
     await state.clear()
     await message.answer(

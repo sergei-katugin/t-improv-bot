@@ -1,4 +1,5 @@
 from aiogram import Router, F
+import logging
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -15,6 +16,8 @@ from admin_bot.keyboards.inline import (
 )
 
 router = Router()
+
+logger = logging.getLogger("t_improv_bot.admin.teams")
 
 
 class AddTeamFSM(StatesGroup):
@@ -152,6 +155,7 @@ async def team_save_field(message: Message, state: FSMContext, db_user=None, is_
 async def team_confirm_delete(callback: CallbackQuery, callback_data: AdminTeamActionCb, db_user=None, is_super_admin: bool = False, session: AsyncSession = None):
     await callback.answer()
     await crud.delete_team(session, callback_data.team_id)
+    logger.info("deleted team id=%s by admin=%s", callback_data.team_id, callback.from_user.id)
     if _is_admin(db_user, is_super_admin):
         teams = await crud.list_teams(session)
     else:
@@ -269,6 +273,7 @@ async def _finish_team_creation(msg, state: FSMContext, members, telegram_id: in
 
     creator_id = db_user.id if db_user is not None else 0
     team = await crud.create_team(session, name=name, members=members, creator_id=creator_id)
+    logger.info("created team id=%s name=%s creator_id=%s", team.id, team.name, creator_id)
 
     if came_from_show_fsm:
         from admin_bot.handlers.shows import CreateShowFSM, _progress
