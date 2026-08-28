@@ -253,8 +253,26 @@ async def delete_show(session: AsyncSession, show_id: int) -> bool:
     show = await get_show(session, show_id)
     if show is None:
         return False
-    await session.delete(show)
-    await session.commit()
+
+    try:
+        for registration in list(show.registrations or []):
+            await session.delete(registration)
+        for log in list(show.announcement_logs or []):
+            await session.delete(log)
+
+        manual_attendees = await session.execute(
+            select(ManualAttendee).where(ManualAttendee.show_id == show_id)
+        )
+        for manual_attendee in manual_attendees.scalars().all():
+            await session.delete(manual_attendee)
+
+        await session.delete(show)
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        logger.exception("failed to delete show id=%s due to DB integrity constraints", show_id)
+        return False
+
     logger.info("deleted show id=%s", show_id)
     return True
 

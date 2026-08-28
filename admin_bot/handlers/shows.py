@@ -1227,6 +1227,7 @@ async def cancel_show_confirm(callback: CallbackQuery, callback_data: AdminShowA
 
 @router.callback_query(AdminShowActionCb.filter(F.action == "delete"))
 async def delete_show_confirm(callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession):
+    await callback.answer()
     if callback.from_user.id not in ADMIN_ID_LIST:
         await callback.answer("Удалять шоу могут только администраторы.", show_alert=True)
         return
@@ -1249,6 +1250,7 @@ async def delete_show_confirm(callback: CallbackQuery, callback_data: AdminShowA
 
 @router.callback_query(AdminShowActionCb.filter(F.action == "confirm_delete"))
 async def delete_show_execute(callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession):
+    await callback.answer()
     if callback.from_user.id not in ADMIN_ID_LIST:
         await callback.answer("Удалять шоу могут только администраторы.", show_alert=True)
         return
@@ -1259,7 +1261,11 @@ async def delete_show_execute(callback: CallbackQuery, callback_data: AdminShowA
         await callback.message.edit_text("Шоу не найдено.")
         return
 
-    await crud.delete_show(session, show_id)
+    deleted = await crud.delete_show(session, show_id)
+    if not deleted:
+        await callback.message.edit_text("Не удалось удалить шоу — возможно, есть связанные записи. Попробуйте позже.")
+        return
+
     await callback.message.edit_text(f"🗑 Шоу <b>{show.title}</b> удалено навсегда.")
     await callback.message.answer("Главное меню:", reply_markup=main_menu_kb())
 
