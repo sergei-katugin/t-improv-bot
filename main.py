@@ -125,6 +125,13 @@ async def main():
     await register_commands(admin_bot, public_bot)
     setup_scheduler(public_bot, admin_bot)
 
+    # Ensure webhooks are removed to avoid "Conflict: terminated by other getUpdates request"
+    try:
+        await admin_bot.delete_webhook(drop_pending_updates=True)
+        await public_bot.delete_webhook(drop_pending_updates=True)
+    except Exception as e:
+        logger.warning("Failed to delete webhook(s) before polling: %s", e)
+
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
 
