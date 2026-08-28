@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from db import crud
 from db.models import UserRole
-from admin_bot.callbacks import AdminTeamCb, AdminTeamFieldCb, AdminTeamConfirmDeleteCb
+from admin_bot.callbacks import AdminTeamActionCb, AdminTeamFieldCb
 from admin_bot.keyboards.inline import (
     teams_list_kb, team_detail_kb, team_kb, team_select_kb, confirm_kb,
     fsm_cancel_kb, team_create_fsm_skip_kb,
@@ -69,9 +69,9 @@ async def teams_list_entry(event, state: FSMContext, db_user=None, is_super_admi
 
 # ── Team detail ───────────────────────────────────────────────────────────────
 
-@router.callback_query(AdminTeamCb.filter())
+@router.callback_query(AdminTeamActionCb.filter(F.action == "open"))
 async def team_detail(
-    callback: CallbackQuery, callback_data: AdminTeamCb,
+    callback: CallbackQuery, callback_data: AdminTeamActionCb,
     state: FSMContext, db_user=None, is_super_admin: bool = False, session: AsyncSession = None,
 ):
     await state.clear()
@@ -114,8 +114,8 @@ async def team_field_action(
         await callback.message.edit_text(
             "Удалить команду? Это действие необратимо.",
             reply_markup=confirm_kb(
-                AdminTeamConfirmDeleteCb(team_id=team_id).pack(),
-                AdminTeamCb(team_id=team_id).pack(),
+                AdminTeamActionCb(action="confirm_delete", team_id=team_id).pack(),
+                AdminTeamActionCb(action="open", team_id=team_id).pack(),
             ),
         )
         return
@@ -148,8 +148,8 @@ async def team_save_field(message: Message, state: FSMContext, db_user=None, is_
 
 # ── Confirm delete ─────────────────────────────────────────────────────────────
 
-@router.callback_query(AdminTeamConfirmDeleteCb.filter())
-async def team_confirm_delete(callback: CallbackQuery, callback_data: AdminTeamConfirmDeleteCb, db_user=None, is_super_admin: bool = False, session: AsyncSession = None):
+@router.callback_query(AdminTeamActionCb.filter(F.action == "confirm_delete"))
+async def team_confirm_delete(callback: CallbackQuery, callback_data: AdminTeamActionCb, db_user=None, is_super_admin: bool = False, session: AsyncSession = None):
     await callback.answer()
     await crud.delete_team(session, callback_data.team_id)
     if _is_admin(db_user, is_super_admin):

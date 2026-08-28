@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from aiogram.filters.callback_data import CallbackData
 
 
@@ -34,3 +36,8 @@ class RemindToggleCb(CallbackData, prefix="remind_toggle"):
     show_id: int
     field: str
     value: int
+
+
+class AttendanceCb(CallbackData, prefix="attend"):
+    show_id: int
+    action: str  # "yes" | "no" | "guests"

@@ -7,7 +7,7 @@ from aiogram.types import Message, CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db import crud
-from admin_bot.callbacks import AdminVenueCb, AdminVenueFieldCb, AdminVenueConfirmDeleteCb
+from admin_bot.callbacks import AdminVenueActionCb, AdminVenueFieldCb
 from admin_bot.keyboards.inline import venues_list_kb, venue_detail_kb, confirm_kb, fsm_cancel_kb
 
 router = Router()
@@ -63,8 +63,8 @@ async def back_main(callback: CallbackQuery, state: FSMContext):
 
 # ── Venue detail ─────────────────────────────────────────────────────────────
 
-@router.callback_query(AdminVenueCb.filter())
-async def venue_detail(callback: CallbackQuery, callback_data: AdminVenueCb, state: FSMContext, session: AsyncSession):
+@router.callback_query(AdminVenueActionCb.filter(F.action == "open"))
+async def venue_detail(callback: CallbackQuery, callback_data: AdminVenueActionCb, state: FSMContext, session: AsyncSession):
     await state.clear()
     await callback.answer()
     venue = await crud.get_venue(session, callback_data.venue_id)
@@ -96,8 +96,8 @@ async def venue_field_action(
         await callback.message.edit_text(
             "Удалить площадку? Это действие необратимо.",
             reply_markup=confirm_kb(
-                AdminVenueConfirmDeleteCb(venue_id=venue_id).pack(),
-                AdminVenueCb(venue_id=venue_id).pack(),
+                AdminVenueActionCb(action="confirm_delete", venue_id=venue_id).pack(),
+                AdminVenueActionCb(action="open", venue_id=venue_id).pack(),
             ),
         )
         return
@@ -140,8 +140,8 @@ async def venue_save_field(message: Message, state: FSMContext, session: AsyncSe
 
 # ── Confirm delete ────────────────────────────────────────────────────────────
 
-@router.callback_query(AdminVenueConfirmDeleteCb.filter())
-async def venue_confirm_delete(callback: CallbackQuery, callback_data: AdminVenueConfirmDeleteCb, session: AsyncSession):
+@router.callback_query(AdminVenueActionCb.filter(F.action == "confirm_delete"))
+async def venue_confirm_delete(callback: CallbackQuery, callback_data: AdminVenueActionCb, session: AsyncSession):
     await callback.answer()
     await crud.delete_venue(session, callback_data.venue_id)
     venues = await crud.list_venues(session, active_only=False)

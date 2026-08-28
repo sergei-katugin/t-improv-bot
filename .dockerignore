@@ -1,7 +1,6 @@
 .env
-data/
-.fly/
 .venv/
+data/
 __pycache__/
 *.pyc
 *.pyo
@@ -9,3 +8,5 @@ __pycache__/
 *.db
 *.db-shm
 *.db-wal
+.git/
+.fly/

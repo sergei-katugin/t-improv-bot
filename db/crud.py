@@ -1,14 +1,13 @@
+from __future__ import annotations
+
 import secrets
-from datetime import datetime, date, timezone
+from datetime import datetime, date
 from sqlalchemy import select, func
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from db.models import User, Show, Registration, AnnouncementLog, InviteToken, ManualAttendee, UserRole, Venue, Team
+from db.models import User, Show, Registration, AnnouncementLog, InviteToken, ManualAttendee, UserRole, Venue, Team, FreeAdChannel, _utcnow
 
 
 # ── Users ──────────────────────────────────────────────────────────────────
@@ -35,6 +34,12 @@ async def upsert_user(
             role=role,
         )
         session.add(user)
+        try:
+            await session.commit()
+        except IntegrityError:
+            await session.rollback()
+            result = await session.execute(select(User).where(User.telegram_id == telegram_id))
+            user = result.scalar_one()
     else:
         user.username = username
         user.first_name = first_name
@@ -42,7 +47,7 @@ async def upsert_user(
         user.updated_at = _utcnow()
         if telegram_id in ADMIN_ID_LIST:
             user.role = UserRole.admin
-    await session.commit()
+        await session.commit()
     await session.refresh(user)
     return user
 
@@ -266,9 +271,11 @@ async def register_user(
         existing.is_cancelled = False
         existing.cancelled_at = None
         existing.registered_at = _utcnow()
-        existing.reminded_14d = False
         existing.reminded_7d = False
+        existing.reminded_2d = False
         existing.reminded_1d = False
+        existing.reminded_0d = False
+        existing.confirmed = None
         await session.commit()
         await session.refresh(existing)
         return existing
@@ -334,8 +341,21 @@ async def get_registrations_for_reminder(
     session: AsyncSession, show_id: int, days: int
 ) -> list[Registration]:
     """Active registrations that want a reminder at X days and haven't been reminded yet."""
-    want_col = {14: Registration.remind_14d, 7: Registration.remind_7d, 1: Registration.remind_1d}[days]
-    sent_col = {14: Registration.reminded_14d, 7: Registration.reminded_7d, 1: Registration.reminded_1d}[days]
+    if days == 0:
+        # Day-of reminder is always sent (not opt-in)
+        result = await session.execute(
+            select(Registration)
+            .options(selectinload(Registration.user))
+            .where(
+                Registration.show_id == show_id,
+                Registration.is_cancelled == False,
+                Registration.reminded_0d == False,
+            )
+        )
+        return list(result.scalars().all())
+
+    want_col = {7: Registration.remind_7d, 2: Registration.remind_2d, 1: Registration.remind_1d}[days]
+    sent_col = {7: Registration.reminded_7d, 2: Registration.reminded_2d, 1: Registration.reminded_1d}[days]
     result = await session.execute(
         select(Registration)
         .options(selectinload(Registration.user))
@@ -350,12 +370,24 @@ async def get_registrations_for_reminder(
 
 
 async def mark_reminded(session: AsyncSession, reg_id: int, days: int) -> None:
-    field = {14: "reminded_14d", 7: "reminded_7d", 1: "reminded_1d"}[days]
+    field = {0: "reminded_0d", 1: "reminded_1d", 2: "reminded_2d", 7: "reminded_7d"}[days]
     result = await session.execute(select(Registration).where(Registration.id == reg_id))
     reg = result.scalar_one_or_none()
     if reg:
         setattr(reg, field, True)
         await session.commit()
+
+
+async def set_confirmed(
+    session: AsyncSession, show_id: int, user_id: int, value: bool | None
+) -> Registration | None:
+    reg = await get_registration(session, show_id, user_id)
+    if reg is None:
+        return None
+    reg.confirmed = value
+    await session.commit()
+    await session.refresh(reg)
+    return reg
 
 
 async def set_reminder_pref(
@@ -567,3 +599,51 @@ async def delete_team(session: AsyncSession, team_id: int) -> None:
     if team:
         await session.delete(team)
         await session.commit()
+
+
+# ── Free ad channels ────────────────────────────────────────────────────────
+
+async def list_ad_channels(session: AsyncSession) -> list[FreeAdChannel]:
+    result = await session.execute(select(FreeAdChannel).order_by(FreeAdChannel.username))
+    return list(result.scalars().all())
+
+
+async def get_active_ad_channels(session: AsyncSession) -> list[FreeAdChannel]:
+    result = await session.execute(
+        select(FreeAdChannel).where(FreeAdChannel.is_active == True).order_by(FreeAdChannel.username)
+    )
+    return list(result.scalars().all())
+
+
+async def add_ad_channel(session: AsyncSession, username: str) -> FreeAdChannel | None:
+    clean = "@" + username.lstrip("@").lower()
+    existing = await session.execute(select(FreeAdChannel).where(FreeAdChannel.username == clean))
+    if existing.scalar_one_or_none():
+        return None
+    ch = FreeAdChannel(username=clean)
+    session.add(ch)
+    await session.commit()
+    await session.refresh(ch)
+    return ch
+
+
+async def toggle_ad_channel(session: AsyncSession, channel_id: int) -> FreeAdChannel | None:
+    result = await session.execute(select(FreeAdChannel).where(FreeAdChannel.id == channel_id))
+    ch = result.scalar_one_or_none()
+    if ch is None:
+        return None
+    ch.is_active = not ch.is_active
+    await session.commit()
+    await session.refresh(ch)
+    return ch
+
+
+async def delete_ad_channel(session: AsyncSession, channel_id: int) -> bool:
+    result = await session.execute(select(FreeAdChannel).where(FreeAdChannel.id == channel_id))
+    ch = result.scalar_one_or_none()
+    if ch is None:
+        return False
+    await session.delete(ch)
+    await session.commit()
+    return True
+

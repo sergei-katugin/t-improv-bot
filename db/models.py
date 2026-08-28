@@ -77,12 +77,14 @@ class Registration(Base):
     is_cancelled = Column(Boolean, default=False, nullable=False)
     registered_at = Column(DateTime, default=_utcnow)
     cancelled_at = Column(DateTime, nullable=True)
-    remind_14d = Column(Boolean, default=False, nullable=False)
     remind_7d = Column(Boolean, default=False, nullable=False)
+    remind_2d = Column(Boolean, default=False, nullable=False)
     remind_1d = Column(Boolean, default=True, nullable=False)
-    reminded_14d = Column(Boolean, default=False, nullable=False)
     reminded_7d = Column(Boolean, default=False, nullable=False)
+    reminded_2d = Column(Boolean, default=False, nullable=False)
     reminded_1d = Column(Boolean, default=False, nullable=False)
+    reminded_0d = Column(Boolean, default=False, nullable=False)
+    confirmed = Column(Boolean, nullable=True)
     guests = Column(Integer, default=0, nullable=False)
 
     __table_args__ = (
@@ -138,6 +140,19 @@ class Venue(Base):
     default_seats = Column(Integer, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=_utcnow)
+
+
+class FreeAdChannel(Base):
+    __tablename__ = "free_ad_channels"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    username = Column(String(64), nullable=False, unique=True)  # e.g. "@afishacy"
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=_utcnow)
+
+    @property
+    def url(self) -> str:
+        return f"https://t.me/{self.username.lstrip('@')}"
 
 
 class AnnouncementLog(Base):

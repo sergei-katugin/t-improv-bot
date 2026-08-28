@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 
 from aiogram import Router, F
@@ -9,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db import crud
 from db.models import UserRole
 from admin_bot.keyboards.inline import registrations_kb
-from admin_bot.callbacks import AdminRegsCb, AdminAddManualCb, AdminDelManualStartCb
+from admin_bot.callbacks import AdminShowActionCb
 
 
 def _can_manage(is_super_admin: bool, db_user, show_creator_id: int | None = None) -> bool:
@@ -42,8 +44,13 @@ async def _render_registrations(target, show_id: int, session: AsyncSession, edi
     active = [r for r in regs if not r.is_cancelled]
     cancelled = [r for r in regs if r.is_cancelled]
     total = sum(1 + (r.guests or 0) for r in active) + len(manual)
+    confirmed_count = sum(1 + (r.guests or 0) for r in active if r.confirmed is True)
+    declined_count = sum(1 for r in active if r.confirmed is False)
 
-    lines = [f"👥 <b>Записи на «{show.title}»</b>", f"Всего: {total} / {show.max_seats}", ""]
+    lines = [f"👥 <b>Записи на «{show.title}»</b>", f"Всего: {total} / {show.max_seats}"]
+    if confirmed_count or declined_count:
+        lines.append(f"✅ Подтвердили: {confirmed_count}  ❌ Не придут: {declined_count}")
+    lines.append("")
 
     n = 1
     for r in active:
@@ -73,15 +80,15 @@ async def _render_registrations(target, show_id: int, session: AsyncSession, edi
         await target.answer(text, reply_markup=kb)
 
 
-@router.callback_query(AdminRegsCb.filter())
-async def show_registrations(callback: CallbackQuery, callback_data: AdminRegsCb, session: AsyncSession, is_super_admin: bool = False, db_user=None):
+@router.callback_query(AdminShowActionCb.filter(F.action == "regs"))
+async def show_registrations(callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession, is_super_admin: bool = False, db_user=None):
     show_id = callback_data.show_id
     await callback.answer()
     await _render_registrations(callback.message, show_id, session, edit=True, is_super_admin=is_super_admin, db_user=db_user)
 
 
-@router.callback_query(AdminAddManualCb.filter())
-async def start_add_manual(callback: CallbackQuery, callback_data: AdminAddManualCb, state: FSMContext, session: AsyncSession, is_super_admin: bool = False, db_user=None):
+@router.callback_query(AdminShowActionCb.filter(F.action == "add_manual"))
+async def start_add_manual(callback: CallbackQuery, callback_data: AdminShowActionCb, state: FSMContext, session: AsyncSession, is_super_admin: bool = False, db_user=None):
     show_id = callback_data.show_id
     show = await crud.get_show(session, show_id)
     if not _can_manage(is_super_admin, db_user, show.creator_id if show else None):
@@ -118,8 +125,8 @@ async def process_manual_names(message: Message, state: FSMContext, session: Asy
     await _render_registrations(message, show_id, session, edit=False, is_super_admin=is_super_admin, db_user=db_user)
 
 
-@router.callback_query(AdminDelManualStartCb.filter())
-async def delete_manual_start(callback: CallbackQuery, callback_data: AdminDelManualStartCb, state: FSMContext, session: AsyncSession, is_super_admin: bool = False, db_user=None):
+@router.callback_query(AdminShowActionCb.filter(F.action == "del_manual"))
+async def delete_manual_start(callback: CallbackQuery, callback_data: AdminShowActionCb, state: FSMContext, session: AsyncSession, is_super_admin: bool = False, db_user=None):
     show_id = callback_data.show_id
     show = await crud.get_show(session, show_id)
     if not _can_manage(is_super_admin, db_user, show.creator_id if show else None):

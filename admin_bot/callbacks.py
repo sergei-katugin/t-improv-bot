@@ -1,61 +1,41 @@
+from __future__ import annotations
+
 from aiogram.filters.callback_data import CallbackData
 
 
-class AdminShowCb(CallbackData, prefix="admin_show"):
+class AdminShowActionCb(CallbackData, prefix="adm_s"):
+    action: str
     show_id: int
 
 
-class AdminRegsCb(CallbackData, prefix="admin_regs"):
-    show_id: int
-
-
-class AdminAddManualCb(CallbackData, prefix="admin_add_manual"):
-    show_id: int
-
-
-class AdminDelManualStartCb(CallbackData, prefix="admin_del_manual_start"):
-    show_id: int
-
-
-class AdminPreviewCb(CallbackData, prefix="admin_preview"):
-    show_id: int
-
-
-class AdminQrCb(CallbackData, prefix="admin_qr"):
-    show_id: int
-
-
-class AdminShowLinkCb(CallbackData, prefix="admin_show_link"):
-    show_id: int
-
-
-class AdminEditCb(CallbackData, prefix="admin_edit"):
-    show_id: int
-
-
-class AdminAnnounceCb(CallbackData, prefix="admin_announce"):
-    show_id: int
-
-
-class AdminRemindCb(CallbackData, prefix="admin_remind"):
-    show_id: int
-
-
-class AdminCancelShowCb(CallbackData, prefix="admin_cancel_show"):
-    show_id: int
-
-
-class AdminConfirmCancelCb(CallbackData, prefix="admin_confirm_cancel"):
-    show_id: int
-
-
-class AdminRestoreShowCb(CallbackData, prefix="admin_restore_show"):
-    show_id: int
-
-
-class AdminEditFieldCb(CallbackData, prefix="admin_edit_field"):
+class AdminShowFieldCb(CallbackData, prefix="adm_sf"):
     show_id: int
     field: str
+
+
+class AdminTeamActionCb(CallbackData, prefix="adm_t"):
+    action: str
+    team_id: int
+
+
+class AdminTeamFieldCb(CallbackData, prefix="adm_tf"):
+    team_id: int
+    field: str
+
+
+class AdminVenueActionCb(CallbackData, prefix="adm_v"):
+    action: str
+    venue_id: int
+
+
+class AdminVenueFieldCb(CallbackData, prefix="adm_vf"):
+    venue_id: int
+    field: str
+
+
+class AdminAdChannelCb(CallbackData, prefix="adm_ch"):
+    action: str
+    channel_id: int
 
 
 class AdminRevokeCb(CallbackData, prefix="admin_revoke"):
@@ -84,29 +64,3 @@ class VenueCb(CallbackData, prefix="venue"):
 
 class TeamCb(CallbackData, prefix="team"):
     team_id: int  # 0 = other (manual input)
-
-
-class AdminTeamCb(CallbackData, prefix="admin_team"):
-    team_id: int
-
-
-class AdminTeamFieldCb(CallbackData, prefix="admin_team_field"):
-    team_id: int
-    field: str
-
-
-class AdminVenueCb(CallbackData, prefix="admin_venue"):
-    venue_id: int
-
-
-class AdminVenueFieldCb(CallbackData, prefix="admin_venue_field"):
-    venue_id: int
-    field: str
-
-
-class AdminVenueConfirmDeleteCb(CallbackData, prefix="admin_venue_del"):
-    venue_id: int
-
-
-class AdminTeamConfirmDeleteCb(CallbackData, prefix="admin_team_del"):
-    team_id: int

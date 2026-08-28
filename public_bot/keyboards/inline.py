@@ -3,7 +3,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from db.models import Show
 from public_bot.callbacks import (
     ShowCb, RegisterCb, ConfirmRegCb, CancelRegCb,
-    EditGuestsCb, GuestsCb, GuestsCustomCb, RemindToggleCb,
+    EditGuestsCb, GuestsCb, GuestsCustomCb, RemindToggleCb, AttendanceCb,
 )
 
 
@@ -55,23 +55,37 @@ def confirm_registration_kb(show_id: int) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def reminder_prefs_kb(show_id: int, remind_14d: bool, remind_7d: bool, remind_1d: bool) -> InlineKeyboardMarkup:
+def reminder_prefs_kb(
+    show_id: int,
+    remind_7d: bool,
+    remind_2d: bool,
+    remind_1d: bool,
+) -> InlineKeyboardMarkup:
     def icon(v: bool) -> str:
         return "✅" if v else "☐"
     builder = InlineKeyboardBuilder()
     builder.button(
-        text=f"{icon(remind_14d)} За 2 недели",
-        callback_data=RemindToggleCb(show_id=show_id, field="remind_14d", value=int(not remind_14d)).pack(),
-    )
-    builder.button(
-        text=f"{icon(remind_7d)} За 1 неделю",
+        text=f"{icon(remind_7d)} За неделю",
         callback_data=RemindToggleCb(show_id=show_id, field="remind_7d", value=int(not remind_7d)).pack(),
     )
     builder.button(
-        text=f"{icon(remind_1d)} За 1 день",
+        text=f"{icon(remind_2d)} За два дня",
+        callback_data=RemindToggleCb(show_id=show_id, field="remind_2d", value=int(not remind_2d)).pack(),
+    )
+    builder.button(
+        text=f"{icon(remind_1d)} За день",
         callback_data=RemindToggleCb(show_id=show_id, field="remind_1d", value=int(not remind_1d)).pack(),
     )
     builder.adjust(1)
+    return builder.as_markup()
+
+
+def attendance_kb(show_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Приду!", callback_data=AttendanceCb(show_id=show_id, action="yes").pack())
+    builder.button(text="❌ Не смогу", callback_data=AttendanceCb(show_id=show_id, action="no").pack())
+    builder.button(text="👥 Изменить состав", callback_data=AttendanceCb(show_id=show_id, action="guests").pack())
+    builder.adjust(2, 1)
     return builder.as_markup()
 
 
