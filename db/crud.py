@@ -74,6 +74,13 @@ async def get_user_by_username(session: AsyncSession, username: str) -> User | N
     return result.scalar_one_or_none()
 
 
+async def get_user_by_id(session: AsyncSession, id: int) -> User | None:
+    result = await session.execute(
+        select(User).where(User.id == id)
+    )
+    return result.scalar_one_or_none()
+
+
 async def set_user_role(session: AsyncSession, telegram_id: int, role: UserRole) -> User | None:
     user = await get_user_by_telegram_id(session, telegram_id)
     if user is None:
@@ -133,6 +140,7 @@ async def create_show(
     poster_file_id: str | None,
     max_seats: int,
     creator_id: int,
+    registrar_id: int | None = None,
 ) -> Show:
     show = Show(
         title=title,
@@ -145,6 +153,7 @@ async def create_show(
         poster_file_id=poster_file_id,
         max_seats=max_seats,
         creator_id=creator_id,
+        registrar_id=registrar_id,
     )
     session.add(show)
     await session.commit()

@@ -51,10 +51,12 @@ class Show(Base):
     max_seats = Column(Integer, nullable=False, default=50)
     is_active = Column(Boolean, default=True, nullable=False)
     creator_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    registrar_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, default=_utcnow)
     updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
 
     creator = relationship("User", back_populates="shows_created")
+    registrar = relationship("User", foreign_keys=[registrar_id])
     registrations = relationship(
         "Registration",
         back_populates="show",
