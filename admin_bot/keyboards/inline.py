@@ -100,15 +100,16 @@ def show_created_kb(show_id: int) -> InlineKeyboardMarkup:
 def edit_show_fields_kb(show_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     fields = [
-        ("Название",      "title"),
-        ("Команда",       "team_name"),
-        ("Дата/время",    "show_date"),
-        ("Город",         "city"),
-        ("Площадка",      "location"),
-        ("Ссылка на карты", "location_url"),
-        ("Мест",          "max_seats"),
-        ("Текст афиши",   "poster_text"),
-        ("Изображение",   "poster_file_id"),
+        ("Название",                "title"),
+        ("Команда",                 "team_name"),
+        ("Дата/время",              "show_date"),
+        ("Город",                   "city"),
+        ("Площадка",                "location"),
+        ("Ссылка на карты",         "location_url"),
+        ("Мест",                    "max_seats"),
+        ("Ответственный за записи", "registrar_id"),
+        ("Текст афиши",             "poster_text"),
+        ("Изображение",             "poster_file_id"),
     ]
     for label, field in fields:
         builder.button(text=label, callback_data=AdminShowFieldCb(show_id=show_id, field=field).pack())
