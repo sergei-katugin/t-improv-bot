@@ -2,7 +2,7 @@ services:
   - type: web
     name: t-impro-bot
     env: python
-    plan: free
+    plan: starter
     buildCommand: pip install -r requirements.txt
     startCommand: python main.py
     autoDeploy: true
@@ -13,6 +13,8 @@ services:
         sync: false  # set in the Render dashboard
       - key: DATABASE_URL
         sync: false  # set in the Render dashboard
+      - key: WEBHOOK_BASE_URL
+        sync: false  # set to the public HTTPS URL, or leave blank to use RENDER_EXTERNAL_URL
       - key: ANNOUNCEMENT_CHANNEL_ID
         sync: false  # set in the Render dashboard
       - key: ADMIN_IDS

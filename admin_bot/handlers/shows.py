@@ -547,8 +547,14 @@ def _preview_from_data(data: dict) -> str:
     else:
         date_str = data.get("show_date_str", "")
 
+    registrar_name = data.get("registrar_name") or "(через бот)"
     poster = data.get("poster_text") or ""
-    lines = [f"🎭 <b>{data.get('title', '')}</b>", f"📅 {date_str}", location_line]
+    lines = [
+        f"🎭 <b>{data.get('title', '')}</b>",
+        f"📅 {date_str}",
+        location_line,
+        f"👥 Ответственный за записи: {registrar_name}",
+    ]
     if poster:
         lines += ["", poster]
     return "\n".join(lines)
@@ -938,6 +944,16 @@ async def show_detail(callback: CallbackQuery, callback_data: AdminShowActionCb,
         name = creator.first_name or creator.username or str(creator.telegram_id)
         uname = f" (@{creator.username})" if creator.username else ""
         creator_label = f"👤 Создатель: {name}{uname}\n"
+
+    registrar = show.registrar
+    registrar_label = ""
+    if registrar:
+        name = registrar.first_name or registrar.username or str(registrar.telegram_id)
+        uname = f" (@{registrar.username})" if registrar.username else ""
+        registrar_label = f"👥 Ответственный за записи: {name}{uname}\n"
+    else:
+        registrar_label = "👥 Ответственный за записи: (через бот)\n"
+
     text = (
         f"🎭 <b>{show.title}</b>\n"
         f"👥 Команда: {show.team_name}\n"
@@ -945,15 +961,17 @@ async def show_detail(callback: CallbackQuery, callback_data: AdminShowActionCb,
         f"🏙 {show.city} | 📍 {show.location}\n"
         f"🪑 Мест: {seats_left}/{show.max_seats}\n"
         f"{creator_label}"
+        f"{registrar_label}"
     )
     if show.poster_text:
         text += f"\n📝 {show.poster_text}"
 
     from aiogram.exceptions import TelegramBadRequest
+    can_delete = tg_id in ADMIN_ID_LIST
     try:
-        await callback.message.edit_text(text, reply_markup=show_detail_kb(show, is_creator))
+        await callback.message.edit_text(text, reply_markup=show_detail_kb(show, is_creator, can_delete=can_delete))
     except TelegramBadRequest:
-        await callback.message.answer(text, reply_markup=show_detail_kb(show, is_creator))
+        await callback.message.answer(text, reply_markup=show_detail_kb(show, is_creator, can_delete=can_delete))
 
 
 @router.callback_query(AdminShowActionCb.filter(F.action == "preview"))
@@ -1206,6 +1224,45 @@ async def cancel_show_confirm(callback: CallbackQuery, callback_data: AdminShowA
     )
 
 
+@router.callback_query(AdminShowActionCb.filter(F.action == "delete"))
+async def delete_show_confirm(callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession):
+    if callback.from_user.id not in ADMIN_ID_LIST:
+        await callback.answer("Удалять шоу могут только администраторы.", show_alert=True)
+        return
+
+    show_id = callback_data.show_id
+    show = await crud.get_show(session, show_id)
+    if show is None:
+        await callback.message.answer("Шоу не найдено.")
+        return
+
+    await callback.message.edit_text(
+        f"🗑 <b>Удалить шоу навсегда?</b>\n\n"
+        f"🎭 {show.title}\n"
+        f"📅 {show.show_date.strftime('%d.%m.%Y %H:%M')}\n\n"
+        f"Это удалит все записи, лог анонсов и связанные данные.\n"
+        f"<b>Действие необратимо.</b>",
+        reply_markup=confirm_kb(AdminShowActionCb(action="confirm_delete", show_id=show_id).pack(), AdminShowActionCb(action="open", show_id=show_id).pack()),
+    )
+
+
+@router.callback_query(AdminShowActionCb.filter(F.action == "confirm_delete"))
+async def delete_show_execute(callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession):
+    if callback.from_user.id not in ADMIN_ID_LIST:
+        await callback.answer("Удалять шоу могут только администраторы.", show_alert=True)
+        return
+
+    show_id = callback_data.show_id
+    show = await crud.get_show(session, show_id)
+    if show is None:
+        await callback.message.edit_text("Шоу не найдено.")
+        return
+
+    await crud.delete_show(session, show_id)
+    await callback.message.edit_text(f"🗑 Шоу <b>{show.title}</b> удалено навсегда.")
+    await callback.message.answer("Главное меню:", reply_markup=main_menu_kb())
+
+
 @router.callback_query(AdminShowActionCb.filter(F.action == "confirm_cancel"))
 async def cancel_show_execute(callback: CallbackQuery, callback_data: AdminShowActionCb, bot: Bot, public_bot: Bot, session: AsyncSession):
     show_id = callback_data.show_id
@@ -1289,7 +1346,7 @@ async def restore_show(callback: CallbackQuery, callback_data: AdminShowActionCb
 
     tg_id = callback.from_user.id
     is_creator = (show.creator and show.creator.telegram_id == tg_id) or tg_id in ADMIN_ID_LIST
-    kb = show_detail_kb(show, is_creator)
+    kb = show_detail_kb(show, is_creator, can_delete=(callback.from_user.id in ADMIN_ID_LIST))
 
     await callback.message.edit_text(
         f"✅ Шоу <b>{show.title}</b> восстановлено и снова активно.",
@@ -1329,6 +1386,7 @@ async def choose_edit_field(callback: CallbackQuery, callback_data: AdminShowFie
         "location": "Введи новое название площадки:",
         "location_url": "Введи ссылку на Google Maps (или /skip чтобы убрать):",
         "max_seats": "Введи новое количество мест:",
+        "registrar_id": "Выбери ответственного за записи:",
         "poster_text": "Введи новый текст афиши (или /skip чтобы очистить):",
         "poster_file_id": "Отправь новое изображение афиши:",
     }
@@ -1341,11 +1399,16 @@ async def choose_edit_field(callback: CallbackQuery, callback_data: AdminShowFie
         "location": show.location,
         "location_url": show.location_url or "(не указана)",
         "max_seats": str(show.max_seats),
+        "registrar_id": (show.registrar.first_name or (('@' + show.registrar.username) if show.registrar.username else f'id{show.registrar.telegram_id}')) if show and show.registrar else "(не указан)",
         "poster_text": show.poster_text or "(не указан)",
     } if show else {}
 
     prompt = prompts.get(field, "Введи новое значение:")
     current = current_values.get(field)
+
+    if field == "registrar_id":
+        await _ask_edit_registrar(callback.message, state)
+        return
 
     if current and field != "poster_file_id":
         text = f"{prompt}\n\n<b>Текущее значение:</b>\n<code>{current}</code>"
@@ -1356,6 +1419,53 @@ async def choose_edit_field(callback: CallbackQuery, callback_data: AdminShowFie
         text += "\n\n⚠️ <i>Все записанные зрители получат уведомление. В канал будет отправлено сообщение об изменении.</i>"
 
     await callback.message.edit_text(text)
+
+
+async def _ask_edit_registrar(message: Message | CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    show_id = data.get("editing_show_id")
+    async with AsyncSessionLocal() as session:
+        show = await crud.get_show(session, show_id) if show_id else None
+        organizers = await crud.get_all_organizers(session)
+
+    lines = []
+    for idx, u in enumerate(organizers, start=1):
+        if u.username:
+            lines.append(f"{idx}. <a href=\"https://t.me/{u.username}\">{u.first_name or ('@'+u.username)}</a>")
+        else:
+            lines.append(f"{idx}. {u.first_name or ('id'+str(u.telegram_id))}")
+
+    text = "Выбери ответственного за записи (или пропусти):\n\n" + "\n".join(lines)
+    if show and show.registrar:
+        current_name = show.registrar.first_name or (('@' + show.registrar.username) if show.registrar.username else f'id{show.registrar.telegram_id}')
+        text += f"\n\nТекущий: <b>{current_name}</b>"
+
+    kb = InlineKeyboardBuilder()
+    for u in organizers:
+        label = u.first_name or (('@' + u.username) if u.username else f'id{u.telegram_id}')
+        kb.button(text=label, callback_data=f"registrar:{u.id}")
+    kb.button(text="Пропустить (через бот)", callback_data="registrar:0")
+    kb.button(text="◀️ Назад", callback_data=AdminShowActionCb(action="open", show_id=show_id).pack())
+    kb.adjust(1)
+
+    if isinstance(message, CallbackQuery):
+        await message.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+    else:
+        await message.answer(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+
+
+@router.callback_query(EditShowFSM.new_value, lambda q: q.data and q.data.startswith("registrar:"))
+async def edit_process_registrar_choice(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    await callback.answer()
+    data = await state.get_data()
+    if data.get("editing_field") != "registrar_id":
+        return
+    _, raw = callback.data.split(":", 1)
+    try:
+        value = int(raw)
+    except ValueError:
+        value = None
+    await _apply_edit(callback.message, state, session, None if value == 0 else value)
 
 
 @router.message(EditShowFSM.new_value, F.photo)
