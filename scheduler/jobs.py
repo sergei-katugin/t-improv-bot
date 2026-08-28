@@ -86,10 +86,10 @@ async def _send_to_channel_once(
             )
             return msg.message_id
         except Exception:
-                logger.warning("Could not download poster for show %s, sending text only", show.id)
-    msg = await public_bot.send_message(settings.ANNOUNCEMENT_CHANNEL_ID, text, reply_markup=kb, **kwargs)
-            logger.info("_send_to_channel_once sent text for show_id=%s msg_id=%s", getattr(show, 'id', None), msg.message_id)
-    return msg.message_id
+            logger.warning("Could not download poster for show %s, sending text only", show.id)
+        msg = await public_bot.send_message(settings.ANNOUNCEMENT_CHANNEL_ID, text, reply_markup=kb, **kwargs)
+        logger.info("_send_to_channel_once sent text for show_id=%s msg_id=%s", getattr(show, 'id', None), msg.message_id)
+        return msg.message_id
 
 
 async def send_to_channel(
