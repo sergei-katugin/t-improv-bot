@@ -174,7 +174,11 @@ async def create_show(
 async def get_show(session: AsyncSession, show_id: int) -> Show | None:
     result = await session.execute(
         select(Show)
-        .options(selectinload(Show.creator), selectinload(Show.registrations).selectinload(Registration.user))
+        .options(
+            selectinload(Show.creator),
+            selectinload(Show.registrar),
+            selectinload(Show.registrations).selectinload(Registration.user),
+        )
         .where(Show.id == show_id)
     )
     return result.scalar_one_or_none()
@@ -187,6 +191,7 @@ async def list_upcoming_shows(
 ) -> list[Show]:
     query = (
         select(Show)
+        .options(selectinload(Show.registrar), selectinload(Show.creator))
         .where(Show.show_date >= _utcnow(), Show.is_active == True)
         .order_by(Show.show_date)
     )
@@ -204,7 +209,7 @@ async def list_all_shows(
     team: str | None = None,
     year: int | None = None,
 ) -> list[Show]:
-    query = select(Show)
+    query = select(Show).options(selectinload(Show.registrar), selectinload(Show.creator))
     now = _utcnow()
     if status == "active":
         query = query.where(Show.is_active == True, Show.show_date >= now)
@@ -223,6 +228,7 @@ async def list_all_shows(
 async def list_shows_by_creator(session: AsyncSession, telegram_id: int) -> list[Show]:
     result = await session.execute(
         select(Show)
+        .options(selectinload(Show.registrar), selectinload(Show.creator))
         .join(User, Show.creator_id == User.id)
         .where(User.telegram_id == telegram_id)
         .order_by(Show.show_date.desc())
