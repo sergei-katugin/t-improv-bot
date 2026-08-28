@@ -1,4 +1,5 @@
 from aiogram import Router, F
+import logging
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery
@@ -12,6 +13,7 @@ from public_bot.keyboards.reply import main_menu_kb
 from public_bot.callbacks import CancelRegCb
 
 router = Router()
+logger = logging.getLogger("t_improv_bot.public.my_shows")
 
 
 @router.message(Command("my_shows"))
@@ -106,3 +108,4 @@ async def cancel_registration(callback: CallbackQuery, callback_data: CancelRegC
             "🎭 <b>Предстоящие шоу:</b>",
             reply_markup=shows_list_kb(other_shows, registered_ids),
         )
+    logger.info("user %s cancelled registration for show_id=%s", db_user.id, show_id)

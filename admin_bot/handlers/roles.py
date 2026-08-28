@@ -42,6 +42,7 @@ async def cmd_roles(event, state: FSMContext, is_super_admin: bool = False):
 async def grant_viewer_link(callback: CallbackQuery, session: AsyncSession):
     await callback.answer()
     invite = await crud.create_invite_token(session, UserRole.organizer)
+    logger.info("created invite id=%s role=%s by admin=%s", invite.id, invite.role, callback.from_user.id)
 
     link = f"https://t.me/{settings.PUBLIC_BOT_USERNAME}?start=inv_{invite.token}"
     await callback.message.edit_text(
@@ -88,6 +89,7 @@ async def revoke_viewer(callback: CallbackQuery, callback_data: AdminRevokeCb, s
     await callback.answer()
 
     user = await crud.set_user_role(session, target_id, UserRole.user)
+    logger.info("revoked organizer role for telegram_id=%s by admin=%s", target_id, callback.from_user.id)
 
     name = (user.first_name or user.username or str(target_id)) if user else str(target_id)
     await callback.message.edit_text(f"✅ Доступ пользователя <b>{name}</b> отозван.")
