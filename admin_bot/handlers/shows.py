@@ -48,12 +48,13 @@ class CreateShowFSM(StatesGroup):
     max_seats = State()
     poster_text = State()
     poster_image = State()
+    registrar = State()
     confirm = State()
 
 
 
-_TOTAL_STEPS_PRESET = 7   # venue preset: no city/location/seats steps
-_TOTAL_STEPS_CUSTOM = 9   # custom venue: all steps
+_TOTAL_STEPS_PRESET = 8   # venue preset: includes optional registrar step
+_TOTAL_STEPS_CUSTOM = 10   # custom venue: includes optional registrar step
 
 
 def _progress(step: int, total: int = _TOTAL_STEPS_PRESET) -> str:
@@ -79,7 +80,8 @@ def _show_summary(data: dict) -> str:
         f"📍 Площадка: {location_str}\n"
         f"🪑 Мест: {data.get('max_seats')}\n"
         f"📝 Текст афиши: {data.get('poster_text') or '(не указан)'}\n"
-        f"🖼 Изображение: {'есть' if data.get('poster_file_id') else 'нет'}"
+        f"🖼 Изображение: {'есть' if data.get('poster_file_id') else 'нет'}\n"
+        f"👥 Ответственный за записи: {data.get('registrar_name') or '(через бот)'}"
     )
 
 
@@ -489,14 +491,16 @@ async def skip_poster_image(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.update_data(poster_file_id=None)
     await callback.message.edit_text("⏭ Изображение пропущено.")
-    await _show_confirm(callback.message, state)
+    # proceed to optional registrar selection
+    await _ask_registrar(callback.message, state, callback._current_bot)
 
 
 @router.message(CreateShowFSM.poster_image, F.photo)
 async def process_poster_image(message: Message, state: FSMContext):
     file_id = message.photo[-1].file_id
     await state.update_data(poster_file_id=file_id)
-    await _show_confirm(message, state)
+    # proceed to optional registrar selection
+    await _ask_registrar(message, state, message.bot)
 
 
 @router.message(CreateShowFSM.poster_image)
@@ -568,6 +572,34 @@ async def _show_confirm(message: Message, state: FSMContext):
         )
     else:
         await message.answer(header + preview, reply_markup=kb)
+
+
+async def _ask_registrar(message: Message, state: FSMContext, bot: Bot):
+    """Prompt to optionally choose a registrar (organizer/admin) or skip."""
+    await state.set_state(CreateShowFSM.registrar)
+    # fetch organizers/admins
+    async with AsyncSessionLocal() as session:
+        organizers = await crud.get_all_organizers(session)
+
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    # build message with clickable t.me links when username exists
+    lines = []
+    for idx, u in enumerate(organizers, start=1):
+        if u.username:
+            lines.append(f"{idx}. <a href=\"https://t.me/{u.username}\">{u.first_name or ('@'+u.username)}</a>")
+        else:
+            lines.append(f"{idx}. {u.first_name or ('id'+str(u.telegram_id))}")
+
+    text = "Выбери ответственного за записи (опционально):\n\n" + "\n".join(lines)
+
+    kb = InlineKeyboardBuilder()
+    for u in organizers:
+        label = u.first_name or (('@' + u.username) if u.username else f'id{u.telegram_id}')
+        kb.button(text=label, callback_data=f"registrar:{u.id}")
+    kb.button(text="Пропустить (через бот)", callback_data="registrar:0")
+    kb.button(text="◀️ Назад", callback_data="fsm_back")
+    kb.adjust(1)
+    await message.answer(text, reply_markup=kb.as_markup(), parse_mode="HTML")
 
 
 @router.callback_query(F.data == "fsm_back")
@@ -648,6 +680,13 @@ async def fsm_back(callback: CallbackQuery, state: FSMContext, session: AsyncSes
             reply_markup=fsm_skip_cancel_kb("fsm_skip_poster_text"),
         )
 
+    elif current == CreateShowFSM.registrar:
+        await state.set_state(CreateShowFSM.poster_image)
+        await callback.message.answer(
+            f"{_progress(total - 1, total)}Отправь изображение афиши:",
+            reply_markup=fsm_skip_cancel_kb("fsm_skip_poster_image"),
+        )
+
     elif current == CreateShowFSM.confirm:
         await state.set_state(CreateShowFSM.poster_image)
         await callback.message.answer(
@@ -665,6 +704,29 @@ async def fsm_cancel(callback: CallbackQuery, state: FSMContext, is_super_admin:
     await callback.answer("Отменено")
     await callback.message.edit_text("❌ Создание шоу отменено.")
     await callback.message.answer("Главное меню:", reply_markup=main_menu_kb())
+
+
+@router.callback_query(CreateShowFSM.registrar, lambda q: q.data and q.data.startswith("registrar:"))
+async def process_registrar_choice(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    data = await state.get_data()
+    _, raw = callback.data.split(":", 1)
+    try:
+        uid = int(raw)
+    except ValueError:
+        uid = 0
+    if uid == 0:
+        await state.update_data(registrar_id=None, registrar_name=None)
+    else:
+        # store chosen registrar id and name for preview
+        async with AsyncSessionLocal() as session:
+            u = await crud.get_user_by_id(session, uid) if hasattr(crud, 'get_user_by_id') else None
+        name = None
+        if u:
+            name = u.first_name or (('@' + u.username) if u.username else f'id{u.telegram_id}')
+        await state.update_data(registrar_id=uid, registrar_name=name)
+    # proceed to confirm
+    await _show_confirm(callback.message, state)
 
 
 @router.callback_query(CreateShowFSM.confirm, F.data == "admin_confirm_create")
@@ -689,7 +751,9 @@ async def confirm_create(callback: CallbackQuery, state: FSMContext, bot: Bot, p
         poster_file_id=data.get("poster_file_id"),
         max_seats=data["max_seats"],
         creator_id=user.id,
+        registrar_id=data.get("registrar_id"),
     )
+    logger.info("admin %s created show id=%s title=%s", tg_id, show.id, data.get('title'))
 
     await state.clear()
     try:
@@ -1106,6 +1170,8 @@ async def free_ad(callback: CallbackQuery, callback_data: AdminShowActionCb, ses
     nav_builder = InlineKeyboardBuilder()
     for ch in channels:
         nav_builder.button(text=f"➡️ {ch.username}", url=ch.url)
+    # add a back button to return to the show detail view
+    nav_builder.button(text="◀️ Назад", callback_data=AdminShowActionCb(action="open", show_id=show_id).pack())
     nav_builder.adjust(1)
 
     await callback.message.answer(
