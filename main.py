@@ -4,8 +4,6 @@ import asyncio
 import logging
 import os
 import signal
-import subprocess
-import sys
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -36,12 +34,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def run_migrations() -> None:
-    subprocess.run(
-        [sys.executable, "-m", "alembic", "upgrade", "head"],
-        check=True,
-    )
-    logger.info("Database migrations applied")
+# Note: alembic migrations are intentionally not run automatically here.
 
 
 async def register_commands(admin_bot: Bot, public_bot: Bot) -> None:
@@ -166,5 +159,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    run_migrations()
     asyncio.run(main())
