@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     ANNOUNCEMENT_CHANNEL_ID: str = ""
     ADMIN_IDS: str = ""
     PUBLIC_BOT_USERNAME: str = "ImprovCypEventBot"
+    WEBHOOK_BASE_URL: str = ""
 
     model_config = SettingsConfigDict(env_file=".env")
 
