@@ -1,7 +1,7 @@
 aiogram>=3.10
 SQLAlchemy>=2.0.36
+pydantic-settings>=2.4
 aiosqlite==0.20.0
-alembic==1.13.1
 pydantic-settings>=2.4
 APScheduler==3.10.4
 aiohttp>=3.9
