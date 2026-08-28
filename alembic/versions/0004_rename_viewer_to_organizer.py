@@ -17,6 +17,13 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    # On Postgres, ensure enum value exists before updating rows.
+    try:
+        op.execute("SELECT 1 FROM pg_type WHERE typname='userrole'")
+        op.execute("DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_enum e JOIN pg_type t ON e.enumtypid = t.oid WHERE t.typname = 'userrole' AND e.enumlabel = 'organizer') THEN ALTER TYPE userrole ADD VALUE 'organizer'; END IF; END $$;")
+    except Exception:
+        # Not Postgres or permission denied — ignore and continue
+        pass
     op.execute("UPDATE users SET role='organizer' WHERE role='viewer'")
     op.execute("UPDATE invite_tokens SET role='organizer' WHERE role='viewer'")
 

@@ -113,7 +113,10 @@ async def main():
     from db.base import AsyncSessionLocal
     from db import crud as _crud
     async with AsyncSessionLocal() as session:
-        await _crud.seed_venues(session)
+        try:
+            await _crud.seed_venues(session)
+        except Exception as e:
+            logger.warning("Skipping seed_venues: %s", e)
 
     admin_bot, admin_dp = build_admin_bot()
     public_bot, public_dp = build_public_bot()
