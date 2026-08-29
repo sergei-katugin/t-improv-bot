@@ -37,11 +37,15 @@ async def cmd_start(message: Message, state: FSMContext, db_user: User, session:
         return
 
     if payload.startswith("show_"):
+        show_payload = payload[5:]
+        show_id_raw, _, source = show_payload.partition("_")
         try:
-            show_id = int(payload[5:])
+            show_id = int(show_id_raw)
         except ValueError:
             show_id = None
         if show_id:
+            if source:
+                await state.update_data(registration_source=source[:64], registration_source_show_id=show_id)
             await render_show_detail(message, show_id, db_user, session)
             return
 

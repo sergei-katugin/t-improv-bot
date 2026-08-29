@@ -7,14 +7,16 @@ from db import crud
 from db.models import User
 from public_bot.keyboards.inline import show_detail_kb
 from scheduler.jobs import _registrar_line
+from html_utils import h
+from time_utils import format_local
 
 
 def show_text(show, seats_left: int, reg=None) -> str:
     lines = [
-        f"🎭 <b>{show.title}</b>",
-        f"👥 Команда: {show.team_name}",
-        f"📅 {show.show_date.strftime('%d.%m.%Y %H:%M')}",
-        f"🏙 {show.city}  |  📍 {show.location}",
+        f"🎭 <b>{h(show.title)}</b>",
+        f"👥 Команда: {h(show.team_name)}",
+        f"📅 {format_local(show.show_date)}",
+        f"🏙 {h(show.city)}  |  📍 {h(show.location)}",
         f"🪑 Свободных мест: {seats_left}/{show.max_seats}",
     ]
     registrar_line = _registrar_line(show)
@@ -27,7 +29,7 @@ def show_text(show, seats_left: int, reg=None) -> str:
         lines.append(f"✅ Ты записан(а): {total} чел.{suffix}")
     if show.poster_text:
         lines.append("")
-        lines.append(show.poster_text)
+        lines.append(h(show.poster_text))
     return "\n".join(lines)
 
 

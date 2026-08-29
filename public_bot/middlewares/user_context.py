@@ -30,10 +30,9 @@ class UserContextMiddleware(BaseMiddleware):
             data["db_user"] = db_user
             data["session"] = session
             if isinstance(event, Message):
-                regs = await crud.get_user_registrations(session, db_user.id)
-                shows = await crud.list_upcoming_shows(session)
+                has_shows, has_regs = await crud.get_menu_flags(session, db_user.id)
                 data["menu_kb"] = main_menu_kb(
-                    has_shows=bool(shows),
-                    has_regs=bool(regs),
+                    has_shows=has_shows,
+                    has_regs=has_regs,
                 )
             return await handler(event, data)

@@ -12,6 +12,8 @@ from db import crud
 from db.models import UserRole
 from admin_bot.keyboards.inline import organizers_list_kb, roles_menu_kb
 from admin_bot.callbacks import AdminRevokeCb
+from admin_bot.security import deny, is_admin
+from html_utils import h
 
 logger = get_project_logger(__name__)
 router = Router()
@@ -39,7 +41,10 @@ async def cmd_roles(event, state: FSMContext, is_super_admin: bool = False):
 
 
 @router.callback_query(F.data == "admin_grant_organizer")
-async def grant_viewer_link(callback: CallbackQuery, session: AsyncSession):
+async def grant_viewer_link(callback: CallbackQuery, session: AsyncSession, db_user=None, is_super_admin: bool = False):
+    if not is_admin(db_user, is_super_admin):
+        await deny(callback)
+        return
     await callback.answer()
     invite = await crud.create_invite_token(session, UserRole.organizer)
     logger.info("created invite id=%s role=%s by admin=%s", invite.id, invite.role, callback.from_user.id)
@@ -49,7 +54,7 @@ async def grant_viewer_link(callback: CallbackQuery, session: AsyncSession):
         "🔗 <b>Одноразовая ссылка для доступа:</b>\n\n"
         f"<code>{link}</code>\n\n"
         "Отправь её нужному человеку. Когда они перейдут по ссылке — "
-        "автоматически получат доступ на просмотр записей. Ссылка сгорает после первого использования.",
+        f"автоматически получат доступ на просмотр записей. Ссылка одноразовая и действует {settings.INVITE_TTL_HOURS} ч.",
         reply_markup=roles_menu_kb(),
     )
 
@@ -60,7 +65,10 @@ async def noop(callback: CallbackQuery):
 
 
 @router.callback_query(F.data == "admin_list_organizers")
-async def list_viewers(callback: CallbackQuery, session: AsyncSession):
+async def list_viewers(callback: CallbackQuery, session: AsyncSession, db_user=None, is_super_admin: bool = False):
+    if not is_admin(db_user, is_super_admin):
+        await deny(callback)
+        return
     await callback.answer()
     viewers = await crud.get_all_organizers(session)
 
@@ -84,7 +92,10 @@ async def list_viewers(callback: CallbackQuery, session: AsyncSession):
 
 
 @router.callback_query(AdminRevokeCb.filter())
-async def revoke_viewer(callback: CallbackQuery, callback_data: AdminRevokeCb, session: AsyncSession):
+async def revoke_viewer(callback: CallbackQuery, callback_data: AdminRevokeCb, session: AsyncSession, db_user=None, is_super_admin: bool = False):
+    if not is_admin(db_user, is_super_admin):
+        await deny(callback)
+        return
     target_id = callback_data.telegram_id
     await callback.answer()
 
@@ -92,4 +103,4 @@ async def revoke_viewer(callback: CallbackQuery, callback_data: AdminRevokeCb, s
     logger.info("revoked organizer role for telegram_id=%s by admin=%s", target_id, callback.from_user.id)
 
     name = (user.first_name or user.username or str(target_id)) if user else str(target_id)
-    await callback.message.edit_text(f"✅ Доступ пользователя <b>{name}</b> отозван.")
+    await callback.message.edit_text(f"✅ Доступ пользователя <b>{h(name)}</b> отозван.")

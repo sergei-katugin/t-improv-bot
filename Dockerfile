@@ -1,16 +1,18 @@
 FROM python:3.13-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libsqlite3-dev \
-    && rm -rf /var/lib/apt/lists/*
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN groupadd --gid 10001 app && \
+    useradd --uid 10001 --gid app --create-home --shell /usr/sbin/nologin app
 
-COPY . .
+COPY requirements.txt requirements.lock ./
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock
 
-RUN mkdir -p /data
+COPY --chown=app:app . .
+
+USER app
 
 CMD ["python", "main.py"]

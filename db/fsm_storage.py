@@ -7,9 +7,12 @@ from typing import Any, Mapping
 
 from aiogram.fsm.state import State
 from aiogram.fsm.storage.base import BaseStorage, StateType, StorageKey
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from db.base import AsyncSessionLocal
 from db.models import FSMStorageRecord
+from time_utils import utc_now
 
 
 def _json_default(value: Any) -> dict[str, str]:
@@ -55,15 +58,36 @@ class SQLAlchemyStorage(BaseStorage):
             destiny=record_key[5],
         )
 
+    @staticmethod
+    async def _upsert(session, record_key, field: str, value: Any) -> None:
+        key_values = dict(zip(
+            ("bot_id", "chat_id", "user_id", "thread_id", "business_connection_id", "destiny"),
+            record_key,
+        ))
+        values = {**key_values, field: value}
+        dialect = session.bind.dialect.name
+        if dialect == "postgresql":
+            statement = pg_insert(FSMStorageRecord).values(**values)
+        elif dialect == "sqlite":
+            statement = sqlite_insert(FSMStorageRecord).values(**values)
+        else:
+            record = await session.get(FSMStorageRecord, record_key)
+            if record is None:
+                record = SQLAlchemyStorage._new_record(record_key)
+                session.add(record)
+            setattr(record, field, value)
+            return
+        statement = statement.on_conflict_do_update(
+            index_elements=list(key_values),
+            set_={field: value, "updated_at": utc_now()},
+        )
+        await session.execute(statement)
+
     async def set_state(self, key: StorageKey, state: StateType = None) -> None:
         record_key = self._record_key(key)
         state_value = state.state if isinstance(state, State) else state
         async with AsyncSessionLocal() as session:
-            record = await session.get(FSMStorageRecord, record_key)
-            if record is None:
-                record = self._new_record(record_key)
-                session.add(record)
-            record.state = state_value
+            await self._upsert(session, record_key, "state", state_value)
             await session.commit()
 
     async def get_state(self, key: StorageKey) -> str | None:
@@ -75,11 +99,7 @@ class SQLAlchemyStorage(BaseStorage):
         record_key = self._record_key(key)
         encoded_data = json.dumps(dict(data), default=_json_default, ensure_ascii=False)
         async with AsyncSessionLocal() as session:
-            record = await session.get(FSMStorageRecord, record_key)
-            if record is None:
-                record = self._new_record(record_key)
-                session.add(record)
-            record.data = encoded_data
+            await self._upsert(session, record_key, "data", encoded_data)
             await session.commit()
 
     async def get_data(self, key: StorageKey) -> dict[str, Any]:

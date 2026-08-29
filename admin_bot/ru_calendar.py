@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import calendar
-from datetime import datetime, date
+from datetime import date
 from typing import Union
 
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from aiogram.filters.callback_data import CallbackData
 from aiogram3_calendar import SimpleCalendar
 from aiogram3_calendar.calendar_types import SimpleCalendarCallback, SimpleCalendarAction
+from time_utils import local_now
 
 _MONTHS = [
     "", "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
@@ -25,9 +26,12 @@ class RuCalendar(SimpleCalendar):
 
     async def start_calendar(
         self,
-        year: int = datetime.now().year,
-        month: int = datetime.now().month,
+        year: int | None = None,
+        month: int | None = None,
     ) -> InlineKeyboardMarkup:
+        now = local_now()
+        year = year or now.year
+        month = month or now.month
         busy_days = {d.day for d in self._busy if d.year == year and d.month == month}
 
         markup = []

@@ -1,36 +1,23 @@
-# Deploying with managed Postgres on Render
+# Production Postgres on Render
 
-This document describes steps to migrate from SQLite to a managed Postgres instance on Render and how to run migrations.
+Production already uses an external Postgres database configured through the
+Render `DATABASE_URL` environment variable. Do not put the URL in this repository
+or send it through chat.
 
-1) Create a managed Postgres instance in Render
-   - In the Render dashboard click **New** → **Postgres** → follow the wizard to create a database.
-   - Note the connection URL (shown in the dashboard). It will look like:
-     `postgres://user:password@host:port/dbname`
+The application expects an async SQLAlchemy URL:
+`postgresql+asyncpg://user:password@host:port/database`.
 
-2) Build a SQLAlchemy async connection string
-   - For SQLAlchemy + asyncpg use this format (in `DATABASE_URL`):
-     `postgresql+asyncpg://user:password@host:port/dbname`
-   - Set this value in your Service's Environment variables on Render (Dashboard → Your Service → Environment → Environment Variables). Replace the existing `DATABASE_URL`.
+The Render startup command applies `python -m alembic upgrade head` before
+launching `python main.py`. The service health check is `/health`.
 
-3) Make sure `asyncpg` is installed
-   - `requirements.txt` already contains `asyncpg` — Render will install it during build.
+After a deployment:
 
-4) Apply migrations on the remote DB
-   - Recommended: run a one-off shell/command in Render and run alembic:
-     ```bash
-     # from service shell or one-off command in Render
-     python -m alembic upgrade head
-     ```
-   - Alternatively the `main.py` calls `run_migrations()` on startup; ensure the service has permissions and environment configured.
-
-5) Restart the service
-   - After setting `DATABASE_URL` and applying migrations, restart your web service.
-
-6) Verify
-   - Check logs in Render for DB connection errors.
-   - Visit `https://<your-app>.onrender.com/health`.
+1. Check the Render logs for a successful migration and database connection.
+2. Open `https://<your-app>.onrender.com/health`.
+3. Exercise one read and one write through the bot when a schema migration was
+   included in the release.
 
 Notes and recommendations
- - SQLite (`./data/impro.db`) is fine for local development, but **not** for production on Render (ephemeral FS, risk of data loss). Use managed Postgres for persistence and backups.
- - Use Render's backups & follow best practices for credentials (store secrets in Environment variables, do not commit `.env`).
- - For high-concurrency async apps, monitor connection usage and consider a connection pooler if needed.
+- SQLite is test-only and is installed only by `requirements-dev.txt`.
+- Keep credentials in Render environment variables and enable database backups.
+- Monitor pool usage before increasing application concurrency.

@@ -13,6 +13,16 @@ class AdminShowFieldCb(CallbackData, prefix="adm_sf"):
     field: str
 
 
+class AdminCheckinCb(CallbackData, prefix="adm_ci"):
+    show_id: int
+    registration_id: int
+
+
+class AdminManualCheckinCb(CallbackData, prefix="adm_mci"):
+    show_id: int
+    attendee_id: int
+
+
 class AdminTeamActionCb(CallbackData, prefix="adm_t"):
     action: str
     team_id: int

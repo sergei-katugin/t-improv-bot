@@ -9,3 +9,6 @@ __pycache__/
 *.db
 *.db-shm
 *.db-wal
+.coverage
+.pytest_cache/
+htmlcov/

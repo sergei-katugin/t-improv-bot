@@ -1,0 +1,63 @@
+from datetime import datetime
+from types import SimpleNamespace
+
+from admin_bot.handlers.shows import _tracked_show_link
+from admin_bot.keyboards.inline import confirm_with_back_kb, edit_show_fields_kb
+from db.models import Show
+from public_bot.handlers.registration import _ics_escape
+from public_bot.keyboards.inline import calendar_kb, feedback_kb
+
+
+def test_tracked_show_link_contains_source():
+    link = _tracked_show_link(42, "instagram")
+    assert link.endswith("?start=show_42_instagram")
+
+
+def test_feedback_is_disabled_by_default():
+    assert Show().feedback_enabled is None
+    assert Show.__table__.c.feedback_enabled.default.arg is False
+
+
+def test_create_confirmation_exposes_optional_features():
+    keyboard = confirm_with_back_kb(
+        "confirm",
+        "cancel",
+        checkin_enabled=True,
+        feedback_enabled=False,
+    )
+    buttons = [button for row in keyboard.inline_keyboard for button in row]
+    assert any(button.text == "🎟 Check-in: вкл" for button in buttons)
+    assert any(button.text == "⭐ Отзывы: выкл" for button in buttons)
+
+
+def test_edit_keyboard_exposes_current_optional_feature_values():
+    show = Show(id=42, checkin_enabled=False, feedback_enabled=True)
+    buttons = [button for row in edit_show_fields_kb(show).inline_keyboard for button in row]
+    assert any(button.text == "🎟 Check-in: выкл" for button in buttons)
+    assert any(button.text == "⭐ Отзывы: вкл" for button in buttons)
+
+
+def test_calendar_keyboard_has_google_ics_and_route():
+    show = SimpleNamespace(
+        id=42,
+        title="Test Show",
+        show_date=datetime(2026, 8, 29, 17, 0),
+        location="Theatre",
+        city="Limassol",
+        poster_text="Description",
+        location_url="https://maps.google.com/example",
+    )
+    buttons = [button for row in calendar_kb(show).inline_keyboard for button in row]
+    assert any(button.url and "calendar.google.com" in button.url for button in buttons)
+    assert any(button.callback_data and button.callback_data.startswith("calendar:") for button in buttons)
+    assert any(button.url == show.location_url for button in buttons)
+
+
+def test_feedback_keyboard_has_five_ratings():
+    buttons = [button for row in feedback_kb(42).inline_keyboard for button in row]
+    assert len(buttons) == 5
+    assert {button.text for button in buttons} == {"1 ⭐", "2 ⭐", "3 ⭐", "4 ⭐", "5 ⭐"}
+
+
+def test_ics_escape_protects_special_characters():
+    assert _ics_escape("a,b;c\\d\ne") == "a\\,b\\;c\\\\d\\ne"

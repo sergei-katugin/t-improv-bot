@@ -127,6 +127,8 @@ def get_webhook_base_url() -> str:
 
 async def build_webhook_app(admin_bot: Bot, public_bot: Bot, admin_dp: Dispatcher, public_dp: Dispatcher) -> web.Application:
     app = web.Application()
+    update_slots = asyncio.Semaphore(settings.MAX_CONCURRENT_UPDATES)
+    processing_tasks: set[asyncio.Task] = set()
 
     def verify_telegram_secret(request: web.Request, expected_secret: str) -> None:
         supplied_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
@@ -136,23 +138,61 @@ async def build_webhook_app(admin_bot: Bot, public_bot: Bot, admin_dp: Dispatche
     async def health_handler(request):
         return web.Response(text="ok")
 
+    async def process_update(dp: Dispatcher, bot: Bot, update: Update, bot_name: str) -> None:
+        from db.base import sql_query_count
+
+        query_token = sql_query_count.set(0)
+        started_at = time.monotonic()
+        try:
+            await dp.feed_webhook_update(bot=bot, update=update)
+        finally:
+            elapsed_ms = (time.monotonic() - started_at) * 1000
+            queries = sql_query_count.get()
+            logger.info(
+                "Telegram update processed bot=%s update_id=%s duration_ms=%.1f sql_queries=%d",
+                bot_name, update.update_id, elapsed_ms, queries,
+            )
+            sql_query_count.reset(query_token)
+
+    def task_finished(task: asyncio.Task) -> None:
+        processing_tasks.discard(task)
+        update_slots.release()
+        if not task.cancelled():
+            exception = task.exception()
+            if exception is not None:
+                logger.error(
+                    "Background update processing failed",
+                    exc_info=(type(exception), exception, exception.__traceback__),
+                )
+
+    async def dispatch_update(dp: Dispatcher, bot: Bot, update: Update, bot_name: str) -> None:
+        await update_slots.acquire()
+        task = asyncio.create_task(process_update(dp, bot, update, bot_name))
+        processing_tasks.add(task)
+        task.add_done_callback(task_finished)
+
     async def admin_webhook_handler(request):
         verify_telegram_secret(request, get_webhook_secret(settings.ADMIN_BOT_TOKEN))
         payload = await request.json()
         update = Update.model_validate(payload, context={"bot": admin_bot})
-        await admin_dp.feed_webhook_update(bot=admin_bot, update=update)
+        await dispatch_update(admin_dp, admin_bot, update, "admin")
         return web.Response(status=200)
 
     async def public_webhook_handler(request):
         verify_telegram_secret(request, get_webhook_secret(settings.PUBLIC_BOT_TOKEN))
         payload = await request.json()
         update = Update.model_validate(payload, context={"bot": public_bot})
-        await public_dp.feed_webhook_update(bot=public_bot, update=update)
+        await dispatch_update(public_dp, public_bot, update, "public")
         return web.Response(status=200)
+
+    async def finish_processing_tasks(app: web.Application) -> None:
+        if processing_tasks:
+            await asyncio.gather(*processing_tasks, return_exceptions=True)
 
     app.router.add_get("/health", health_handler)
     app.router.add_post("/telegram/admin", admin_webhook_handler)
     app.router.add_post("/telegram/public", public_webhook_handler)
+    app.on_cleanup.append(finish_processing_tasks)
     return app
 
 
@@ -202,7 +242,7 @@ def build_public_bot() -> tuple[Bot, Dispatcher]:
 
 
 async def main():
-    from db.base import AsyncSessionLocal
+    from db.base import AsyncSessionLocal, engine
     from db import crud as _crud
     async with AsyncSessionLocal() as session:
         try:
@@ -212,22 +252,7 @@ async def main():
 
     admin_bot, admin_dp = build_admin_bot()
     public_bot, public_dp = build_public_bot()
-    if not settings.WEBHOOK_SECRET:
-        logger.warning("WEBHOOK_SECRET is not configured; using token-derived secrets")
-
-    base_url = get_webhook_base_url()
-    admin_webhook_url = f"{base_url}/telegram/admin"
-    public_webhook_url = f"{base_url}/telegram/public"
-
-    app = await build_webhook_app(admin_bot, public_bot, admin_dp, public_dp)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    port = int(os.environ.get("PORT", "8080"))
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-
-    await register_commands(admin_bot, public_bot)
-    setup_scheduler(public_bot, admin_bot)
+    runner: web.AppRunner | None = None
 
     async def _configure_webhooks_with_retries(
         admin_bot: Bot, public_bot: Bot, admin_url: str, public_url: str, max_attempts: int = 5
@@ -265,33 +290,52 @@ async def main():
             max_attempts,
         )
 
-    logger.info("Computed webhook base URL: %s", base_url)
-    await _configure_webhooks_with_retries(admin_bot, public_bot, admin_webhook_url, public_webhook_url)
+    try:
+        if not settings.WEBHOOK_SECRET:
+            logger.warning("WEBHOOK_SECRET is not configured; using token-derived secrets")
 
-    stop_event = asyncio.Event()
-    loop = asyncio.get_running_loop()
+        base_url = get_webhook_base_url()
+        admin_webhook_url = f"{base_url}/telegram/admin"
+        public_webhook_url = f"{base_url}/telegram/public"
 
-    def _stop(sig_name: str):
-        logger.info("Получен %s — останавливаю...", sig_name)
-        stop_event.set()
+        app = await build_webhook_app(admin_bot, public_bot, admin_dp, public_dp)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        port = int(os.environ.get("PORT", "8080"))
+        site = web.TCPSite(runner, "0.0.0.0", port)
+        await site.start()
 
-    loop.add_signal_handler(signal.SIGINT, _stop, "SIGINT")
-    loop.add_signal_handler(signal.SIGTERM, _stop, "SIGTERM")
+        await register_commands(admin_bot, public_bot)
+        setup_scheduler(public_bot, admin_bot)
 
-    logger.info("Webhook-боты запущены на %s и %s", admin_webhook_url, public_webhook_url)
+        logger.info("Computed webhook base URL: %s", base_url)
+        await _configure_webhooks_with_retries(admin_bot, public_bot, admin_webhook_url, public_webhook_url)
 
-    admin_dp["public_bot"] = public_bot
+        stop_event = asyncio.Event()
+        loop = asyncio.get_running_loop()
 
-    await stop_event.wait()
+        def _stop(sig_name: str):
+            logger.info("Получен %s — останавливаю...", sig_name)
+            stop_event.set()
 
-    logger.info("Останавливаю webhook-сервер...")
-    scheduler.shutdown(wait=False)
-    await runner.cleanup()
-    await admin_dp.storage.close()
-    await public_dp.storage.close()
-    await admin_bot.session.close()
-    await public_bot.session.close()
-    logger.info("Боты остановлены.")
+        loop.add_signal_handler(signal.SIGINT, _stop, "SIGINT")
+        loop.add_signal_handler(signal.SIGTERM, _stop, "SIGTERM")
+
+        logger.info("Webhook-боты запущены на %s и %s", admin_webhook_url, public_webhook_url)
+        admin_dp["public_bot"] = public_bot
+        await stop_event.wait()
+    finally:
+        logger.info("Останавливаю webhook-сервер...")
+        if scheduler.running:
+            scheduler.shutdown(wait=False)
+        if runner is not None:
+            await runner.cleanup()
+        await admin_dp.storage.close()
+        await public_dp.storage.close()
+        await admin_bot.session.close()
+        await public_bot.session.close()
+        await engine.dispose()
+        logger.info("Боты остановлены.")
 
 
 if __name__ == "__main__":

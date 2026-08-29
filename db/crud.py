@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import secrets
-from datetime import datetime, date
-from sqlalchemy import select, func
+from datetime import datetime, date, timedelta
+from sqlalchemy import select, func, exists, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from db.models import User, Show, Registration, AnnouncementLog, InviteToken, ManualAttendee, UserRole, Venue, Team, FreeAdChannel, _utcnow
+from db.models import User, Show, Registration, ShowFeedback, AnnouncementLog, InviteToken, ManualAttendee, UserRole, Venue, Team, FreeAdChannel, _utcnow
 from app_logging import get_project_logger
 
 logger = get_project_logger(__name__)
@@ -45,15 +45,21 @@ async def upsert_user(
             user = result.scalar_one()
         logger.info("created user id=%s telegram_id=%s role=%s", user.id, telegram_id, role)
     else:
-        user.username = username
-        user.first_name = first_name
-        user.last_name = last_name
-        user.updated_at = _utcnow()
-        if telegram_id in ADMIN_ID_LIST:
-            user.role = UserRole.admin
-        await session.commit()
-        logger.info("updated user id=%s telegram_id=%s role=%s", user.id, telegram_id, user.role)
-    await session.refresh(user)
+        desired_role = UserRole.admin if telegram_id in ADMIN_ID_LIST else user.role
+        changed = (
+            user.username != username
+            or user.first_name != first_name
+            or user.last_name != last_name
+            or user.role != desired_role
+        )
+        if changed:
+            user.username = username
+            user.first_name = first_name
+            user.last_name = last_name
+            user.role = desired_role
+            user.updated_at = _utcnow()
+            await session.commit()
+            logger.info("updated user id=%s telegram_id=%s role=%s", user.id, telegram_id, user.role)
     return user
 
 
@@ -107,7 +113,12 @@ async def get_all_organizers(session: AsyncSession) -> list[User]:
 # ── Invite tokens ──────────────────────────────────────────────────────────
 
 async def create_invite_token(session: AsyncSession, role: UserRole = UserRole.organizer) -> InviteToken:
-    invite = InviteToken(token=secrets.token_urlsafe(16), role=role)
+    from config import settings
+    invite = InviteToken(
+        token=secrets.token_urlsafe(32),
+        role=role,
+        expires_at=_utcnow() + timedelta(hours=settings.INVITE_TTL_HOURS),
+    )
     session.add(invite)
     await session.commit()
     await session.refresh(invite)
@@ -117,11 +128,18 @@ async def create_invite_token(session: AsyncSession, role: UserRole = UserRole.o
 
 async def consume_invite_token(session: AsyncSession, token: str, user_id: int) -> InviteToken | None:
     result = await session.execute(
-        select(InviteToken).where(InviteToken.token == token, InviteToken.used_at.is_(None))
+        select(InviteToken)
+        .where(
+            InviteToken.token == token,
+            InviteToken.used_at.is_(None),
+            InviteToken.expires_at.is_not(None),
+            InviteToken.expires_at > _utcnow(),
+        )
+        .with_for_update()
     )
     invite = result.scalar_one_or_none()
     if invite is None:
-        logger.info("invite token not found or used token=%s user_id=%s", token, user_id)
+        logger.info("invite token not found, expired, or used user_id=%s", user_id)
         return None
     invite.used_at = _utcnow()
     invite.used_by_user_id = user_id
@@ -151,6 +169,8 @@ async def create_show(
     creator_id: int,
     registrar_id: int | None = None,
     registrar_username: str | None = None,
+    checkin_enabled: bool = False,
+    feedback_enabled: bool = False,
 ) -> Show:
     show = Show(
         title=title,
@@ -165,6 +185,8 @@ async def create_show(
         creator_id=creator_id,
         registrar_id=registrar_id,
         registrar_username=registrar_username,
+        checkin_enabled=checkin_enabled,
+        feedback_enabled=feedback_enabled,
     )
     session.add(show)
     await session.commit()
@@ -182,7 +204,22 @@ async def get_show(session: AsyncSession, show_id: int) -> Show | None:
         .options(
             selectinload(Show.creator),
             selectinload(Show.registrar),
+        )
+        .where(Show.id == show_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_show_with_dependents(session: AsyncSession, show_id: int) -> Show | None:
+    """Load a show and collections needed by destructive/admin operations."""
+    result = await session.execute(
+        select(Show)
+        .options(
+            selectinload(Show.creator),
+            selectinload(Show.registrar),
             selectinload(Show.registrations).selectinload(Registration.user),
+            selectinload(Show.announcement_logs),
+            selectinload(Show.feedback),
         )
         .where(Show.id == show_id)
     )
@@ -208,11 +245,46 @@ async def list_upcoming_shows(
     return list(result.scalars().all())
 
 
+async def has_upcoming_shows(session: AsyncSession) -> bool:
+    result = await session.execute(
+        select(exists().where(Show.show_date >= _utcnow(), Show.is_active == True))
+    )
+    return bool(result.scalar())
+
+
+async def has_user_registrations(session: AsyncSession, user_id: int) -> bool:
+    result = await session.execute(
+        select(exists().where(
+            Registration.user_id == user_id,
+            Registration.is_cancelled == False,
+            Registration.show_id == Show.id,
+            Show.show_date >= _utcnow(),
+            Show.is_active == True,
+        ))
+    )
+    return bool(result.scalar())
+
+
+async def get_menu_flags(session: AsyncSession, user_id: int) -> tuple[bool, bool]:
+    has_shows = exists().where(Show.show_date >= _utcnow(), Show.is_active == True)
+    has_regs = exists().where(
+        Registration.user_id == user_id,
+        Registration.is_cancelled == False,
+        Registration.show_id == Show.id,
+        Show.show_date >= _utcnow(),
+        Show.is_active == True,
+    )
+    row = (await session.execute(select(has_shows, has_regs))).one()
+    return bool(row[0]), bool(row[1])
+
+
 async def list_all_shows(
     session: AsyncSession,
     status: str = "all",
     team: str | None = None,
     year: int | None = None,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> list[Show]:
     query = select(Show).options(selectinload(Show.registrar), selectinload(Show.creator))
     now = _utcnow()
@@ -226,7 +298,10 @@ async def list_all_shows(
         query = query.where(Show.team_name.ilike(f"%{team}%"))
     if year:
         query = query.where(Show.show_date >= datetime(year, 1, 1), Show.show_date < datetime(year + 1, 1, 1))
-    result = await session.execute(query.order_by(Show.show_date.desc()))
+    query = query.order_by(Show.show_date.desc()).offset(offset)
+    if limit is not None:
+        query = query.limit(limit)
+    result = await session.execute(query)
     return list(result.scalars().all())
 
 
@@ -255,7 +330,7 @@ async def update_show(session: AsyncSession, show_id: int, **fields) -> Show | N
 
 
 async def delete_show(session: AsyncSession, show_id: int) -> bool:
-    show = await get_show(session, show_id)
+    show = await get_show_with_dependents(session, show_id)
     if show is None:
         return False
 
@@ -283,11 +358,14 @@ async def delete_show(session: AsyncSession, show_id: int) -> bool:
 
 
 async def count_active_registrations(session: AsyncSession, show_id: int) -> int:
-    result = await session.execute(
+    registered_result = await session.execute(
         select(func.coalesce(func.sum(Registration.guests + 1), 0))
         .where(Registration.show_id == show_id, Registration.is_cancelled == False)
     )
-    return result.scalar_one()
+    manual_result = await session.execute(
+        select(func.count(ManualAttendee.id)).where(ManualAttendee.show_id == show_id)
+    )
+    return int(registered_result.scalar_one()) + int(manual_result.scalar_one())
 
 
 # ── Registrations ──────────────────────────────────────────────────────────
@@ -310,21 +388,25 @@ async def register_user_safe(
     user_id: int,
     attendee_name: str,
     guests: int,
-    max_seats: int,
+    source: str | None = None,
 ) -> Registration | None:
-    """Register a user only if enough seats remain. Re-checks the count atomically
-    (as close to the INSERT as possible) to reduce the TOCTOU window."""
-    count = await count_active_registrations(session, show_id)
-    if count + 1 + guests > max_seats:
-        logger.info("registration prevented by capacity show_id=%s user_id=%s guests=%s count=%s max=%s", show_id, user_id, guests, count, max_seats)
+    """Register under a show-row lock so concurrent requests cannot oversubscribe."""
+    if guests < 0 or guests > 50 or not 2 <= len(attendee_name.strip()) <= 100:
         return None
-    return await register_user(session, show_id, user_id, attendee_name, guests)
+    show_result = await session.execute(
+        select(Show).where(Show.id == show_id).with_for_update()
+    )
+    show = show_result.scalar_one_or_none()
+    if show is None or not show.is_active or show.show_date < _utcnow():
+        return None
 
-
-async def register_user(
-    session: AsyncSession, show_id: int, user_id: int, attendee_name: str, guests: int = 0
-) -> Registration:
     existing = await get_registration(session, show_id, user_id)
+    count = await count_active_registrations(session, show_id)
+    existing_party = 0 if existing is None or existing.is_cancelled else 1 + (existing.guests or 0)
+    if count - existing_party + 1 + guests > show.max_seats:
+        logger.info("registration prevented by capacity show_id=%s user_id=%s guests=%s count=%s max=%s", show_id, user_id, guests, count, show.max_seats)
+        return None
+
     if existing:
         existing.attendee_name = attendee_name
         existing.guests = guests
@@ -336,28 +418,43 @@ async def register_user(
         existing.reminded_1d = False
         existing.reminded_0d = False
         existing.confirmed = None
-        await session.commit()
-        await session.refresh(existing)
-        logger.info("updated registration id=%s show_id=%s user_id=%s attendee=%s guests=%s", existing.id, show_id, user_id, attendee_name, guests)
-        return existing
-    reg = Registration(show_id=show_id, user_id=user_id, attendee_name=attendee_name, guests=guests)
-    session.add(reg)
+        existing.source = source or existing.source
+        reg = existing
+    else:
+        reg = Registration(
+            show_id=show_id,
+            user_id=user_id,
+            attendee_name=attendee_name,
+            guests=guests,
+            source=source,
+        )
+        session.add(reg)
     await session.commit()
     await session.refresh(reg)
-    logger.info("created registration id=%s show_id=%s user_id=%s attendee=%s guests=%s", reg.id, show_id, user_id, attendee_name, guests)
     return reg
 
 
-async def update_registration_guests(
-    session: AsyncSession, show_id: int, user_id: int, guests: int
+async def update_registration_guests_safe(
+    session: AsyncSession, show_id: int, user_id: int, guests: int,
 ) -> Registration | None:
+    if guests < 0 or guests > 50:
+        return None
+    show_result = await session.execute(
+        select(Show).where(Show.id == show_id).with_for_update()
+    )
+    show = show_result.scalar_one_or_none()
+    if show is None or not show.is_active or show.show_date < _utcnow():
+        return None
     reg = await get_registration(session, show_id, user_id)
     if reg is None or reg.is_cancelled:
+        return None
+    count = await count_active_registrations(session, show_id)
+    old_guests = reg.guests or 0
+    if count - (1 + old_guests) + (1 + guests) > show.max_seats:
         return None
     reg.guests = guests
     await session.commit()
     await session.refresh(reg)
-    logger.info("updated registration guests id=%s show_id=%s user_id=%s guests=%s", reg.id, show_id, user_id, guests)
     return reg
 
 
@@ -402,34 +499,39 @@ async def get_show_registrations(session: AsyncSession, show_id: int) -> list[Re
 
 
 async def get_registrations_for_reminder(
-    session: AsyncSession, show_id: int, days: int
+    session: AsyncSession,
+    show_id: int,
+    days: int,
+    *,
+    after_id: int = 0,
+    limit: int | None = None,
 ) -> list[Registration]:
     """Active registrations that want a reminder at X days and haven't been reminded yet."""
-    if days == 0:
-        # Day-of reminder is always sent (not opt-in)
-        result = await session.execute(
-            select(Registration)
-            .options(selectinload(Registration.user))
-            .where(
-                Registration.show_id == show_id,
-                Registration.is_cancelled == False,
-                Registration.reminded_0d == False,
-            )
-        )
-        return list(result.scalars().all())
+    sent_col = {
+        0: Registration.reminded_0d,
+        1: Registration.reminded_1d,
+        2: Registration.reminded_2d,
+        7: Registration.reminded_7d,
+    }[days]
+    conditions = [
+        Registration.show_id == show_id,
+        Registration.id > after_id,
+        Registration.is_cancelled == False,
+        sent_col == False,
+    ]
+    if days != 0:
+        want_col = {7: Registration.remind_7d, 2: Registration.remind_2d, 1: Registration.remind_1d}[days]
+        conditions.append(want_col == True)
 
-    want_col = {7: Registration.remind_7d, 2: Registration.remind_2d, 1: Registration.remind_1d}[days]
-    sent_col = {7: Registration.reminded_7d, 2: Registration.reminded_2d, 1: Registration.reminded_1d}[days]
-    result = await session.execute(
+    query = (
         select(Registration)
         .options(selectinload(Registration.user))
-        .where(
-            Registration.show_id == show_id,
-            Registration.is_cancelled == False,
-            want_col == True,
-            sent_col == False,
-        )
+        .where(*conditions)
+        .order_by(Registration.id)
     )
+    if limit is not None:
+        query = query.limit(limit)
+    result = await session.execute(query)
     return list(result.scalars().all())
 
 
@@ -442,6 +544,18 @@ async def mark_reminded(session: AsyncSession, reg_id: int, days: int) -> None:
         await session.commit()
 
 
+async def mark_reminded_many(session: AsyncSession, reg_ids: list[int], days: int) -> None:
+    if not reg_ids:
+        return
+    field = {0: "reminded_0d", 1: "reminded_1d", 2: "reminded_2d", 7: "reminded_7d"}[days]
+    await session.execute(
+        update(Registration)
+        .where(Registration.id.in_(reg_ids))
+        .values({field: True})
+    )
+    await session.commit()
+
+
 async def set_confirmed(
     session: AsyncSession, show_id: int, user_id: int, value: bool | None
 ) -> Registration | None:
@@ -452,6 +566,112 @@ async def set_confirmed(
     await session.commit()
     await session.refresh(reg)
     return reg
+
+
+async def toggle_registration_checkin(
+    session: AsyncSession, show_id: int, registration_id: int
+) -> Registration | None:
+    result = await session.execute(
+        select(Registration).where(
+            Registration.id == registration_id,
+            Registration.show_id == show_id,
+            Registration.is_cancelled == False,
+        )
+    )
+    reg = result.scalar_one_or_none()
+    if reg is None:
+        return None
+    reg.checked_in_at = None if reg.checked_in_at else _utcnow()
+    await session.commit()
+    await session.refresh(reg)
+    return reg
+
+
+async def toggle_manual_attendee_checkin(
+    session: AsyncSession, show_id: int, attendee_id: int
+) -> ManualAttendee | None:
+    result = await session.execute(
+        select(ManualAttendee).where(
+            ManualAttendee.id == attendee_id,
+            ManualAttendee.show_id == show_id,
+        )
+    )
+    attendee = result.scalar_one_or_none()
+    if attendee is None:
+        return None
+    attendee.checked_in_at = None if attendee.checked_in_at else _utcnow()
+    await session.commit()
+    await session.refresh(attendee)
+    return attendee
+
+
+async def get_feedback_candidates(
+    session: AsyncSession, *, after_id: int = 0, limit: int = 50
+) -> list[Registration]:
+    now = _utcnow()
+    result = await session.execute(
+        select(Registration)
+        .join(Show, Registration.show_id == Show.id)
+        .options(selectinload(Registration.user), selectinload(Registration.show))
+        .where(
+            Registration.id > after_id,
+            Registration.is_cancelled == False,
+            Registration.feedback_requested_at.is_(None),
+            Show.feedback_enabled == True,
+            Show.show_date <= now - timedelta(hours=2),
+            Show.show_date >= now - timedelta(days=2),
+        )
+        .order_by(Registration.id)
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
+async def mark_feedback_requested(session: AsyncSession, registration_ids: list[int]) -> None:
+    if not registration_ids:
+        return
+    await session.execute(
+        update(Registration)
+        .where(Registration.id.in_(registration_ids))
+        .values(feedback_requested_at=_utcnow())
+    )
+    await session.commit()
+
+
+async def save_feedback(
+    session: AsyncSession,
+    show_id: int,
+    user_id: int,
+    rating: int,
+    comment: str | None = None,
+) -> ShowFeedback:
+    result = await session.execute(
+        select(ShowFeedback).where(
+            ShowFeedback.show_id == show_id,
+            ShowFeedback.user_id == user_id,
+        )
+    )
+    feedback = result.scalar_one_or_none()
+    if feedback is None:
+        feedback = ShowFeedback(show_id=show_id, user_id=user_id, rating=rating, comment=comment)
+        session.add(feedback)
+    else:
+        feedback.rating = rating
+        if comment is not None:
+            feedback.comment = comment
+    await session.commit()
+    await session.refresh(feedback)
+    return feedback
+
+
+async def get_show_feedback(session: AsyncSession, show_id: int) -> list[ShowFeedback]:
+    result = await session.execute(
+        select(ShowFeedback)
+        .options(selectinload(ShowFeedback.user))
+        .where(ShowFeedback.show_id == show_id)
+        .order_by(ShowFeedback.created_at)
+    )
+    return list(result.scalars().all())
 
 
 async def set_reminder_pref(
@@ -481,6 +701,15 @@ async def get_registered_users_for_show(session: AsyncSession, show_id: int) -> 
 # ── Manual attendees ───────────────────────────────────────────────────────
 
 async def add_manual_attendees(session: AsyncSession, show_id: int, names: list[str]) -> int:
+    show_result = await session.execute(
+        select(Show).where(Show.id == show_id).with_for_update()
+    )
+    show = show_result.scalar_one_or_none()
+    if show is None or not show.is_active or show.show_date < _utcnow():
+        return 0
+    occupied = await count_active_registrations(session, show_id)
+    if occupied + len(names) > show.max_seats:
+        return 0
     for name in names:
         session.add(ManualAttendee(show_id=show_id, name=name.strip()))
     await session.commit()

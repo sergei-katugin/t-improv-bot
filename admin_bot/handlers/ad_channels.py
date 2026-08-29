@@ -9,6 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db import crud
 from admin_bot.callbacks import AdminAdChannelCb
 from admin_bot.keyboards.inline import ad_channels_list_kb
+from admin_bot.security import deny, is_admin
+from admin_bot.telegram_usernames import normalize_telegram_username
+from html_utils import h
 
 logger = get_project_logger(__name__)
 router = Router()
@@ -40,13 +43,19 @@ async def _render_channels(target, session: AsyncSession, edit: bool = True):
 
 
 @router.callback_query(F.data == "admin_adchannels_list")
-async def list_ad_channels(callback: CallbackQuery, session: AsyncSession):
+async def list_ad_channels(callback: CallbackQuery, session: AsyncSession, db_user=None, is_super_admin: bool = False):
+    if not is_admin(db_user, is_super_admin):
+        await deny(callback)
+        return
     await callback.answer()
     await _render_channels(callback.message, session, edit=True)
 
 
 @router.callback_query(AdminAdChannelCb.filter(F.action == "toggle"))
-async def toggle_channel(callback: CallbackQuery, callback_data: AdminAdChannelCb, session: AsyncSession):
+async def toggle_channel(callback: CallbackQuery, callback_data: AdminAdChannelCb, session: AsyncSession, db_user=None, is_super_admin: bool = False):
+    if not is_admin(db_user, is_super_admin):
+        await deny(callback)
+        return
     await callback.answer()
     ch = await crud.toggle_ad_channel(session, callback_data.channel_id)
     if ch is None:
@@ -58,22 +67,21 @@ async def toggle_channel(callback: CallbackQuery, callback_data: AdminAdChannelC
 
 
 @router.callback_query(AdminAdChannelCb.filter(F.action == "delete"))
-async def delete_channel(callback: CallbackQuery, callback_data: AdminAdChannelCb, session: AsyncSession):
+async def delete_channel(callback: CallbackQuery, callback_data: AdminAdChannelCb, session: AsyncSession, db_user=None, is_super_admin: bool = False):
+    if not is_admin(db_user, is_super_admin):
+        await deny(callback)
+        return
     await crud.delete_ad_channel(session, callback_data.channel_id)
     logger.info("deleted ad channel id=%s by admin=%s", callback_data.channel_id, callback.from_user.id)
     await callback.answer("Канал удалён.", show_alert=True)
     await _render_channels(callback.message, session, edit=True)
 
 
-@router.callback_query(AdminAdChannelCb.filter(F.action == "delete"))
-async def delete_channel(callback: CallbackQuery, callback_data: AdminAdChannelCb, session: AsyncSession):
-    await crud.delete_ad_channel(session, callback_data.channel_id)
-    await callback.answer("Канал удалён.", show_alert=True)
-    await _render_channels(callback.message, session, edit=True)
-
-
 @router.callback_query(F.data == "admin_adchannel_add")
-async def add_channel_start(callback: CallbackQuery, state: FSMContext):
+async def add_channel_start(callback: CallbackQuery, state: FSMContext, db_user=None, is_super_admin: bool = False):
+    if not is_admin(db_user, is_super_admin):
+        await deny(callback)
+        return
     await callback.answer()
     await state.set_state(AddAdChannelFSM.enter_username)
     try:
@@ -87,16 +95,21 @@ async def add_channel_start(callback: CallbackQuery, state: FSMContext):
 
 
 @router.message(AddAdChannelFSM.enter_username, F.text)
-async def add_channel_save(message: Message, state: FSMContext, session: AsyncSession):
+async def add_channel_save(message: Message, state: FSMContext, session: AsyncSession, db_user=None, is_super_admin: bool = False):
+    if not is_admin(db_user, is_super_admin):
+        await state.clear()
+        await deny(message)
+        return
     raw = message.text.strip()
-    if not raw.lstrip("@"):
+    username = normalize_telegram_username(raw)
+    if not username:
         await message.answer("Неверный формат. Отправь @username канала:")
         return
 
     await state.clear()
-    ch = await crud.add_ad_channel(session, raw)
+    ch = await crud.add_ad_channel(session, username)
     if ch is None:
-        await message.answer(f"Канал <code>{raw.lstrip('@')}</code> уже есть в списке.")
+        await message.answer(f"Канал <code>{h(username)}</code> уже есть в списке.")
     else:
         await message.answer(f"✅ Добавлен канал {ch.username}")
         logger.info("added ad channel id=%s username=%s by user=%s", ch.id, ch.username, message.from_user.id)
