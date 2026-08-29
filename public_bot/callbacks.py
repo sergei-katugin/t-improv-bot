@@ -41,3 +41,12 @@ class RemindToggleCb(CallbackData, prefix="remind_toggle"):
 class AttendanceCb(CallbackData, prefix="attend"):
     show_id: int
     action: str  # "yes" | "no" | "guests"
+
+
+class CalendarCb(CallbackData, prefix="calendar"):
+    show_id: int
+
+
+class FeedbackCb(CallbackData, prefix="feedback"):
+    show_id: int
+    rating: int

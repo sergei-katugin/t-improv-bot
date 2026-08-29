@@ -8,7 +8,6 @@ from aiogram.types import Message, CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db import crud
-from db.models import UserRole
 from admin_bot.callbacks import AdminTeamActionCb, AdminTeamFieldCb
 from admin_bot.keyboards.inline import (
     teams_list_kb, team_detail_kb, team_kb, team_select_kb, confirm_kb,
@@ -19,6 +18,8 @@ from admin_bot.telegram_usernames import (
     render_telegram_username_list,
     serialize_telegram_usernames,
 )
+from admin_bot.security import can_manage_owned, deny, is_admin
+from html_utils import h
 
 router = Router()
 
@@ -38,16 +39,14 @@ def _team_summary(team) -> str:
     members = render_telegram_username_list(team.members)
     status = "активна" if team.is_active else "скрыта"
     return (
-        f"🎭 <b>{team.name}</b>\n"
+        f"🎭 <b>{h(team.name)}</b>\n"
         f"👥 Участники: {members}\n"
         f"Статус: {status}"
     )
 
 
 def _is_admin(db_user, is_super_admin: bool) -> bool:
-    if is_super_admin:
-        return True
-    return db_user is not None and db_user.role == UserRole.admin
+    return is_admin(db_user, is_super_admin)
 
 
 async def _render_teams_list(msg, db_user, is_super_admin: bool, session: AsyncSession, edit: bool = False):
@@ -88,6 +87,9 @@ async def team_detail(
     if team is None:
         await callback.message.answer("Команда не найдена.")
         return
+    if not can_manage_owned(team.creator_id, db_user, is_super_admin):
+        await deny(callback)
+        return
     can_manage = _is_admin(db_user, is_super_admin) or (
         db_user is not None and team.creator_id == db_user.id
     )
@@ -106,12 +108,14 @@ async def team_field_action(
     await callback.answer()
     team_id = callback_data.team_id
     field = callback_data.field
+    team = await crud.get_team(session, team_id)
+    if team is None or not can_manage_owned(team.creator_id, db_user, is_super_admin):
+        await deny(callback)
+        return
 
     if field == "toggle":
+        await crud.update_team(session, team_id, is_active=not team.is_active)
         team = await crud.get_team(session, team_id)
-        if team:
-            await crud.update_team(session, team_id, is_active=not team.is_active)
-            team = await crud.get_team(session, team_id)
         can_manage = _is_admin(db_user, is_super_admin) or (
             db_user is not None and team.creator_id == db_user.id
         )
@@ -147,6 +151,12 @@ async def team_save_field(message: Message, state: FSMContext, db_user=None, is_
     field: str = data["field"]
     raw = message.text.strip()
 
+    current_team = await crud.get_team(session, team_id)
+    if current_team is None or not can_manage_owned(current_team.creator_id, db_user, is_super_admin):
+        await state.clear()
+        await deny(message)
+        return
+
     if field == "members":
         if raw == "-":
             value = None
@@ -174,6 +184,10 @@ async def team_save_field(message: Message, state: FSMContext, db_user=None, is_
 
 @router.callback_query(AdminTeamActionCb.filter(F.action == "confirm_delete"))
 async def team_confirm_delete(callback: CallbackQuery, callback_data: AdminTeamActionCb, db_user=None, is_super_admin: bool = False, session: AsyncSession = None):
+    team = await crud.get_team(session, callback_data.team_id)
+    if team is None or not can_manage_owned(team.creator_id, db_user, is_super_admin):
+        await deny(callback)
+        return
     await callback.answer()
     await crud.delete_team(session, callback_data.team_id)
     logger.info("deleted team id=%s by admin=%s", callback_data.team_id, callback.from_user.id)
@@ -330,7 +344,7 @@ async def _finish_team_creation(msg, state: FSMContext, members, telegram_id: in
         await state.set_state(CreateShowFSM.team_name)
         teams = await crud.list_teams(session)
         await msg.answer(
-            f"✅ Команда <b>{team.name}</b> создана!\n\n"
+            f"✅ Команда <b>{h(team.name)}</b> создана!\n\n"
             f"{_progress(1)}Выбери команду для шоу:",
             reply_markup=team_select_kb(teams),
         )
@@ -341,6 +355,6 @@ async def _finish_team_creation(msg, state: FSMContext, members, telegram_id: in
         else:
             teams = await crud.list_teams(session, user_id=db_user.id if db_user else None)
         await msg.answer(
-            f"✅ Команда <b>{team.name}</b> создана!\n\n👥 <b>Команды</b>:",
+            f"✅ Команда <b>{h(team.name)}</b> создана!\n\n👥 <b>Команды</b>:",
             reply_markup=teams_list_kb(teams),
         )

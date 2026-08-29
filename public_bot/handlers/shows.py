@@ -12,6 +12,7 @@ from db.models import User
 from public_bot.keyboards.inline import shows_list_kb, show_detail_kb
 from public_bot.callbacks import ShowCb
 from public_bot.show_utils import show_text
+from html_utils import h
 
 router = Router()
 
@@ -103,11 +104,11 @@ async def filter_by_city(message: Message, state: FSMContext, db_user: User, ses
     registered_ids = {r.show_id for r in my_regs}
 
     if not shows:
-        await message.answer(f"Нет шоу в городе «{city}».", reply_markup=shows_list_kb([], registered_ids))
+        await message.answer(f"Нет шоу в городе «{h(city)}».", reply_markup=shows_list_kb([], registered_ids))
         return
 
     await message.answer(
-        f"🎭 Шоу в городе <b>{city}</b>:",
+        f"🎭 Шоу в городе <b>{h(city)}</b>:",
         reply_markup=shows_list_kb(shows, registered_ids),
     )
 
@@ -133,11 +134,11 @@ async def filter_by_venue(message: Message, state: FSMContext, db_user: User, se
     registered_ids = {r.show_id for r in my_regs}
 
     if not shows:
-        await message.answer(f"Нет шоу на площадке «{venue}».")
+        await message.answer(f"Нет шоу на площадке «{h(venue)}».")
         return
 
     await message.answer(
-        f"🎭 Шоу на площадке <b>{venue}</b>:",
+        f"🎭 Шоу на площадке <b>{h(venue)}</b>:",
         reply_markup=shows_list_kb(shows, registered_ids),
     )
 

@@ -1,23 +1,31 @@
 from __future__ import annotations
 
+import asyncio
 import re
+import tempfile
+from contextlib import asynccontextmanager
+from pathlib import Path
 
 from app_logging import get_project_logger
 from datetime import datetime, date, timedelta, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 from aiogram import Bot
-from aiogram.types import BufferedInputFile, InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
-from public_bot.keyboards.inline import attendance_kb
+from aiogram.types import FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
+from sqlalchemy import func, select
+from public_bot.keyboards.inline import attendance_kb, feedback_kb
 
 from config import settings
-from db.base import AsyncSessionLocal
+from db.base import AsyncSessionLocal, engine, is_sqlite
 from db import crud
+from html_utils import h
+from time_utils import format_local, local_date, local_now, utc_to_local
 
 logger = get_project_logger(__name__)
 
-scheduler = AsyncIOScheduler(timezone="UTC")
+scheduler = AsyncIOScheduler(timezone=settings.APP_TIMEZONE)
 
 DAYS_MAP = {
     "7d": 7,
@@ -27,16 +35,71 @@ DAYS_MAP = {
 }
 
 
+@asynccontextmanager
+async def _download_photo(bot: Bot, file_id: str):
+    """Download a Telegram file to disk so it is not duplicated in process memory."""
+    temporary = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+    temporary_path = Path(temporary.name)
+    temporary.close()
+    try:
+        file = await bot.get_file(file_id)
+        await bot.download_file(file.file_path, destination=temporary_path)
+        yield FSInputFile(temporary_path, filename="poster.jpg")
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
 def setup_scheduler(public_bot: Bot, admin_bot: Bot) -> None:
     scheduler.add_job(
         check_and_send_announcements,
-        CronTrigger(hour=9, minute=0, timezone="UTC"),
+        CronTrigger(
+            hour=settings.REMINDER_HOUR_LOCAL,
+            minute=0,
+            timezone=settings.APP_TIMEZONE,
+        ),
         args=[public_bot, admin_bot],
         id="daily_announcement_check",
         replace_existing=True,
     )
+    scheduler.add_job(
+        request_post_show_feedback,
+        IntervalTrigger(hours=1),
+        args=[public_bot],
+        id="post_show_feedback",
+        replace_existing=True,
+    )
     scheduler.start()
     logger.info("Scheduler started")
+
+
+async def request_post_show_feedback(public_bot: Bot) -> None:
+    """Ask attendees for feedback shortly after a show, once per registration."""
+    after_id = 0
+    while True:
+        async with AsyncSessionLocal() as session:
+            regs = await crud.get_feedback_candidates(session, after_id=after_id, limit=50)
+            if not regs:
+                return
+            after_id = regs[-1].id
+            sent_ids: list[int] = []
+            for start in range(0, len(regs), 5):
+                batch = regs[start:start + 5]
+
+                async def send_one(reg) -> int | None:
+                    try:
+                        await public_bot.send_message(
+                            reg.user.telegram_id,
+                            f"🎭 Как тебе шоу <b>{h(reg.show.title)}</b>? Оцени одним нажатием:",
+                            reply_markup=feedback_kb(reg.show_id),
+                        )
+                        return reg.id
+                    except Exception:
+                        logger.warning("Could not request feedback registration_id=%s", reg.id)
+                        return None
+
+                results = await asyncio.gather(*(send_one(reg) for reg in batch))
+                sent_ids.extend(reg_id for reg_id in results if reg_id is not None)
+            await crud.mark_feedback_requested(session, sent_ids)
 
 
 async def cache_poster_for_public_bot(
@@ -47,10 +110,8 @@ async def cache_poster_for_public_bot(
     from config import ADMIN_ID_LIST
     cache_chat = ADMIN_ID_LIST[0] if ADMIN_ID_LIST else target_chat_id
     try:
-        file = await admin_bot.get_file(poster_file_id)
-        data = await admin_bot.download_file(file.file_path)
-        buf = BufferedInputFile(data.read(), "poster.jpg")
-        msg = await public_bot.send_photo(cache_chat, photo=buf)
+        async with _download_photo(admin_bot, poster_file_id) as photo:
+            msg = await public_bot.send_photo(cache_chat, photo=photo)
         pub_file_id = msg.photo[-1].file_id
         try:
             await public_bot.delete_message(cache_chat, msg.message_id)
@@ -79,12 +140,10 @@ async def _send_to_channel_once(
     kwargs = {"reply_to_message_id": reply_to_message_id} if reply_to_message_id else {}
     if show.poster_file_id:
         try:
-            file = await admin_bot.get_file(show.poster_file_id)
-            data = await admin_bot.download_file(file.file_path)
-            photo = BufferedInputFile(data.read(), filename="poster.jpg")
-            msg = await public_bot.send_photo(
-                settings.ANNOUNCEMENT_CHANNEL_ID, photo=photo, caption=text, reply_markup=kb, **kwargs
-            )
+            async with _download_photo(admin_bot, show.poster_file_id) as photo:
+                msg = await public_bot.send_photo(
+                    settings.ANNOUNCEMENT_CHANNEL_ID, photo=photo, caption=text, reply_markup=kb, **kwargs
+                )
             return msg.message_id
         except Exception:
             logger.warning("Could not download poster for show %s, sending text only", show.id)
@@ -111,12 +170,31 @@ async def send_to_channel(
 
 
 async def check_and_send_announcements(public_bot: Bot, admin_bot: Bot) -> None:
-    today = datetime.now(timezone.utc).date()
+    if is_sqlite:
+        await _run_announcement_check(public_bot, admin_bot)
+        return
+
+    lock_id = 0x54494D50524F
+    async with engine.connect() as lock_connection:
+        acquired = bool((await lock_connection.execute(
+            select(func.pg_try_advisory_lock(lock_id))
+        )).scalar())
+        if not acquired:
+            logger.info("Skipping announcement check: another replica holds the scheduler lock")
+            return
+        try:
+            await _run_announcement_check(public_bot, admin_bot)
+        finally:
+            await lock_connection.execute(select(func.pg_advisory_unlock(lock_id)))
+
+
+async def _run_announcement_check(public_bot: Bot, admin_bot: Bot) -> None:
+    today = local_now().date()
     logger.info("Running daily announcement check for %s", today)
     async with AsyncSessionLocal() as session:
         shows = await crud.list_upcoming_shows(session)
         for show in shows:
-            days_left = (show.show_date.date() - today).days
+            days_left = (local_date(show.show_date) - today).days
             if days_left == 7:
                 await _maybe_send_channel(session, public_bot, admin_bot, show, "7d")
                 await _maybe_send_personal(session, public_bot, show, 7)
@@ -144,15 +222,12 @@ async def _maybe_send_channel(session, public_bot: Bot, admin_bot: Bot, show, an
 
 
 async def _maybe_send_personal(session, bot: Bot, show, days: int) -> None:
-    regs = await crud.get_registrations_for_reminder(session, show.id, days)
-    if not regs:
-        return
     intros = {
         7: "🔔 До шоу осталась неделя!",
         2: "🔔 До шоу осталось два дня!",
         1: "🔔 Завтра твоё шоу!",
     }
-    date_str = show.show_date.strftime("%d.%m.%Y %H:%M")
+    date_str = format_local(show.show_date)
     location_line = _location_line(show)
 
     channel_msg_id = await crud.get_last_channel_message_id(session, show.id)
@@ -165,13 +240,12 @@ async def _maybe_send_personal(session, bot: Bot, show, days: int) -> None:
         else:
             post_url = f"https://t.me/c/{str(ch).replace('-100', '').lstrip('-')}/{channel_msg_id}"
 
-    sent = 0
-    for reg in regs:
+    async def send_one(reg) -> int | None:
         try:
             if days == 0:
                 text = (
                     f"🎭 <b>Сегодня твоё шоу!</b>\n\n"
-                    f"Ты записан(а) на <b>{show.title}</b>\n"
+                    f"Ты записан(а) на <b>{h(show.title)}</b>\n"
                     f"📅 {date_str}\n{location_line}\n\n"
                     f"Подтверди своё участие — мы сообщим организаторам, кто придёт:"
                 )
@@ -179,15 +253,38 @@ async def _maybe_send_personal(session, bot: Bot, show, days: int) -> None:
                 await bot.send_message(reg.user.telegram_id, text, reply_markup=kb)
             else:
                 intro = intros[days]
-                text = f"{intro}\n\nТы записан(а) на шоу <b>{show.title}</b>\n📅 {date_str}\n{location_line}"
+                text = f"{intro}\n\nТы записан(а) на шоу <b>{h(show.title)}</b>\n📅 {date_str}\n{location_line}"
                 kwargs = {}
                 if post_url:
                     kwargs["link_preview_options"] = LinkPreviewOptions(url=post_url)
                 await bot.send_message(reg.user.telegram_id, text, **kwargs)
-            await crud.mark_reminded(session, reg.id, days)
-            sent += 1
+            return reg.id
         except Exception as e:
             logger.warning("Failed to send %dd reminder to user %s: %s", days, reg.user.telegram_id, e)
+            return None
+
+    sent = 0
+    after_id = 0
+    query_batch_size = 50
+    send_batch_size = 5
+    while True:
+        regs = await crud.get_registrations_for_reminder(
+            session,
+            show.id,
+            days,
+            after_id=after_id,
+            limit=query_batch_size,
+        )
+        if not regs:
+            break
+        after_id = regs[-1].id
+        sent_ids: list[int] = []
+        for start in range(0, len(regs), send_batch_size):
+            batch = regs[start:start + send_batch_size]
+            results = await asyncio.gather(*(send_one(reg) for reg in batch))
+            sent_ids.extend(reg_id for reg_id in results if reg_id is not None)
+        await crud.mark_reminded_many(session, sent_ids, days)
+        sent += len(sent_ids)
     logger.info("Sent %dd personal reminders for show %s to %s users", days, show.id, sent)
 
 
@@ -204,13 +301,14 @@ _WEEKDAYS_RU = ["понедельник", "вторник", "среда", "че�
 
 
 def _fmt_date(dt) -> str:
+    dt = utc_to_local(dt)
     return f"{dt.day} {_MONTHS_GEN[dt.month]}, {_WEEKDAYS_RU[dt.weekday()]}, {dt.strftime('%H:%M')}"
 
 
 def _location_line(show, plain: bool = False) -> str:
     if show.location_url and not plain:
-        return f'📍 <a href="{show.location_url}">{show.location}</a>, {show.city}'
-    return f"📍 {show.location}, {show.city}"
+        return f'📍 <a href="{h(show.location_url)}">{h(show.location)}</a>, {h(show.city)}'
+    return f"📍 {h(show.location)}, {h(show.city)}"
 
 
 def _registrar_line(show) -> str | None:
@@ -220,10 +318,10 @@ def _registrar_line(show) -> str | None:
         username = username.lstrip("@")
         label = f"@{username}"
         if registrar and registrar.first_name:
-            label = registrar.first_name
+            label = h(registrar.first_name)
         return f'👥 Ответственный за записи: <a href="https://t.me/{username}">{label}</a>'
     if registrar:
-        name = registrar.first_name or f"id{registrar.telegram_id}"
+        name = h(registrar.first_name) if registrar.first_name else f"id{registrar.telegram_id}"
         return f"👥 Ответственный за записи: {name}"
     return None
 
@@ -240,10 +338,10 @@ _REGISTER_NOTE = "👆 Нажми кнопку — и твоё место сра
 
 def build_announcement_text(show, ann_type: str | None = None) -> str:
     if ann_type is None:
-        header = f"🎭 <b>{show.title}</b>"
+        header = f"🎭 <b>{h(show.title)}</b>"
     else:
         prefix = _ANN_HEADERS.get(ann_type, "🎭")
-        header = f"{prefix} <b>{show.title}</b>"
+        header = f"{prefix} <b>{h(show.title)}</b>"
 
     poster = show.poster_text or ""
     poster_has_date = bool(DATE_RE.search(poster))
@@ -259,7 +357,7 @@ def build_announcement_text(show, ann_type: str | None = None) -> str:
 
     if poster:
         lines.append("")
-        lines.append(poster)
+        lines.append(h(poster))
 
     if ann_type is not None:
         lines.append("")

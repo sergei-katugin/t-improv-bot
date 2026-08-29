@@ -10,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db import crud
 from admin_bot.callbacks import AdminVenueActionCb, AdminVenueFieldCb
 from admin_bot.keyboards.inline import venues_list_kb, venue_detail_kb, confirm_kb, fsm_cancel_kb
+from admin_bot.security import deny, is_admin
+from html_utils import h
 
 router = Router()
 logger = get_project_logger(__name__)
@@ -30,10 +32,10 @@ def _venue_summary(venue) -> str:
     maps = venue.maps_url or "не указана"
     status = "активна" if venue.is_active else "скрыта"
     return (
-        f"🎭 <b>{venue.name}</b>\n"
-        f"🏙 Город: {venue.city}\n"
+        f"🎭 <b>{h(venue.name)}</b>\n"
+        f"🏙 Город: {h(venue.city)}\n"
         f"🪑 Мест по умолчанию: {venue.default_seats}\n"
-        f"🗺 Ссылка: {maps}\n"
+        f"🗺 Ссылка: {h(maps)}\n"
         f"Статус: {status}"
     )
 
@@ -43,7 +45,10 @@ def _venue_summary(venue) -> str:
 @router.message(F.text == "🏛 Площадки")
 @router.message(Command("venues"))
 @router.callback_query(F.data == "admin_venues_list")
-async def venues_list(event, state: FSMContext, session: AsyncSession):
+async def venues_list(event, state: FSMContext, session: AsyncSession, db_user=None, is_super_admin: bool = False):
+    if not is_admin(db_user, is_super_admin):
+        await deny(event)
+        return
     await state.clear()
     msg = event if isinstance(event, Message) else event.message
     if isinstance(event, CallbackQuery):
@@ -66,7 +71,13 @@ async def back_main(callback: CallbackQuery, state: FSMContext):
 # ── Venue detail ─────────────────────────────────────────────────────────────
 
 @router.callback_query(AdminVenueActionCb.filter(F.action == "open"))
-async def venue_detail(callback: CallbackQuery, callback_data: AdminVenueActionCb, state: FSMContext, session: AsyncSession):
+async def venue_detail(
+    callback: CallbackQuery, callback_data: AdminVenueActionCb, state: FSMContext,
+    session: AsyncSession, db_user=None, is_super_admin: bool = False,
+):
+    if not is_admin(db_user, is_super_admin):
+        await deny(callback)
+        return
     await state.clear()
     await callback.answer()
     venue = await crud.get_venue(session, callback_data.venue_id)
@@ -80,8 +91,12 @@ async def venue_detail(callback: CallbackQuery, callback_data: AdminVenueActionC
 
 @router.callback_query(AdminVenueFieldCb.filter())
 async def venue_field_action(
-    callback: CallbackQuery, callback_data: AdminVenueFieldCb, state: FSMContext, session: AsyncSession
+    callback: CallbackQuery, callback_data: AdminVenueFieldCb, state: FSMContext, session: AsyncSession,
+    db_user=None, is_super_admin: bool = False,
 ):
+    if not is_admin(db_user, is_super_admin):
+        await deny(callback)
+        return
     await callback.answer()
     venue_id = callback_data.venue_id
     field = callback_data.field
@@ -116,7 +131,11 @@ async def venue_field_action(
 
 
 @router.message(EditVenueFSM.new_value, F.text)
-async def venue_save_field(message: Message, state: FSMContext, session: AsyncSession):
+async def venue_save_field(message: Message, state: FSMContext, session: AsyncSession, db_user=None, is_super_admin: bool = False):
+    if not is_admin(db_user, is_super_admin):
+        await state.clear()
+        await deny(message)
+        return
     data = await state.get_data()
     venue_id: int = data["venue_id"]
     field: str = data["field"]
@@ -144,7 +163,10 @@ async def venue_save_field(message: Message, state: FSMContext, session: AsyncSe
 # ── Confirm delete ────────────────────────────────────────────────────────────
 
 @router.callback_query(AdminVenueActionCb.filter(F.action == "confirm_delete"))
-async def venue_confirm_delete(callback: CallbackQuery, callback_data: AdminVenueActionCb, session: AsyncSession):
+async def venue_confirm_delete(callback: CallbackQuery, callback_data: AdminVenueActionCb, session: AsyncSession, db_user=None, is_super_admin: bool = False):
+    if not is_admin(db_user, is_super_admin):
+        await deny(callback)
+        return
     await callback.answer()
     await crud.delete_venue(session, callback_data.venue_id)
     logger.info("deleted venue id=%s by admin=%s", callback_data.venue_id, callback.from_user.id)
@@ -158,28 +180,43 @@ async def venue_confirm_delete(callback: CallbackQuery, callback_data: AdminVenu
 # ── Add venue ─────────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data == "admin_venue_add")
-async def venue_add_start(callback: CallbackQuery, state: FSMContext):
+async def venue_add_start(callback: CallbackQuery, state: FSMContext, db_user=None, is_super_admin: bool = False):
+    if not is_admin(db_user, is_super_admin):
+        await deny(callback)
+        return
     await callback.answer()
     await state.set_state(AddVenueFSM.name)
     await callback.message.edit_text("Введи название новой площадки:", reply_markup=fsm_cancel_kb())
 
 
 @router.message(AddVenueFSM.name, F.text)
-async def venue_add_name(message: Message, state: FSMContext):
+async def venue_add_name(message: Message, state: FSMContext, db_user=None, is_super_admin: bool = False):
+    if not is_admin(db_user, is_super_admin):
+        await state.clear()
+        await deny(message)
+        return
     await state.update_data(name=message.text.strip())
     await state.set_state(AddVenueFSM.city)
     await message.answer("Введи город (например: Лимасол):", reply_markup=fsm_cancel_kb())
 
 
 @router.message(AddVenueFSM.city, F.text)
-async def venue_add_city(message: Message, state: FSMContext):
+async def venue_add_city(message: Message, state: FSMContext, db_user=None, is_super_admin: bool = False):
+    if not is_admin(db_user, is_super_admin):
+        await state.clear()
+        await deny(message)
+        return
     await state.update_data(city=message.text.strip())
     await state.set_state(AddVenueFSM.default_seats)
     await message.answer("Введи количество мест (только цифры):", reply_markup=fsm_cancel_kb())
 
 
 @router.message(AddVenueFSM.default_seats, F.text)
-async def venue_add_seats(message: Message, state: FSMContext):
+async def venue_add_seats(message: Message, state: FSMContext, db_user=None, is_super_admin: bool = False):
+    if not is_admin(db_user, is_super_admin):
+        await state.clear()
+        await deny(message)
+        return
     try:
         seats = int(message.text.strip())
         if seats <= 0:
@@ -196,7 +233,11 @@ async def venue_add_seats(message: Message, state: FSMContext):
 
 
 @router.message(AddVenueFSM.maps_url, F.text)
-async def venue_add_maps_url(message: Message, state: FSMContext, session: AsyncSession):
+async def venue_add_maps_url(message: Message, state: FSMContext, session: AsyncSession, db_user=None, is_super_admin: bool = False):
+    if not is_admin(db_user, is_super_admin):
+        await state.clear()
+        await deny(message)
+        return
     data = await state.get_data()
     maps_url = None if message.text.strip() == "-" else message.text.strip()
     venue = await crud.create_venue(session, data["name"], data["city"], maps_url, data["default_seats"])
@@ -204,7 +245,7 @@ async def venue_add_maps_url(message: Message, state: FSMContext, session: Async
     venues = await crud.list_venues(session, active_only=False)
     await state.clear()
     await message.answer(
-        f"✅ Площадка <b>{venue.name}</b> добавлена!\n\n🏛 <b>Площадки</b>:",
+        f"✅ Площадка <b>{h(venue.name)}</b> добавлена!\n\n🏛 <b>Площадки</b>:",
         reply_markup=venues_list_kb(venues),
     )
 

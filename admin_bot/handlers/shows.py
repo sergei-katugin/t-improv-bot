@@ -24,6 +24,9 @@ from db import crud
 from db.models import UserRole
 from admin_bot.keyboards.reply import main_menu_kb
 from admin_bot.telegram_usernames import normalize_telegram_username, normalize_telegram_username_list
+from admin_bot.security import can_manage_owned, deny, is_admin, manageable_show
+from html_utils import h
+from time_utils import format_local, local_date, local_naive_to_utc, local_now
 from scheduler.jobs import build_announcement_text, send_to_channel, cache_poster_for_public_bot, MAPS_RE, DATE_RE, TIME_RE, _location_line, _fmt_date, _registrar_line
 from admin_bot.keyboards.inline import (
     shows_list_kb, shows_filter_kb, show_detail_kb, show_created_kb, edit_show_fields_kb,
@@ -79,9 +82,9 @@ def _registrar_name(registrar, username: str | None = None) -> str | None:
 
 def _registrar_link(username: str | None, label: str | None = None) -> str | None:
     if not username:
-        return label
+        return h(label) if label else None
     username = username.lstrip("@")
-    return f'<a href="https://t.me/{username}">{label or ("@" + username)}</a>'
+    return f'<a href="https://t.me/{username}">{h(label or ("@" + username))}</a>'
 
 
 def _show_summary(data: dict) -> str:
@@ -90,13 +93,13 @@ def _show_summary(data: dict) -> str:
         location_str += f"\n     🗺 {data['location_url']}"
     return (
         f"📋 <b>Проверьте данные шоу:</b>\n\n"
-        f"🎭 Название: {data.get('title')}\n"
-        f"👥 Команда: {data.get('team_name')}\n"
+        f"🎭 Название: {h(data.get('title', ''))}\n"
+        f"👥 Команда: {h(data.get('team_name', ''))}\n"
         f"📅 Дата: {data.get('show_date_str')}\n"
-        f"🏙 Город: {data.get('city')}\n"
-        f"📍 Площадка: {location_str}\n"
+        f"🏙 Город: {h(data.get('city', ''))}\n"
+        f"📍 Площадка: {h(location_str)}\n"
         f"🪑 Мест: {data.get('max_seats')}\n"
-        f"📝 Текст афиши: {data.get('poster_text') or '(не указан)'}\n"
+        f"📝 Текст афиши: {h(data.get('poster_text') or '(не указан)')}\n"
         f"🖼 Изображение: {'есть' if data.get('poster_file_id') else 'нет'}\n"
         f"👥 Ответственный за записи: "
         f"{_registrar_link(data.get('registrar_username'), data.get('registrar_name')) or '(через бот)'}"
@@ -259,7 +262,7 @@ async def process_team_select(callback: CallbackQuery, callback_data: TeamCb, st
         await callback.message.answer("Команда не найдена. Попробуй ещё раз.")
         return
     await state.update_data(team_name=team.name, team_id=team.id, _team_manual=False)
-    await callback.message.edit_text(f"✅ Команда: {team.name}")
+    await callback.message.edit_text(f"✅ Команда: {h(team.name)}")
     await callback.message.answer(f"{_progress(2)}Введи название шоу:", reply_markup=fsm_cancel_kb())
     await state.set_state(CreateShowFSM.title)
 
@@ -288,7 +291,7 @@ async def process_title(message: Message, state: FSMContext, session: AsyncSessi
         return
     await state.update_data(title=message.text.strip())
     await state.set_state(CreateShowFSM.show_date)
-    now = datetime.utcnow()
+    now = local_now()
     await message.answer(
         f"{_progress(3)}Выбери дату шоу:",
         reply_markup=await (await _make_calendar(session)).start_calendar(year=now.year, month=now.month),
@@ -297,7 +300,7 @@ async def process_title(message: Message, state: FSMContext, session: AsyncSessi
 
 @router.message(CreateShowFSM.show_date)
 async def show_date_text_guard(message: Message, state: FSMContext, session: AsyncSession):
-    now = datetime.utcnow()
+    now = local_now()
     await message.answer(
         "👆 Выбери дату кнопками выше.",
         reply_markup=await (await _make_calendar(session)).start_calendar(year=now.year, month=now.month),
@@ -309,7 +312,7 @@ async def process_calendar(callback: CallbackQuery, callback_data: dict, state: 
     selected, date = await (await _make_calendar(session)).process_selection(callback, callback_data)
     if not selected:
         return
-    if date.date() < datetime.utcnow().date():
+    if date.date() < local_now().date():
         await callback.answer("❌ Дата в прошлом, выбери другую.", show_alert=True)
         return
     await state.update_data(picked_date=date.strftime("%d.%m.%Y"))
@@ -362,15 +365,15 @@ async def process_time(message: Message, state: FSMContext, session: AsyncSessio
 
 async def _save_time(raw: str, msg, state: FSMContext, session: AsyncSession, edit: bool):
     data = await state.get_data()
-    dt = datetime.strptime(f"{data['picked_date']} {raw}", "%d.%m.%Y %H:%M")
-    if dt <= datetime.utcnow():
+    local_dt = datetime.strptime(f"{data['picked_date']} {raw}", "%d.%m.%Y %H:%M")
+    if local_dt.replace(tzinfo=local_now().tzinfo) <= local_now():
         text = "❌ Дата и время уже в прошлом. Выбери другое время:"
         if edit:
             await msg.edit_text(text, reply_markup=_time_kb())
         else:
             await msg.answer(text, reply_markup=_time_kb())
         return
-    await state.update_data(show_date=dt, show_date_str=f"{data['picked_date']} {raw}")
+    await state.update_data(show_date=local_naive_to_utc(local_dt), show_date_str=f"{data['picked_date']} {raw}")
     await state.set_state(CreateShowFSM.select_venue)
     venues = await crud.list_venues(session)
     confirm_text = f"✅ Время: {raw}"
@@ -400,7 +403,7 @@ async def process_venue_select(callback: CallbackQuery, callback_data: VenueCb, 
         )
         await state.set_state(CreateShowFSM.poster_text)
         await callback.message.edit_text(
-            f"✅ Площадка: {venue.name} ({venue.city}) · {venue.default_seats} мест"
+            f"✅ Площадка: {h(venue.name)} ({h(venue.city)}) · {venue.default_seats} мест"
         )
         await callback.message.answer(
             f"{_progress(5, _TOTAL_STEPS_PRESET)}Введи текст афиши:\n⚠️ Не указывай дату, время и адрес — они уже есть в отдельных полях.",
@@ -562,7 +565,7 @@ async def _make_calendar(session: AsyncSession) -> RuCalendar:
     shows = result.scalars().all()
     busy: dict[_date, list[str]] = {}
     for s in shows:
-        d = s.show_date.date()
+        d = local_date(s.show_date)
         creator = s.creator
         if creator:
             name = creator.first_name or creator.username or f"id{creator.telegram_id}"
@@ -578,9 +581,9 @@ def _preview_from_data(data: dict) -> str:
     location_url = data.get("location_url")
     city = data.get("city", "")
     if location_url:
-        location_line = f'📍 <a href="{location_url}">{location}</a>, {city}'
+        location_line = f'📍 <a href="{h(location_url)}">{h(location)}</a>, {h(city)}'
     else:
-        location_line = f"📍 {location}, {city}"
+        location_line = f"📍 {h(location)}, {h(city)}"
 
     show_date = data.get("show_date")
     if show_date:
@@ -592,27 +595,41 @@ def _preview_from_data(data: dict) -> str:
     registrar_name = _registrar_link(data.get("registrar_username"), registrar_name)
     poster = data.get("poster_text") or ""
     lines = [
-        f"🎭 <b>{data.get('title', '')}</b>",
+        f"🎭 <b>{h(data.get('title', ''))}</b>",
         f"📅 {date_str}",
         location_line,
         f"👥 Ответственный за записи: {registrar_name}",
     ]
     if poster:
-        lines += ["", poster]
+        lines += ["", h(poster)]
+    lines += [
+        "",
+        f"🎟 Check-in: {'включён' if data.get('checkin_enabled', False) else 'выключен'}",
+        f"⭐ Отзывы после шоу: {'включены' if data.get('feedback_enabled', False) else 'выключены'}",
+    ]
     return "\n".join(lines)
 
 
-async def _show_confirm(message: Message, state: FSMContext):
+async def _show_confirm(message: Message, state: FSMContext, *, edit: bool = False):
     data = await state.get_data()
     total = data.get("_total", _TOTAL_STEPS_PRESET)
     await state.set_state(CreateShowFSM.confirm)
 
     preview = _preview_from_data(data)
-    kb = confirm_with_back_kb("admin_confirm_create", "admin_cancel_create")
+    kb = confirm_with_back_kb(
+        "admin_confirm_create",
+        "admin_cancel_create",
+        checkin_enabled=data.get("checkin_enabled", False),
+        feedback_enabled=data.get("feedback_enabled", False),
+    )
     header = f"{_progress(total, total)}👁 <b>Так будет выглядеть анонс:</b>\n\n"
 
     file_id = data.get("poster_file_id")
-    if file_id:
+    if edit and message.photo:
+        await message.edit_caption(caption=header + preview, reply_markup=kb)
+    elif edit:
+        await message.edit_text(header + preview, reply_markup=kb)
+    elif file_id:
         await message.answer_photo(
             photo=file_id,
             caption=header + preview,
@@ -620,6 +637,16 @@ async def _show_confirm(message: Message, state: FSMContext):
         )
     else:
         await message.answer(header + preview, reply_markup=kb)
+
+
+@router.callback_query(CreateShowFSM.confirm, F.data.in_({"create_toggle_checkin", "create_toggle_feedback"}))
+async def toggle_create_option(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    field = "checkin_enabled" if callback.data == "create_toggle_checkin" else "feedback_enabled"
+    value = not bool(data.get(field, False))
+    await state.update_data(**{field: value})
+    await callback.answer("Включено" if value else "Выключено")
+    await _show_confirm(callback.message, state, edit=True)
 
 
 async def _ask_registrar(message: Message, state: FSMContext, bot: Bot):
@@ -641,9 +668,9 @@ async def _ask_registrar(message: Message, state: FSMContext, bot: Bot):
     lines = []
     for idx, u in enumerate(organizers, start=1):
         if u.username:
-            lines.append(f"{idx}. <a href=\"https://t.me/{u.username}\">{u.first_name or ('@'+u.username)}</a>")
+            lines.append(f"{idx}. <a href=\"https://t.me/{u.username}\">{h(u.first_name or ('@'+u.username))}</a>")
         else:
-            lines.append(f"{idx}. {u.first_name or ('id'+str(u.telegram_id))}")
+            lines.append(f"{idx}. {h(u.first_name or ('id'+str(u.telegram_id)))}")
     if team_usernames:
         lines.append("\n<b>Участники выбранной команды:</b>")
         lines.extend(
@@ -685,7 +712,7 @@ async def fsm_back(callback: CallbackQuery, state: FSMContext, session: AsyncSes
         await callback.message.edit_text(f"{_progress(2)}Введи название шоу:", reply_markup=fsm_cancel_kb())
 
     elif current == CreateShowFSM.select_time:
-        now = datetime.utcnow()
+        now = local_now()
         await state.set_state(CreateShowFSM.show_date)
         await callback.message.edit_text(
             f"{_progress(3)}Выбери дату шоу:",
@@ -865,6 +892,8 @@ async def confirm_create(callback: CallbackQuery, state: FSMContext, bot: Bot, p
         creator_id=user.id,
         registrar_id=data.get("registrar_id"),
         registrar_username=data.get("registrar_username"),
+        checkin_enabled=bool(data.get("checkin_enabled", False)),
+        feedback_enabled=bool(data.get("feedback_enabled", False)),
     )
     logger.info("admin %s created show id=%s title=%s", tg_id, show.id, data.get('title'))
 
@@ -874,7 +903,7 @@ async def confirm_create(callback: CallbackQuery, state: FSMContext, bot: Bot, p
     except Exception:
         pass
     await callback.message.answer(
-        f"✅ Шоу <b>{data['title']}</b> создано и пока нигде не опубликовано.",
+        f"✅ Шоу <b>{h(data['title'])}</b> создано и пока нигде не опубликовано.",
         reply_markup=main_menu_kb(),
     )
     await callback.message.answer(
@@ -906,6 +935,7 @@ async def cancel_create(callback: CallbackQuery, state: FSMContext, is_super_adm
 # ── List & detail ────────────────────────────────────────────────────────────
 
 _STATUS_LABELS = {"all": "Все", "active": "Активные", "past": "Прошедшие", "cancelled": "Отменённые"}
+_SHOWS_PAGE_SIZE = 20
 
 
 async def _render_shows_list(msg, state: FSMContext, session: AsyncSession, edit: bool = False, can_manage: bool = True):
@@ -913,8 +943,18 @@ async def _render_shows_list(msg, state: FSMContext, session: AsyncSession, edit
     f_status = data.get("f_status", "active")
     f_team = data.get("f_team")
     f_year = data.get("f_year")
+    page = max(0, int(data.get("shows_page", 0)))
 
-    shows = await crud.list_all_shows(session, status=f_status, team=f_team, year=f_year)
+    rows = await crud.list_all_shows(
+        session,
+        status=f_status,
+        team=f_team,
+        year=f_year,
+        limit=_SHOWS_PAGE_SIZE + 1,
+        offset=page * _SHOWS_PAGE_SIZE,
+    )
+    has_next = len(rows) > _SHOWS_PAGE_SIZE
+    shows = rows[:_SHOWS_PAGE_SIZE]
 
     parts = [f"📋 <b>Все шоу</b>"]
     filters = []
@@ -926,10 +966,10 @@ async def _render_shows_list(msg, state: FSMContext, session: AsyncSession, edit
         filters.append(str(f_year))
     if filters:
         parts.append(f" · {', '.join(filters)}")
-    parts.append(f" ({len(shows)}):" if shows else ":")
+    parts.append(f" · стр. {page + 1}:" if shows else ":")
     text = "".join(parts) if shows else "Нет шоу по выбранному фильтру."
 
-    kb = shows_list_kb(shows, can_manage=can_manage)
+    kb = shows_list_kb(shows, can_manage=can_manage, page=page, has_next=has_next)
     try:
         if edit:
             await msg.edit_text(text, reply_markup=kb)
@@ -941,6 +981,15 @@ async def _render_shows_list(msg, state: FSMContext, session: AsyncSession, edit
 
 @router.callback_query(F.data == "admin_shows_list")
 async def cmd_shows_callback(callback: CallbackQuery, state: FSMContext, session: AsyncSession, is_super_admin: bool = False, db_user=None):
+    await callback.answer()
+    from admin_bot.handlers.registrations import _can_manage
+    await _render_shows_list(callback.message, state, session, edit=True, can_manage=_can_manage(is_super_admin, db_user))
+
+
+@router.callback_query(F.data.startswith("admin_shows_page:"))
+async def shows_page(callback: CallbackQuery, state: FSMContext, session: AsyncSession, is_super_admin: bool = False, db_user=None):
+    page = max(0, int(callback.data.rsplit(":", 1)[1]))
+    await state.update_data(shows_page=page)
     await callback.answer()
     from admin_bot.handlers.registrations import _can_manage
     await _render_shows_list(callback.message, state, session, edit=True, can_manage=_can_manage(is_super_admin, db_user))
@@ -964,7 +1013,7 @@ async def shows_filter_menu(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(AdminFilterStatusCb.filter())
 async def filter_set_status(callback: CallbackQuery, callback_data: AdminFilterStatusCb, state: FSMContext):
     new_status = callback_data.status
-    await state.update_data(f_status=new_status)
+    await state.update_data(f_status=new_status, shows_page=0)
     await callback.answer(f"Статус: {_STATUS_LABELS[new_status]}")
     data = await state.get_data()
     current = {"status": new_status, "team": data.get("f_team"), "year": data.get("f_year")}
@@ -976,7 +1025,7 @@ async def filter_set_status(callback: CallbackQuery, callback_data: AdminFilterS
 
 @router.callback_query(F.data == "admin_filter_reset")
 async def filter_reset(callback: CallbackQuery, state: FSMContext, session: AsyncSession, is_super_admin: bool = False, db_user=None):
-    await state.update_data(f_status="active", f_team=None, f_year=None)
+    await state.update_data(f_status="active", f_team=None, f_year=None, shows_page=0)
     await callback.answer("Фильтр сброшен")
     from admin_bot.handlers.registrations import _can_manage
     await _render_shows_list(callback.message, state, session, edit=True, can_manage=_can_manage(is_super_admin, db_user))
@@ -1010,27 +1059,28 @@ async def filter_input(message: Message, state: FSMContext, session: AsyncSessio
         return
     raw = message.text.strip()
     if raw == "/skip":
-        await state.update_data(**{f"f_{mode}": None, "_filter_mode": None})
+        await state.update_data(**{f"f_{mode}": None, "_filter_mode": None, "shows_page": 0})
     elif mode == "year":
         try:
             year = int(raw)
             if not 2000 <= year <= 2100:
                 raise ValueError
-            await state.update_data(f_year=year, _filter_mode=None)
+            await state.update_data(f_year=year, _filter_mode=None, shows_page=0)
         except ValueError:
             await message.answer("Введи корректный год (например 2026) или /skip:")
             return
     else:
-        await state.update_data(f_team=raw, _filter_mode=None)
+        await state.update_data(f_team=raw, _filter_mode=None, shows_page=0)
     await state.set_state(None)
     from admin_bot.handlers.registrations import _can_manage
     await _render_shows_list(message, state, session, edit=False, can_manage=_can_manage(is_super_admin, db_user))
 
 
 @router.callback_query(AdminShowActionCb.filter(F.action == "open"))
-async def show_detail(callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession):
+async def show_detail(callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession, answer_callback: bool = True):
     show_id = callback_data.show_id
-    await callback.answer()
+    if answer_callback:
+        await callback.answer()
 
     show = await crud.get_show(session, show_id)
     if show is None:
@@ -1049,8 +1099,8 @@ async def show_detail(callback: CallbackQuery, callback_data: AdminShowActionCb,
     creator_label = ""
     if creator:
         name = creator.first_name or creator.username or str(creator.telegram_id)
-        uname = f" (@{creator.username})" if creator.username else ""
-        creator_label = f"👤 Создатель: {name}{uname}\n"
+        uname = f" (@{h(creator.username)})" if creator.username else ""
+        creator_label = f"👤 Создатель: {h(name)}{uname}\n"
 
     registrar = show.registrar
     registrar_label = ""
@@ -1060,23 +1110,57 @@ async def show_detail(callback: CallbackQuery, callback_data: AdminShowActionCb,
         registrar_label = "👥 Ответственный за записи: (через бот)\n"
 
     text = (
-        f"🎭 <b>{show.title}</b>\n"
-        f"👥 Команда: {show.team_name}\n"
-        f"📅 {show.show_date.strftime('%d.%m.%Y %H:%M')}\n"
-        f"🏙 {show.city} | 📍 {show.location}\n"
+        f"🎭 <b>{h(show.title)}</b>\n"
+        f"👥 Команда: {h(show.team_name)}\n"
+        f"📅 {format_local(show.show_date)}\n"
+        f"🏙 {h(show.city)} | 📍 {h(show.location)}\n"
         f"🪑 Мест: {seats_left}/{show.max_seats}\n"
         f"{creator_label}"
         f"{registrar_label}"
     )
     if show.poster_text:
-        text += f"\n📝 {show.poster_text}"
+        text += f"\n📝 {h(show.poster_text)}"
 
     from aiogram.exceptions import TelegramBadRequest
-    can_delete = tg_id in ADMIN_ID_LIST
+    can_delete = tg_id in ADMIN_ID_LIST or bool(user and user.role == UserRole.admin)
     try:
         await callback.message.edit_text(text, reply_markup=show_detail_kb(show, is_creator, can_delete=can_delete))
     except TelegramBadRequest:
         await callback.message.answer(text, reply_markup=show_detail_kb(show, is_creator, can_delete=can_delete))
+
+
+@router.callback_query(AdminShowActionCb.filter(F.action == "toggle_checkin"))
+async def toggle_show_checkin(
+    callback: CallbackQuery,
+    callback_data: AdminShowActionCb,
+    session: AsyncSession,
+    db_user=None,
+    is_super_admin: bool = False,
+):
+    show = await manageable_show(session, callback_data.show_id, db_user, is_super_admin)
+    if show is None:
+        await deny(callback, "⛔ Нет доступа к этому шоу.")
+        return
+    show = await crud.update_show(session, show.id, checkin_enabled=not show.checkin_enabled)
+    await callback.answer(f"Check-in {'включён' if show.checkin_enabled else 'выключен'}")
+    await show_detail(callback, AdminShowActionCb(action="open", show_id=show.id), session, answer_callback=False)
+
+
+@router.callback_query(AdminShowActionCb.filter(F.action == "toggle_feedback"))
+async def toggle_show_feedback(
+    callback: CallbackQuery,
+    callback_data: AdminShowActionCb,
+    session: AsyncSession,
+    db_user=None,
+    is_super_admin: bool = False,
+):
+    show = await manageable_show(session, callback_data.show_id, db_user, is_super_admin)
+    if show is None:
+        await deny(callback, "⛔ Нет доступа к этому шоу.")
+        return
+    show = await crud.update_show(session, show.id, feedback_enabled=not show.feedback_enabled)
+    await callback.answer(f"Отзывы {'включены' if show.feedback_enabled else 'выключены'}")
+    await show_detail(callback, AdminShowActionCb(action="open", show_id=show.id), session, answer_callback=False)
 
 
 @router.callback_query(AdminShowActionCb.filter(F.action == "preview"))
@@ -1121,6 +1205,10 @@ def _show_deep_link(show_id: int) -> str:
     return f"https://t.me/{settings.PUBLIC_BOT_USERNAME}?start=show_{show_id}"
 
 
+def _tracked_show_link(show_id: int, source: str) -> str:
+    return f"{_show_deep_link(show_id)}_{source}"
+
+
 @router.callback_query(AdminShowActionCb.filter(F.action == "link"))
 async def send_show_link(callback: CallbackQuery, callback_data: AdminShowActionCb):
     show_id = callback_data.show_id
@@ -1128,8 +1216,11 @@ async def send_show_link(callback: CallbackQuery, callback_data: AdminShowAction
     link = _show_deep_link(show_id)
     await callback.message.answer(
         f"🔗 <b>Ссылка на запись:</b>\n\n"
-        f"<code>{link}</code>\n\n"
-        f"Вставь в сторис через стикер-ссылку или напиши в комментарии под постом.",
+        f"Обычная:\n<code>{link}</code>\n\n"
+        f"Instagram:\n<code>{_tracked_show_link(show_id, 'instagram')}</code>\n\n"
+        f"Telegram-канал:\n<code>{_tracked_show_link(show_id, 'channel')}</code>\n\n"
+        f"Команда:\n<code>{_tracked_show_link(show_id, 'team')}</code>\n\n"
+        "Используй отдельные ссылки, чтобы увидеть источники в аналитике.",
     )
 
 
@@ -1153,9 +1244,9 @@ async def send_show_qr(callback: CallbackQuery, callback_data: AdminShowActionCb
     img.save(buf, format="PNG")
     buf.seek(0)
 
-    date_str = show.show_date.strftime("%d.%m.%Y")
+    date_str = format_local(show.show_date, "%d.%m.%Y")
     caption = (
-        f"📱 <b>QR-код для {show.title}</b>\n"
+        f"📱 <b>QR-код для {h(show.title)}</b>\n"
         f"📅 {date_str}\n\n"
         f"Пост в Instagram → человек наводит камеру → "
         f"переходит в бот → видит шоу → записывается."
@@ -1167,14 +1258,16 @@ async def send_show_qr(callback: CallbackQuery, callback_data: AdminShowActionCb
 
 
 @router.callback_query(AdminShowActionCb.filter(F.action == "announce"))
-async def send_manual_announcement(callback: CallbackQuery, callback_data: AdminShowActionCb, bot: Bot, public_bot: Bot, session: AsyncSession):
+async def send_manual_announcement(
+    callback: CallbackQuery, callback_data: AdminShowActionCb, bot: Bot, public_bot: Bot,
+    session: AsyncSession, db_user=None, is_super_admin: bool = False,
+):
     show_id = callback_data.show_id
-    await callback.answer()
-
-    show = await crud.get_show(session, show_id)
+    show = await manageable_show(session, show_id, db_user, is_super_admin)
     if show is None:
-        await callback.message.answer("Шоу не найдено.")
+        await deny(callback, "⛔ Нет доступа к этому шоу.")
         return
+    await callback.answer()
     if not show.is_active:
         await callback.message.answer("❌ Шоу отменено — анонс нельзя отправить.")
         return
@@ -1200,19 +1293,21 @@ async def send_manual_announcement(callback: CallbackQuery, callback_data: Admin
         await callback.message.answer("✅ Анонс отправлен в канал!")
         logger.info("manual announcement sent show_id=%s channel_msg_id=%s by admin=%s", show_id, msg_id, callback.from_user.id)
     except Exception as e:
-        logger.error("Failed to send manual announcement: %s", e)
-        await callback.message.answer(f"❌ Ошибка при отправке: {e}")
+        logger.exception("Failed to send manual announcement for show_id=%s", show_id)
+        await callback.message.answer("❌ Не удалось отправить анонс. Подробности записаны в лог.")
 
 
 @router.callback_query(AdminShowActionCb.filter(F.action == "remind"))
-async def remind_viewers(callback: CallbackQuery, callback_data: AdminShowActionCb, public_bot: Bot, session: AsyncSession):
+async def remind_viewers(
+    callback: CallbackQuery, callback_data: AdminShowActionCb, public_bot: Bot,
+    session: AsyncSession, db_user=None, is_super_admin: bool = False,
+):
     show_id = callback_data.show_id
-    await callback.answer()
-
-    show = await crud.get_show(session, show_id)
+    show = await manageable_show(session, show_id, db_user, is_super_admin)
     if show is None:
-        await callback.message.answer("Шоу не найдено.")
+        await deny(callback, "⛔ Нет доступа к этому шоу.")
         return
+    await callback.answer()
     if not show.is_active:
         await callback.message.answer("❌ Шоу отменено — напоминания нельзя отправить.")
         return
@@ -1223,11 +1318,11 @@ async def remind_viewers(callback: CallbackQuery, callback_data: AdminShowAction
         await callback.message.answer("Нет записавшихся зрителей.")
         return
 
-    date_str = show.show_date.strftime("%d.%m.%Y %H:%M")
+    date_str = format_local(show.show_date)
     location_line = _location_line(show)
     reminder_text = (
         f"🔔 Напоминание!\n\n"
-        f"Ты записан(а) на шоу <b>{show.title}</b>\n"
+        f"Ты записан(а) на шоу <b>{h(show.title)}</b>\n"
         f"📅 {date_str}\n"
         f"{location_line}"
     )
@@ -1260,19 +1355,21 @@ async def remind_viewers(callback: CallbackQuery, callback_data: AdminShowAction
 # ── Free advertising ─────────────────────────────────────────────────────────
 
 @router.callback_query(AdminShowActionCb.filter(F.action == "free_ad"))
-async def free_ad(callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession):
+async def free_ad(
+    callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession,
+    db_user=None, is_super_admin: bool = False,
+):
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     from aiogram.utils.keyboard import InlineKeyboardBuilder
     from scheduler.jobs import build_announcement_text
     from config import settings
 
     show_id = callback_data.show_id
-    await callback.answer()
-
-    show = await crud.get_show(session, show_id)
+    show = await manageable_show(session, show_id, db_user, is_super_admin)
     if show is None:
-        await callback.message.answer("Шоу не найдено.")
+        await deny(callback, "⛔ Нет доступа к этому шоу.")
         return
+    await callback.answer()
 
     channels = await crud.get_active_ad_channels(session)
     logger.info("admin %s opened free_ad for show_id=%s channels_count=%s", callback.from_user.id, show_id, len(channels))
@@ -1309,19 +1406,21 @@ async def free_ad(callback: CallbackQuery, callback_data: AdminShowActionCb, ses
 # ── Cancel show ──────────────────────────────────────────────────────────────
 
 @router.callback_query(AdminShowActionCb.filter(F.action == "cancel"))
-async def cancel_show_confirm(callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession):
+async def cancel_show_confirm(
+    callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession,
+    db_user=None, is_super_admin: bool = False,
+):
     show_id = callback_data.show_id
-    await callback.answer()
-
-    show = await crud.get_show(session, show_id)
+    show = await manageable_show(session, show_id, db_user, is_super_admin)
     if show is None:
-        await callback.message.answer("Шоу не найдено.")
+        await deny(callback, "⛔ Нет доступа к этому шоу.")
         return
+    await callback.answer()
 
     await callback.message.edit_text(
         f"🚫 <b>Отменить шоу?</b>\n\n"
-        f"🎭 {show.title}\n"
-        f"📅 {show.show_date.strftime('%d.%m.%Y %H:%M')}\n\n"
+        f"🎭 {h(show.title)}\n"
+        f"📅 {format_local(show.show_date)}\n\n"
         f"Все записанные зрители получат уведомление об отмене.\n"
         f"В канал будет отправлено сообщение с перечёркнутым анонсом.\n\n"
         f"<b>Это действие нельзя отменить.</b>",
@@ -1330,11 +1429,14 @@ async def cancel_show_confirm(callback: CallbackQuery, callback_data: AdminShowA
 
 
 @router.callback_query(AdminShowActionCb.filter(F.action == "delete"))
-async def delete_show_confirm(callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession):
-    await callback.answer()
-    if callback.from_user.id not in ADMIN_ID_LIST:
-        await callback.answer("Удалять шоу могут только администраторы.", show_alert=True)
+async def delete_show_confirm(
+    callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession,
+    db_user=None, is_super_admin: bool = False,
+):
+    if not is_admin(db_user, is_super_admin):
+        await deny(callback, "Удалять шоу могут только администраторы.")
         return
+    await callback.answer()
 
     show_id = callback_data.show_id
     show = await crud.get_show(session, show_id)
@@ -1344,8 +1446,8 @@ async def delete_show_confirm(callback: CallbackQuery, callback_data: AdminShowA
 
     await callback.message.edit_text(
         f"🗑 <b>Удалить шоу навсегда?</b>\n\n"
-        f"🎭 {show.title}\n"
-        f"📅 {show.show_date.strftime('%d.%m.%Y %H:%M')}\n\n"
+        f"🎭 {h(show.title)}\n"
+        f"📅 {format_local(show.show_date)}\n\n"
         f"Это удалит все записи, лог анонсов и связанные данные.\n"
         f"<b>Действие необратимо.</b>",
         reply_markup=confirm_kb(AdminShowActionCb(action="confirm_delete", show_id=show_id).pack(), AdminShowActionCb(action="open", show_id=show_id).pack()),
@@ -1353,11 +1455,14 @@ async def delete_show_confirm(callback: CallbackQuery, callback_data: AdminShowA
 
 
 @router.callback_query(AdminShowActionCb.filter(F.action == "confirm_delete"))
-async def delete_show_execute(callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession):
-    await callback.answer()
-    if callback.from_user.id not in ADMIN_ID_LIST:
-        await callback.answer("Удалять шоу могут только администраторы.", show_alert=True)
+async def delete_show_execute(
+    callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession,
+    db_user=None, is_super_admin: bool = False,
+):
+    if not is_admin(db_user, is_super_admin):
+        await deny(callback, "Удалять шоу могут только администраторы.")
         return
+    await callback.answer()
 
     show_id = callback_data.show_id
     show = await crud.get_show(session, show_id)
@@ -1370,17 +1475,22 @@ async def delete_show_execute(callback: CallbackQuery, callback_data: AdminShowA
         await callback.message.edit_text("Не удалось удалить шоу — возможно, есть связанные записи. Попробуйте позже.")
         return
 
-    await callback.message.edit_text(f"🗑 Шоу <b>{show.title}</b> удалено навсегда.")
+    await callback.message.edit_text(f"🗑 Шоу <b>{h(show.title)}</b> удалено навсегда.")
     await callback.message.answer("Главное меню:", reply_markup=main_menu_kb())
 
 
 @router.callback_query(AdminShowActionCb.filter(F.action == "confirm_cancel"))
-async def cancel_show_execute(callback: CallbackQuery, callback_data: AdminShowActionCb, bot: Bot, public_bot: Bot, session: AsyncSession):
+async def cancel_show_execute(
+    callback: CallbackQuery, callback_data: AdminShowActionCb, bot: Bot, public_bot: Bot,
+    session: AsyncSession, db_user=None, is_super_admin: bool = False,
+):
     show_id = callback_data.show_id
+    show = await manageable_show(session, show_id, db_user, is_super_admin)
+    if show is None:
+        await deny(callback, "⛔ Нет доступа к этому шоу.")
+        return
     await callback.answer()
-
-    show = await crud.get_show(session, show_id)
-    if show is None or not show.is_active:
+    if not show.is_active:
         await callback.message.edit_text("Шоу не найдено или уже отменено.")
         return
     was_announced = await crud.has_any_announcement_been_sent(session, show_id)
@@ -1389,14 +1499,14 @@ async def cancel_show_execute(callback: CallbackQuery, callback_data: AdminShowA
     await crud.update_show(session, show_id, is_active=False)
     logger.info("show cancelled id=%s by admin=%s", show_id, callback.from_user.id)
 
-    await callback.message.edit_text(f"🚫 Шоу <b>{show.title}</b> отменено.")
+    await callback.message.edit_text(f"🚫 Шоу <b>{h(show.title)}</b> отменено.")
 
     if was_announced:
         channel_text = (
             f"🚫 <b>Шоу отменено</b>\n\n"
-            f"🎭 <s>{show.title}</s>\n"
-            f"📅 <s>{show.show_date.strftime('%d.%m.%Y %H:%M')}</s>\n"
-            f"📍 <s>{show.location}, {show.city}</s>\n\n"
+            f"🎭 <s>{h(show.title)}</s>\n"
+            f"📅 <s>{format_local(show.show_date)}</s>\n"
+            f"📍 <s>{h(show.location)}, {h(show.city)}</s>\n\n"
             f"Приносим извинения за неудобства. Следите за новыми анонсами!"
         )
         try:
@@ -1412,8 +1522,8 @@ async def cancel_show_execute(callback: CallbackQuery, callback_data: AdminShowA
     personal_text = (
         f"❌ <b>Шоу отменено</b>\n\n"
         f"К сожалению, мероприятие, на которое ты записан(а), отменено:\n\n"
-        f"🎭 <b>{show.title}</b>\n"
-        f"📅 {show.show_date.strftime('%d.%m.%Y %H:%M')}\n"
+        f"🎭 <b>{h(show.title)}</b>\n"
+        f"📅 {format_local(show.show_date)}\n"
         f"{_location_line(show)}\n\n"
         f"Приносим извинения! Следи за новыми анонсами 🎭"
     )
@@ -1442,12 +1552,17 @@ async def cancel_show_execute(callback: CallbackQuery, callback_data: AdminShowA
 
 
 @router.callback_query(AdminShowActionCb.filter(F.action == "restore"))
-async def restore_show(callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession):
+async def restore_show(
+    callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession,
+    db_user=None, is_super_admin: bool = False,
+):
     show_id = callback_data.show_id
+    show = await manageable_show(session, show_id, db_user, is_super_admin)
+    if show is None:
+        await deny(callback, "⛔ Нет доступа к этому шоу.")
+        return
     await callback.answer()
-
-    show = await crud.get_show(session, show_id)
-    if show is None or show.is_active:
+    if show.is_active:
         await callback.message.answer("Шоу не найдено или уже активно.")
         return
     await crud.update_show(session, show_id, is_active=True)
@@ -1460,7 +1575,7 @@ async def restore_show(callback: CallbackQuery, callback_data: AdminShowActionCb
     kb = show_detail_kb(show, is_creator, can_delete=(callback.from_user.id in ADMIN_ID_LIST))
 
     await callback.message.edit_text(
-        f"✅ Шоу <b>{show.title}</b> восстановлено и снова активно.",
+        f"✅ Шоу <b>{h(show.title)}</b> восстановлено и снова активно.",
         reply_markup=kb,
     )
 
@@ -1468,26 +1583,54 @@ async def restore_show(callback: CallbackQuery, callback_data: AdminShowActionCb
 # ── Edit flow ────────────────────────────────────────────────────────────────
 
 @router.callback_query(AdminShowActionCb.filter(F.action == "edit"))
-async def start_edit(callback: CallbackQuery, callback_data: AdminShowActionCb, state: FSMContext):
+async def start_edit(
+    callback: CallbackQuery, callback_data: AdminShowActionCb, state: FSMContext,
+    session: AsyncSession, db_user=None, is_super_admin: bool = False,
+):
     show_id = callback_data.show_id
+    show = await manageable_show(session, show_id, db_user, is_super_admin)
+    if show is None:
+        await deny(callback, "⛔ Нет доступа к этому шоу.")
+        return
     await callback.answer()
     await state.set_state(EditShowFSM.field)
     await state.update_data(editing_show_id=show_id)
     await callback.message.edit_text(
         "Выбери поле для редактирования:",
-        reply_markup=edit_show_fields_kb(show_id),
+        reply_markup=edit_show_fields_kb(show),
     )
 
 
 @router.callback_query(AdminShowFieldCb.filter())
-async def choose_edit_field(callback: CallbackQuery, callback_data: AdminShowFieldCb, state: FSMContext, session: AsyncSession):
+async def choose_edit_field(
+    callback: CallbackQuery, callback_data: AdminShowFieldCb, state: FSMContext,
+    session: AsyncSession, db_user=None, is_super_admin: bool = False,
+):
     show_id = callback_data.show_id
     field = callback_data.field
+    allowed_fields = {
+        "title", "team_name", "show_date", "city", "location", "location_url",
+        "max_seats", "registrar_id", "poster_text", "poster_file_id",
+        "checkin_enabled", "feedback_enabled",
+    }
+    show = await manageable_show(session, show_id, db_user, is_super_admin)
+    if show is None or field not in allowed_fields:
+        await deny(callback, "⛔ Недоступное поле или недостаточно прав.")
+        return
+    if field in {"checkin_enabled", "feedback_enabled"}:
+        updated = await crud.update_show(session, show_id, **{field: not bool(getattr(show, field))})
+        label = "Check-in" if field == "checkin_enabled" else "Отзывы"
+        enabled = bool(getattr(updated, field))
+        await callback.answer(f"{label}: {'вкл' if enabled else 'выкл'}")
+        await state.set_state(EditShowFSM.field)
+        await callback.message.edit_text(
+            "Выбери поле для редактирования:",
+            reply_markup=edit_show_fields_kb(updated),
+        )
+        return
     await callback.answer()
     await state.set_state(EditShowFSM.new_value)
     await state.update_data(editing_show_id=show_id, editing_field=field)
-
-    show = await crud.get_show(session, show_id)
 
     prompts = {
         "title": "Введи новое название шоу:",
@@ -1505,7 +1648,7 @@ async def choose_edit_field(callback: CallbackQuery, callback_data: AdminShowFie
     current_values = {
         "title": show.title,
         "team_name": show.team_name,
-        "show_date": show.show_date.strftime("%d.%m.%Y %H:%M"),
+        "show_date": format_local(show.show_date),
         "city": show.city,
         "location": show.location,
         "location_url": show.location_url or "(не указана)",
@@ -1522,7 +1665,7 @@ async def choose_edit_field(callback: CallbackQuery, callback_data: AdminShowFie
         return
 
     if current and field != "poster_file_id":
-        text = f"{prompt}\n\n<b>Текущее значение:</b>\n<code>{current}</code>"
+        text = f"{prompt}\n\n<b>Текущее значение:</b>\n<code>{h(current)}</code>"
     else:
         text = prompt
 
@@ -1542,14 +1685,14 @@ async def _ask_edit_registrar(message: Message | CallbackQuery, state: FSMContex
     lines = []
     for idx, u in enumerate(organizers, start=1):
         if u.username:
-            lines.append(f"{idx}. <a href=\"https://t.me/{u.username}\">{u.first_name or ('@'+u.username)}</a>")
+            lines.append(f"{idx}. <a href=\"https://t.me/{u.username}\">{h(u.first_name or ('@'+u.username))}</a>")
         else:
-            lines.append(f"{idx}. {u.first_name or ('id'+str(u.telegram_id))}")
+            lines.append(f"{idx}. {h(u.first_name or ('id'+str(u.telegram_id)))}")
 
     text = "Выбери ответственного за записи (или пропусти):\n\n" + "\n".join(lines)
     if show and (show.registrar or show.registrar_username):
         current_name = _registrar_name(show.registrar, show.registrar_username)
-        text += f"\n\nТекущий: <b>{current_name}</b>"
+        text += f"\n\nТекущий: <b>{h(current_name)}</b>"
 
     kb = InlineKeyboardBuilder()
     for u in organizers:
@@ -1567,7 +1710,10 @@ async def _ask_edit_registrar(message: Message | CallbackQuery, state: FSMContex
 
 
 @router.callback_query(EditShowFSM.new_value, lambda q: q.data and q.data.startswith("registrar:"))
-async def edit_process_registrar_choice(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+async def edit_process_registrar_choice(
+    callback: CallbackQuery, state: FSMContext, session: AsyncSession,
+    db_user=None, is_super_admin: bool = False,
+):
     await callback.answer()
     data = await state.get_data()
     if data.get("editing_field") != "registrar_id":
@@ -1591,33 +1737,46 @@ async def edit_process_registrar_choice(callback: CallbackQuery, state: FSMConte
             "registrar_id": value,
             "registrar_username": user.username.lower() if user and user.username else None,
         }
-    await _apply_edit(callback.message, state, session, registrar_value)
+    await _apply_edit(
+        callback.message, state, session, registrar_value,
+        db_user=db_user, is_super_admin=is_super_admin,
+    )
 
 
 @router.message(EditShowFSM.new_value, F.photo)
-async def save_edit_photo(message: Message, state: FSMContext, session: AsyncSession, bot: Bot, public_bot: Bot):
+async def save_edit_photo(
+    message: Message, state: FSMContext, session: AsyncSession, bot: Bot, public_bot: Bot,
+    db_user=None, is_super_admin: bool = False,
+):
     data = await state.get_data()
     if data.get("editing_field") != "poster_file_id":
         await message.answer("Ожидался текст. Введи текстовое значение:")
         return
-    await _apply_edit(message, state, session, message.photo[-1].file_id, bot=bot, public_bot=public_bot)
+    await _apply_edit(
+        message, state, session, message.photo[-1].file_id, bot=bot, public_bot=public_bot,
+        db_user=db_user, is_super_admin=is_super_admin,
+    )
 
 
 @router.message(EditShowFSM.new_value, F.text)
-async def save_edit_text(message: Message, state: FSMContext, session: AsyncSession, bot: Bot, public_bot: Bot):
+async def save_edit_text(
+    message: Message, state: FSMContext, session: AsyncSession, bot: Bot, public_bot: Bot,
+    db_user=None, is_super_admin: bool = False,
+):
     data = await state.get_data()
     field = data.get("editing_field")
     raw = message.text.strip()
 
     if field == "show_date":
         try:
-            value = datetime.strptime(raw, "%d.%m.%Y %H:%M")
+            local_value = datetime.strptime(raw, "%d.%m.%Y %H:%M")
         except ValueError:
             await message.answer("Неверный формат. Введи как ДД.ММ.ГГГГ ЧЧ:ММ:")
             return
-        if value <= datetime.utcnow():
+        if local_value.replace(tzinfo=local_now().tzinfo) <= local_now():
             await message.answer("❌ Дата в прошлом. Введи будущую дату:")
             return
+        value = local_naive_to_utc(local_value)
     elif field == "max_seats":
         try:
             value = int(raw)
@@ -1670,20 +1829,30 @@ async def save_edit_text(message: Message, state: FSMContext, session: AsyncSess
                     "registrar_username": username,
                 }
     else:
-        value = raw
+        await state.clear()
+        await deny(message, "⛔ Недоступное поле.")
+        return
 
-    await _apply_edit(message, state, session, value, bot=bot if field == "show_date" else None,
-                      public_bot=public_bot if field == "show_date" else None)
+    notify_fields = {"show_date", "title", "location", "city"}
+    await _apply_edit(message, state, session, value, bot=bot if field in notify_fields else None,
+                      public_bot=public_bot if field in notify_fields else None,
+                      db_user=db_user, is_super_admin=is_super_admin)
 
 
-async def _apply_edit(message: Message, state: FSMContext, session: AsyncSession, value, bot: Bot = None, public_bot: Bot = None):
+async def _apply_edit(
+    message: Message, state: FSMContext, session: AsyncSession, value,
+    bot: Bot = None, public_bot: Bot = None, db_user=None, is_super_admin: bool = False,
+):
     data = await state.get_data()
     show_id = data["editing_show_id"]
     field = data["editing_field"]
+    old_show = await manageable_show(session, show_id, db_user, is_super_admin)
+    if old_show is None:
+        await state.clear()
+        await deny(message, "⛔ Нет доступа к этому шоу.")
+        return
     await state.clear()
-
-    old_show = await crud.get_show(session, show_id)
-    old_date = old_show.show_date if old_show else None
+    old_value = getattr(old_show, field, None)
     update_fields = value if field == "registrar_id" and isinstance(value, dict) else {field: value}
     show = await crud.update_show(session, show_id, **update_fields)
 
@@ -1705,14 +1874,61 @@ async def _apply_edit(message: Message, state: FSMContext, session: AsyncSession
     back_kb.button(text="◀️ К шоу", callback_data=AdminShowActionCb(action="open", show_id=show_id).pack())
     await message.answer("✅ Поле обновлено!", reply_markup=back_kb.as_markup())
 
-    if field == "show_date" and old_date and public_bot and bot:
-        await _notify_date_change(show, old_date, bot, public_bot)
+    if field in {"show_date", "title", "location", "city"} and old_value is not None and public_bot and bot:
+        await _notify_show_change(show, field, old_value, bot, public_bot)
+
+
+async def _notify_show_change(show, field: str, old_value, admin_bot: Bot, public_bot: Bot):
+    if field == "show_date":
+        await _notify_date_change(show, old_value, admin_bot, public_bot)
+        return
+
+    labels = {
+        "title": ("название", "🎭"),
+        "location": ("площадка", "📍"),
+        "city": ("город", "🏙"),
+    }
+    label, icon = labels[field]
+    new_value = getattr(show, field)
+    if new_value == old_value:
+        return
+    old_text = h(str(old_value))
+    new_text = h(str(new_value))
+    async with AsyncSessionLocal() as session:
+        reply_to = await crud.get_last_channel_message_id(session, show.id)
+        users = await crud.get_registered_users_for_show(session, show.id)
+
+    channel_text = (
+        f"⚠️ <b>Изменилось {label} шоу</b>\n\n"
+        f"{icon} Было: <s>{old_text}</s>\n"
+        f"{icon} Стало: <b>{new_text}</b>\n\n"
+        "Обновлённый анонс:"
+    )
+    try:
+        await send_to_channel(public_bot, admin_bot, show, channel_text, reply_to_message_id=reply_to)
+    except Exception:
+        logger.exception("Failed to post show change field=%s show=%s", field, show.id)
+
+    personal_text = (
+        f"⚠️ <b>В шоу изменилось {label}</b>\n\n"
+        f"{icon} Было: <s>{old_text}</s>\n"
+        f"{icon} Стало: <b>{new_text}</b>\n\n"
+        f"🎭 {h(show.title)}\n📅 {format_local(show.show_date)}\n{_location_line(show)}"
+    )
+    sent, failed = 0, 0
+    for user in users:
+        try:
+            await public_bot.send_message(user.telegram_id, personal_text)
+            sent += 1
+        except Exception:
+            failed += 1
+    logger.info("Show-change notifications field=%s sent=%s failed=%s show=%s", field, sent, failed, show.id)
 
 
 async def _notify_date_change(show, old_date, admin_bot: Bot, public_bot: Bot):
     from db import crud as _crud
     old_str = old_date.strftime("%d.%m.%Y %H:%M")
-    new_str = show.show_date.strftime("%d.%m.%Y %H:%M")
+    new_str = format_local(show.show_date)
 
     async with AsyncSessionLocal() as session:
         reply_to = await _crud.get_last_channel_message_id(session, show.id)
@@ -1731,11 +1947,11 @@ async def _notify_date_change(show, old_date, admin_bot: Bot, public_bot: Bot):
     except Exception:
         logger.exception("Failed to post date-change to channel")
 
-    new_date_str = show.show_date.strftime("%d.%m.%Y %H:%M")
+    new_date_str = format_local(show.show_date)
     location_line = _location_line(show)
     personal_text = (
         f"⚠️ <b>Дата шоу изменилась!</b>\n\n"
-        f"Ты записан(а) на шоу <b>{show.title}</b>\n"
+        f"Ты записан(а) на шоу <b>{h(show.title)}</b>\n"
         f"📅 Было: <s>{old_str}</s>\n"
         f"📅 Стало: {new_date_str}\n"
         f"{location_line}"

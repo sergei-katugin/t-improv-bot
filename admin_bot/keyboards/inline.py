@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from db.models import Show, UserRole
+from time_utils import format_local, utc_now
 from admin_bot.callbacks import (
-    AdminShowActionCb, AdminShowFieldCb,
+    AdminShowActionCb, AdminShowFieldCb, AdminCheckinCb, AdminManualCheckinCb,
     AdminTeamActionCb, AdminTeamFieldCb,
     AdminVenueActionCb, AdminVenueFieldCb,
     AdminAdChannelCb, AdminRevokeCb, AdminFilterStatusCb,
@@ -16,20 +16,31 @@ from admin_bot.callbacks import (
 def _show_status_icon(show: Show) -> str:
     if not show.is_active:
         return "🚫"
-    if show.show_date < datetime.utcnow():
+    if show.show_date < utc_now():
         return "✔️"
     return "🎭"
 
 
-def shows_list_kb(shows: list[Show], filter_label: str = "", can_manage: bool = True) -> InlineKeyboardMarkup:
+def shows_list_kb(
+    shows: list[Show],
+    filter_label: str = "",
+    can_manage: bool = True,
+    *,
+    page: int = 0,
+    has_next: bool = False,
+) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for show in shows:
-        date_str = show.show_date.strftime("%d.%m.%Y")
+        date_str = format_local(show.show_date, "%d.%m.%Y")
         icon = _show_status_icon(show)
         builder.button(
             text=f"{icon} {show.title} ({show.team_name}) — {date_str}",
             callback_data=AdminShowActionCb(action="open", show_id=show.id).pack(),
         )
+    if page > 0:
+        builder.button(text="◀️", callback_data=f"admin_shows_page:{page - 1}")
+    if has_next:
+        builder.button(text="▶️", callback_data=f"admin_shows_page:{page + 1}")
     builder.button(text="🆕 Создать", callback_data="admin_create_show")
     builder.button(text="🔍 Фильтр", callback_data="admin_shows_filter")
     builder.adjust(1)
@@ -73,6 +84,18 @@ def show_detail_kb(show: Show, is_creator_or_admin: bool, can_delete: bool = Fal
         )
         builder.button(text="✉️ Написать создателю", url=creator_url)
     if is_creator_or_admin:
+        builder.button(text="📊 Аналитика", callback_data=AdminShowActionCb(action="analytics", show_id=show.id).pack())
+        builder.button(text="📤 CSV", callback_data=AdminShowActionCb(action="export", show_id=show.id).pack())
+        builder.button(
+            text=f"🎟 Check-in: {'вкл' if show.checkin_enabled else 'выкл'}",
+            callback_data=AdminShowActionCb(action="toggle_checkin", show_id=show.id).pack(),
+        )
+        builder.button(
+            text=f"⭐ Отзывы: {'вкл' if show.feedback_enabled else 'выкл'}",
+            callback_data=AdminShowActionCb(action="toggle_feedback", show_id=show.id).pack(),
+        )
+        if show.checkin_enabled:
+            builder.button(text="✅ Отметить пришедших", callback_data=AdminShowActionCb(action="checkin", show_id=show.id).pack())
         builder.button(text="✏️ Редактировать",    callback_data=AdminShowActionCb(action="edit", show_id=show.id).pack())
         builder.button(text="📢 Отправить анонс",  callback_data=AdminShowActionCb(action="announce", show_id=show.id).pack())
         builder.button(text="🔔 Напомнить зрителям", callback_data=AdminShowActionCb(action="remind", show_id=show.id).pack())
@@ -88,6 +111,28 @@ def show_detail_kb(show: Show, is_creator_or_admin: bool, can_delete: bool = Fal
     return builder.as_markup()
 
 
+def checkin_kb(show_id: int, registrations, manual_attendees=()) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for reg in registrations:
+        if reg.is_cancelled:
+            continue
+        mark = "✅" if reg.checked_in_at else "⬜️"
+        party = 1 + (reg.guests or 0)
+        builder.button(
+            text=f"{mark} {reg.attendee_name} ({party})",
+            callback_data=AdminCheckinCb(show_id=show_id, registration_id=reg.id).pack(),
+        )
+    for attendee in manual_attendees:
+        mark = "✅" if attendee.checked_in_at else "⬜️"
+        builder.button(
+            text=f"{mark} {attendee.name} [вручную]",
+            callback_data=AdminManualCheckinCb(show_id=show_id, attendee_id=attendee.id).pack(),
+        )
+    builder.button(text="◀️ К шоу", callback_data=AdminShowActionCb(action="open", show_id=show_id).pack())
+    builder.adjust(1)
+    return builder.as_markup()
+
+
 def show_created_kb(show_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="👁 Проверить превью",  callback_data=AdminShowActionCb(action="preview", show_id=show_id).pack())
@@ -99,8 +144,9 @@ def show_created_kb(show_id: int) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def edit_show_fields_kb(show_id: int) -> InlineKeyboardMarkup:
+def edit_show_fields_kb(show: Show) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    show_id = show.id
     fields = [
         ("Название",                "title"),
         ("Команда",                 "team_name"),
@@ -115,6 +161,14 @@ def edit_show_fields_kb(show_id: int) -> InlineKeyboardMarkup:
     ]
     for label, field in fields:
         builder.button(text=label, callback_data=AdminShowFieldCb(show_id=show_id, field=field).pack())
+    builder.button(
+        text=f"🎟 Check-in: {'вкл' if show.checkin_enabled else 'выкл'}",
+        callback_data=AdminShowFieldCb(show_id=show_id, field="checkin_enabled").pack(),
+    )
+    builder.button(
+        text=f"⭐ Отзывы: {'вкл' if show.feedback_enabled else 'выкл'}",
+        callback_data=AdminShowFieldCb(show_id=show_id, field="feedback_enabled").pack(),
+    )
     builder.button(text="◀️ Назад", callback_data=AdminShowActionCb(action="open", show_id=show_id).pack())
     builder.adjust(2)
     return builder.as_markup()
@@ -139,12 +193,26 @@ def confirm_kb(yes_data: str, no_data: str) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def confirm_with_back_kb(yes_data: str, no_data: str) -> InlineKeyboardMarkup:
+def confirm_with_back_kb(
+    yes_data: str,
+    no_data: str,
+    *,
+    checkin_enabled: bool = False,
+    feedback_enabled: bool = False,
+) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    builder.button(
+        text=f"🎟 Check-in: {'вкл' if checkin_enabled else 'выкл'}",
+        callback_data="create_toggle_checkin",
+    )
+    builder.button(
+        text=f"⭐ Отзывы: {'вкл' if feedback_enabled else 'выкл'}",
+        callback_data="create_toggle_feedback",
+    )
     builder.button(text="✅ Создать шоу", callback_data=yes_data)
     builder.button(text="◀️ Назад",       callback_data="fsm_back")
     builder.button(text="❌ Отмена",      callback_data=no_data)
-    builder.adjust(2, 1)
+    builder.adjust(2, 2, 1)
     return builder.as_markup()
 
 

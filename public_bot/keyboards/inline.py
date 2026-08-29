@@ -1,16 +1,19 @@
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from config import settings
 from db.models import Show
+from time_utils import format_local, utc_to_local
 from public_bot.callbacks import (
     ShowCb, RegisterCb, ConfirmRegCb, CancelRegCb,
     EditGuestsCb, GuestsCb, GuestsCustomCb, RemindToggleCb, AttendanceCb,
+    CalendarCb, FeedbackCb,
 )
 
 
 def shows_list_kb(shows: list[Show], registered_ids: set[int] = None) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for show in shows:
-        date_str = show.show_date.strftime("%d.%m.%Y")
+        date_str = format_local(show.show_date, "%d.%m.%Y")
         mark = "✅ " if registered_ids and show.id in registered_ids else ""
         builder.button(
             text=f"{mark}🎭 {show.title} ({show.team_name}) — {date_str}",
@@ -25,6 +28,7 @@ def shows_list_kb(shows: list[Show], registered_ids: set[int] = None) -> InlineK
 def show_detail_kb(show_id: int, is_registered: bool, seats_left: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     if is_registered:
+        builder.button(text="📅 Добавить в календарь", callback_data=CalendarCb(show_id=show_id).pack())
         builder.button(text="👥 Изменить кол-во гостей", callback_data=EditGuestsCb(show_id=show_id).pack())
         builder.button(text="❌ Отменить запись", callback_data=CancelRegCb(show_id=show_id).pack())
     elif seats_left > 0:
@@ -89,10 +93,41 @@ def attendance_kb(show_id: int) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+def calendar_kb(show) -> InlineKeyboardMarkup:
+    from datetime import timedelta
+    from urllib.parse import urlencode
+
+    local_start = utc_to_local(show.show_date)
+    end = local_start + timedelta(hours=2)
+    params = urlencode({
+        "action": "TEMPLATE",
+        "text": show.title,
+        "dates": f"{local_start.strftime('%Y%m%dT%H%M%S')}/{end.strftime('%Y%m%dT%H%M%S')}",
+        "ctz": settings.APP_TIMEZONE,
+        "location": f"{show.location}, {show.city}",
+        "details": show.poster_text or "Импровизационное шоу",
+    })
+    builder = InlineKeyboardBuilder()
+    builder.button(text="📅 Google Calendar", url=f"https://calendar.google.com/calendar/render?{params}")
+    builder.button(text="📎 Apple / Outlook (.ics)", callback_data=CalendarCb(show_id=show.id).pack())
+    if show.location_url:
+        builder.button(text="🗺 Построить маршрут", url=show.location_url)
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def feedback_kb(show_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for rating in range(1, 6):
+        builder.button(text=f"{rating} ⭐", callback_data=FeedbackCb(show_id=show_id, rating=rating).pack())
+    builder.adjust(5)
+    return builder.as_markup()
+
+
 def my_shows_kb(registrations) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for reg in registrations:
-        date_str = reg.show.show_date.strftime("%d.%m.%Y")
+        date_str = format_local(reg.show.show_date, "%d.%m.%Y")
         guests = getattr(reg, "guests", 0) or 0
         suffix = f" ({1 + guests} чел.)" if guests > 0 else ""
         builder.button(

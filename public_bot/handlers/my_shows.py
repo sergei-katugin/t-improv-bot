@@ -11,6 +11,7 @@ from db.models import User
 from public_bot.keyboards.inline import my_shows_kb, shows_list_kb
 from public_bot.keyboards.reply import main_menu_kb
 from public_bot.callbacks import CancelRegCb
+from html_utils import h
 
 router = Router()
 logger = get_project_logger(__name__)
@@ -79,18 +80,18 @@ async def cancel_registration(callback: CallbackQuery, callback_data: CancelRegC
     if regs:
         if is_photo:
             await callback.message.answer(
-                f"✅ Запись на <b>{show_title}</b> отменена.\n\n📋 <b>Оставшиеся записи:</b>",
+                f"✅ Запись на <b>{h(show_title)}</b> отменена.\n\n📋 <b>Оставшиеся записи:</b>",
                 reply_markup=my_shows_kb(regs),
             )
         else:
             await callback.message.edit_text(
-                f"✅ Запись на <b>{show_title}</b> отменена.\n\n📋 <b>Оставшиеся записи:</b>",
+                f"✅ Запись на <b>{h(show_title)}</b> отменена.\n\n📋 <b>Оставшиеся записи:</b>",
                 reply_markup=my_shows_kb(regs),
             )
     else:
         if is_photo:
             await callback.message.answer(
-                f"✅ Запись на <b>{show_title}</b> отменена.",
+                f"✅ Запись на <b>{h(show_title)}</b> отменена.",
                 reply_markup=updated_menu,
             )
         else:
@@ -99,7 +100,7 @@ async def cancel_registration(callback: CallbackQuery, callback_data: CancelRegC
             except Exception:
                 pass
             await callback.message.answer(
-                f"✅ Запись на <b>{show_title}</b> отменена.",
+                f"✅ Запись на <b>{h(show_title)}</b> отменена.",
                 reply_markup=updated_menu,
             )
 

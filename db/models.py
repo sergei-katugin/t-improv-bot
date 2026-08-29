@@ -1,15 +1,16 @@
 import enum
-from datetime import datetime, timezone
+from datetime import datetime
 from sqlalchemy import (
     BigInteger, Boolean, Column, DateTime, Enum, ForeignKey,
-    Integer, String, Text, UniqueConstraint,
+    Index, Integer, String, Text, UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
 from db.base import Base
+from time_utils import utc_now
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return utc_now()
 
 
 class UserRole(str, enum.Enum):
@@ -51,6 +52,8 @@ class Show(Base):
     pub_poster_file_id = Column(String(256), nullable=True)
     max_seats = Column(Integer, nullable=False, default=50)
     is_active = Column(Boolean, default=True, nullable=False)
+    checkin_enabled = Column(Boolean, default=False, nullable=False)
+    feedback_enabled = Column(Boolean, default=False, nullable=False)
     creator_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     registrar_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     registrar_username = Column(String(64), nullable=True)
@@ -68,6 +71,15 @@ class Show(Base):
         "AnnouncementLog",
         back_populates="show",
         cascade="all, delete-orphan",
+    )
+    feedback = relationship(
+        "ShowFeedback",
+        back_populates="show",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        Index("ix_shows_active_date", "is_active", "show_date"),
     )
 
 
@@ -90,13 +102,37 @@ class Registration(Base):
     reminded_0d = Column(Boolean, default=False, nullable=False)
     confirmed = Column(Boolean, nullable=True)
     guests = Column(Integer, default=0, nullable=False)
+    source = Column(String(64), nullable=True)
+    checked_in_at = Column(DateTime, nullable=True)
+    feedback_requested_at = Column(DateTime, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("show_id", "user_id", name="uq_registration_show_user"),
+        Index("ix_registrations_user_active_show", "user_id", "is_cancelled", "show_id"),
+        Index("ix_registrations_show_active", "show_id", "is_cancelled"),
     )
 
     show = relationship("Show", back_populates="registrations")
     user = relationship("User", back_populates="registrations")
+
+
+class ShowFeedback(Base):
+    __tablename__ = "show_feedback"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    show_id = Column(Integer, ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    rating = Column(Integer, nullable=False)
+    comment = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=_utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("show_id", "user_id", name="uq_show_feedback_show_user"),
+        Index("ix_show_feedback_show", "show_id"),
+    )
+
+    show = relationship("Show", back_populates="feedback")
+    user = relationship("User")
 
 
 class ManualAttendee(Base):
@@ -106,6 +142,7 @@ class ManualAttendee(Base):
     show_id = Column(Integer, ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
     name = Column(String(256), nullable=False)
     added_at = Column(DateTime, default=_utcnow)
+    checked_in_at = Column(DateTime, nullable=True)
 
     show = relationship("Show")
 
@@ -117,6 +154,7 @@ class InviteToken(Base):
     token = Column(String(64), unique=True, nullable=False, index=True)
     role = Column(Enum(UserRole), default=UserRole.organizer, nullable=False)
     created_at = Column(DateTime, default=_utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=True, index=True)
     used_at = Column(DateTime, nullable=True)
     used_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
@@ -170,6 +208,7 @@ class AnnouncementLog(Base):
 
     __table_args__ = (
         UniqueConstraint("show_id", "announcement_type", name="uq_announcement_show_type"),
+        Index("ix_announcement_logs_show_sent", "show_id", "sent_at"),
     )
 
     show = relationship("Show", back_populates="announcement_logs")
