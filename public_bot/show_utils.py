@@ -1,36 +1,30 @@
 from __future__ import annotations
 
-from aiogram.types import Message
+from aiogram.types import LinkPreviewOptions, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db import crud
 from db.models import User
 from public_bot.keyboards.inline import show_detail_kb
-from scheduler.jobs import _registrar_line
-from html_utils import h
-from time_utils import format_local
+from scheduler.jobs import build_announcement_text
+
+
+NO_LINK_PREVIEW = LinkPreviewOptions(is_disabled=True)
 
 
 def show_text(show, seats_left: int, reg=None) -> str:
-    lines = [
-        f"🎭 <b>{h(show.title)}</b>",
-        f"👥 Команда: {h(show.team_name)}",
-        f"📅 {format_local(show.show_date)}",
-        f"🏙 {h(show.city)}  |  📍 {h(show.location)}",
-        f"🪑 Свободных мест: {seats_left}/{show.max_seats}",
-    ]
-    registrar_line = _registrar_line(show)
-    if registrar_line:
-        lines.append(registrar_line)
+    attendee_line = None
     if reg and not reg.is_cancelled:
         guests = reg.guests or 0
         total = 1 + guests
         suffix = f" +{guests}" if guests > 0 else ""
-        lines.append(f"✅ Ты записан(а): {total} чел.{suffix}")
-    if show.poster_text:
-        lines.append("")
-        lines.append(h(show.poster_text))
-    return "\n".join(lines)
+        attendee_line = f"✅ Ты записан(а): {total} чел.{suffix}"
+    return build_announcement_text(
+        show,
+        seats_left=seats_left,
+        attendee_line=attendee_line,
+        include_registration=False,
+    )
 
 
 async def render_show_detail(target: Message, show_id: int, db_user: User, session: AsyncSession) -> None:
@@ -45,4 +39,4 @@ async def render_show_detail(target: Message, show_id: int, db_user: User, sessi
     is_registered = reg is not None and not reg.is_cancelled
     text = show_text(show, seats_left, reg=reg)
     kb = show_detail_kb(show_id, is_registered, seats_left)
-    await target.answer(text, reply_markup=kb)
+    await target.answer(text, reply_markup=kb, link_preview_options=NO_LINK_PREVIEW)

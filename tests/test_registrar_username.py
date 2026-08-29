@@ -29,7 +29,17 @@ def test_normalize_telegram_username_normalizes_case_and_link_suffix():
 def test_registrar_line_links_username():
     show = SimpleNamespace(registrar=None, registrar_username="alice")
     assert _registrar_line(show) == (
-        '👥 Ответственный за записи: <a href="https://t.me/alice">@alice</a>'
+        '👥 Записаться тут: '
+        '<a href="https://t.me/ImprovCypEventBot">@ImprovCypEventBot</a> и '
+        '<a href="https://t.me/alice">@alice</a>'
+    )
+
+
+def test_registrar_line_links_public_bot_without_registrar():
+    show = SimpleNamespace(registrar=None, registrar_username=None)
+    assert _registrar_line(show) == (
+        '👥 Записаться тут: '
+        '<a href="https://t.me/ImprovCypEventBot">@ImprovCypEventBot</a>'
     )
 
 

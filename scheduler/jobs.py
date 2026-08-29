@@ -312,18 +312,15 @@ def _location_line(show, plain: bool = False) -> str:
 
 
 def _registrar_line(show) -> str | None:
+    bot_username = settings.PUBLIC_BOT_USERNAME.lstrip("@")
+    bot_link = f'<a href="https://t.me/{bot_username}">@{h(bot_username)}</a>'
     registrar = getattr(show, "registrar", None)
     username = getattr(show, "registrar_username", None) or (registrar.username if registrar else None)
     if username:
         username = username.lstrip("@")
-        label = f"@{username}"
-        if registrar and registrar.first_name:
-            label = h(registrar.first_name)
-        return f'👥 Ответственный за записи: <a href="https://t.me/{username}">{label}</a>'
-    if registrar:
-        name = h(registrar.first_name) if registrar.first_name else f"id{registrar.telegram_id}"
-        return f"👥 Ответственный за записи: {name}"
-    return None
+        person_link = f'<a href="https://t.me/{username}">@{h(username)}</a>'
+        return f"👥 Записаться тут: {bot_link} и {person_link}"
+    return f"👥 Записаться тут: {bot_link}"
 
 
 _ANN_HEADERS = {
@@ -336,7 +333,14 @@ _ANN_HEADERS = {
 _REGISTER_NOTE = "👆 Нажми кнопку — и твоё место сразу запомнится!"
 
 
-def build_announcement_text(show, ann_type: str | None = None) -> str:
+def build_announcement_text(
+    show,
+    ann_type: str | None = None,
+    *,
+    seats_left: int | None = None,
+    attendee_line: str | None = None,
+    include_registration: bool = True,
+) -> str:
     if ann_type is None:
         header = f"🎭 <b>{h(show.title)}</b>"
     else:
@@ -348,12 +352,19 @@ def build_announcement_text(show, ann_type: str | None = None) -> str:
     poster_has_maps = bool(MAPS_RE.search(poster))
 
     lines = [header]
+    if getattr(show, "team_name", None):
+        lines.append(f"👥 Команда: {h(show.team_name)}")
     if not poster_has_date:
         lines.append(f"📅 {_fmt_date(show.show_date)}")
     lines.append(_location_line(show, plain=poster_has_maps))
-    registrar_line = _registrar_line(show)
-    if registrar_line:
-        lines.append(registrar_line)
+    if seats_left is not None:
+        lines.append(f"🪑 Свободных мест: {seats_left}/{show.max_seats}")
+    if include_registration:
+        registrar_line = _registrar_line(show)
+        if registrar_line:
+            lines.append(registrar_line)
+    if attendee_line:
+        lines.append(attendee_line)
 
     if poster:
         lines.append("")

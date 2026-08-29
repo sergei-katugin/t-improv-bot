@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db.models import User
 from db import crud
 from public_bot.callbacks import RegisterCb, CancelRegCb
-from public_bot.show_utils import show_text, render_show_detail
+from public_bot.show_utils import NO_LINK_PREVIEW, show_text, render_show_detail
 
 router = Router()
 
@@ -79,4 +79,8 @@ async def cmd_start(message: Message, state: FSMContext, db_user: User, session:
         builder.button(text="🎭 Другое шоу", callback_data="pub_shows_list")
     builder.adjust(1)
 
-    await message.answer(text, reply_markup=builder.as_markup())
+    await message.answer(
+        text,
+        reply_markup=builder.as_markup(),
+        link_preview_options=NO_LINK_PREVIEW,
+    )
