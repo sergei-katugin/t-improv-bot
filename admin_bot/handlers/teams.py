@@ -17,7 +17,7 @@ from admin_bot.keyboards.inline import (
 
 router = Router()
 
-logger = logging.getLogger("t_improv_bot.admin.teams")
+logger = get_project_logger(__name__)
 
 
 class AddTeamFSM(StatesGroup):

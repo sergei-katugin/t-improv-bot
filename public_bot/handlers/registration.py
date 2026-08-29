@@ -20,7 +20,7 @@ from public_bot.callbacks import (
 router = Router()
 
 import logging
-logger = logging.getLogger("t_improv_bot.public.registration")
+logger = get_project_logger(__name__)
 
 
 class RegisterFSM(StatesGroup):

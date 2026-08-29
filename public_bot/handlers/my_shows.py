@@ -13,7 +13,7 @@ from public_bot.keyboards.reply import main_menu_kb
 from public_bot.callbacks import CancelRegCb
 
 router = Router()
-logger = logging.getLogger("t_improv_bot.public.my_shows")
+logger = get_project_logger(__name__)
 
 
 @router.message(Command("my_shows"))

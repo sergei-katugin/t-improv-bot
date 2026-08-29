@@ -8,9 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from db.models import User, Show, Registration, AnnouncementLog, InviteToken, ManualAttendee, UserRole, Venue, Team, FreeAdChannel, _utcnow
-import logging
+from app_logging import get_project_logger
 
-logger = logging.getLogger("t_improv_bot.db.crud")
+logger = get_project_logger(__name__)
 
 
 # ── Users ──────────────────────────────────────────────────────────────────

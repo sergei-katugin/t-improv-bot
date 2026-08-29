@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import logging
+from app_logging import get_project_logger
 
 from aiogram import Router, F
 from aiogram.fsm.context import FSMContext
@@ -21,7 +21,7 @@ def _can_manage(is_super_admin: bool, db_user, show_creator_id: int | None = Non
         return db_user.id == show_creator_id
     return False
 
-logger = logging.getLogger(__name__)
+logger = get_project_logger(__name__)
 router = Router()
 
 

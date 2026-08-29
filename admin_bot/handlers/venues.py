@@ -12,7 +12,7 @@ from admin_bot.callbacks import AdminVenueActionCb, AdminVenueFieldCb
 from admin_bot.keyboards.inline import venues_list_kb, venue_detail_kb, confirm_kb, fsm_cancel_kb
 
 router = Router()
-logger = logging.getLogger("t_improv_bot.admin.venues")
+logger = get_project_logger(__name__)
 
 
 class AddVenueFSM(StatesGroup):

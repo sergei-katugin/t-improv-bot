@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import logging
 import re
+
+from app_logging import get_project_logger
 from datetime import datetime, date, timedelta, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -14,7 +15,7 @@ from config import settings
 from db.base import AsyncSessionLocal
 from db import crud
 
-logger = logging.getLogger(__name__)
+logger = get_project_logger(__name__)
 
 scheduler = AsyncIOScheduler(timezone="UTC")
 
