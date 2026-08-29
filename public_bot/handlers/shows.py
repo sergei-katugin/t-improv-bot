@@ -24,7 +24,7 @@ class FilterFSM(StatesGroup):
 
 
 @router.message(Command("shows"))
-@router.message(F.text == "🎭 Шоу")
+@router.message(F.text.in_({"🎭 Все шоу", "🎭 Шоу"}))
 @router.callback_query(F.data == "pub_shows_list")
 async def cmd_shows(event, state: FSMContext, db_user: User, session: AsyncSession):
     await state.clear()
@@ -73,7 +73,7 @@ async def show_detail(callback: CallbackQuery, callback_data: ShowCb, db_user: U
     seats_left = max(0, show.max_seats - active_count)
     is_registered = reg is not None and not reg.is_cancelled
     text = show_text(show, seats_left, reg=reg)
-    kb = show_detail_kb(show_id, is_registered, seats_left)
+    kb = show_detail_kb(show, is_registered, seats_left)
 
     if callback.message.photo:
         await callback.message.answer(

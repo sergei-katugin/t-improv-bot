@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from admin_bot.security import can_manage_owned, is_admin
 from admin_bot.handlers.registrations import _csv_cell
+from admin_bot.handlers.shows import MAX_POSTER_TEXT_LENGTH, _validate_poster_text
 from db import crud
 from db.base import Base
 from db.models import InviteToken, User, UserRole
@@ -32,6 +33,11 @@ def test_user_html_is_escaped_for_telegram_messages():
 def test_csv_export_neutralizes_spreadsheet_formulas():
     assert _csv_cell("=HYPERLINK(\"https://example.test\")").startswith("'=")
     assert _csv_cell("Normal name") == "Normal name"
+
+
+def test_poster_text_respects_telegram_message_limits():
+    assert _validate_poster_text("x" * MAX_POSTER_TEXT_LENGTH) is None
+    assert "слишком длинный" in _validate_poster_text("x" * (MAX_POSTER_TEXT_LENGTH + 1))
 
 
 @pytest.mark.asyncio

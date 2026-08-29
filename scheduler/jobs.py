@@ -21,6 +21,7 @@ from config import settings
 from db.base import AsyncSessionLocal, engine, is_sqlite
 from db import crud
 from html_utils import h
+from telegram_delivery import send_with_retry
 from time_utils import format_local, local_date, local_now, utc_to_local
 
 logger = get_project_logger(__name__)
@@ -87,7 +88,8 @@ async def request_post_show_feedback(public_bot: Bot) -> None:
 
                 async def send_one(reg) -> int | None:
                     try:
-                        await public_bot.send_message(
+                        await send_with_retry(
+                            public_bot.send_message,
                             reg.user.telegram_id,
                             f"🎭 Как тебе шоу <b>{h(reg.show.title)}</b>? Оцени одним нажатием:",
                             reply_markup=feedback_kb(reg.show_id),
@@ -141,9 +143,15 @@ async def _send_to_channel_once(
     if show.poster_file_id:
         try:
             async with _download_photo(admin_bot, show.poster_file_id) as photo:
-                msg = await public_bot.send_photo(
-                    settings.ANNOUNCEMENT_CHANNEL_ID, photo=photo, caption=text, reply_markup=kb, **kwargs
-                )
+                if len(text) <= 1024:
+                    msg = await public_bot.send_photo(
+                        settings.ANNOUNCEMENT_CHANNEL_ID, photo=photo, caption=text, reply_markup=kb, **kwargs
+                    )
+                    return msg.message_id
+                await public_bot.send_photo(settings.ANNOUNCEMENT_CHANNEL_ID, photo=photo, **kwargs)
+            msg = await public_bot.send_message(
+                settings.ANNOUNCEMENT_CHANNEL_ID, text, reply_markup=kb, **kwargs
+            )
             return msg.message_id
         except Exception:
             logger.warning("Could not download poster for show %s, sending text only", show.id)
@@ -204,6 +212,7 @@ async def _run_announcement_check(public_bot: Bot, admin_bot: Bot) -> None:
             elif days_left == 1:
                 await _maybe_send_channel(session, public_bot, admin_bot, show, "1d")
                 await _maybe_send_personal(session, public_bot, show, 1)
+                await _maybe_remind_manual_attendees(session, admin_bot, show)
             elif days_left == 0:
                 await _maybe_send_channel(session, public_bot, admin_bot, show, "0d")
                 await _maybe_send_personal(session, public_bot, show, 0)
@@ -250,14 +259,14 @@ async def _maybe_send_personal(session, bot: Bot, show, days: int) -> None:
                     f"Подтверди своё участие — мы сообщим организаторам, кто придёт:"
                 )
                 kb = attendance_kb(show.id)
-                await bot.send_message(reg.user.telegram_id, text, reply_markup=kb)
+                await send_with_retry(bot.send_message, reg.user.telegram_id, text, reply_markup=kb)
             else:
                 intro = intros[days]
                 text = f"{intro}\n\nТы записан(а) на шоу <b>{h(show.title)}</b>\n📅 {date_str}\n{location_line}"
                 kwargs = {}
                 if post_url:
                     kwargs["link_preview_options"] = LinkPreviewOptions(url=post_url)
-                await bot.send_message(reg.user.telegram_id, text, **kwargs)
+                await send_with_retry(bot.send_message, reg.user.telegram_id, text, **kwargs)
             return reg.id
         except Exception as e:
             logger.warning("Failed to send %dd reminder to user %s: %s", days, reg.user.telegram_id, e)
@@ -286,6 +295,40 @@ async def _maybe_send_personal(session, bot: Bot, show, days: int) -> None:
         await crud.mark_reminded_many(session, sent_ids, days)
         sent += len(sent_ids)
     logger.info("Sent %dd personal reminders for show %s to %s users", days, show.id, sent)
+
+
+async def _maybe_remind_manual_attendees(session, admin_bot: Bot, show) -> None:
+    """Ask the organizer to contact attendees whom the public bot cannot message."""
+    if not getattr(show, "registration_chat_id", None):
+        return
+    attendees = [
+        item for item in await crud.get_manual_attendees(session, show.id)
+        if item.notification_confirmed_at is None and item.organizer_reminded_at is None
+    ]
+    if not attendees:
+        return
+    names = "\n".join(f"• {h(item.name)}" for item in attendees)
+    if len(names) > 3200:
+        names = names[:3200].rsplit("\n", 1)[0] + "\n• …остальные — в списке зрителей"
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(
+            text="✅ Уведомил(а) всех",
+            callback_data=f"adm_s:manual_notified:{show.id}",
+        )
+    ]])
+    try:
+        await send_with_retry(
+            admin_bot.send_message,
+            show.registration_chat_id,
+            f"📣 <b>Нужно уведомить вручную</b>\n\n"
+            f"Завтра шоу «{h(show.title)}». Бот не может написать этим зрителям, "
+            f"потому что они добавлены не через Telegram:\n\n{names}\n\n"
+            "Свяжись с ними в той соцсети, где они записались, затем отметь задачу выполненной.",
+            reply_markup=keyboard,
+        )
+        await crud.mark_manual_attendees_reminded(session, [item.id for item in attendees])
+    except Exception:
+        logger.exception("failed to remind organizer about manual attendees show_id=%s", show.id)
 
 
 MAPS_RE = re.compile(r'(maps\.google|goo\.gl/maps|maps\.app\.goo\.gl|google\.com/maps)', re.I)

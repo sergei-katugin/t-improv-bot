@@ -63,9 +63,20 @@ async def start_onboarding(message: Message) -> None:
 
 
 @router.message(F.text == "ℹ️ Инфо")
-@router.message(Command("info"))
+@router.message(Command("info", "help"))
 async def cmd_info(message: Message):
     await start_onboarding(message)
+
+
+@router.message(Command("privacy"))
+async def cmd_privacy(message: Message):
+    await message.answer(
+        "🔐 <b>Конфиденциальность</b>\n\n"
+        "Бот хранит Telegram ID, имя и username организатора, созданные шоу и команды, "
+        "чтобы управлять доступом и сохранять историю мероприятий. Данные доступны только уполномоченным организаторам и администраторам.\n\n"
+        "Полное описание доступно в публичном боте командой /privacy. Удаление персональных данных — /delete_me в публичном боте; "
+        "созданные шоу и команды при этом сохраняются с обезличенным автором."
+    )
 
 
 @router.callback_query(F.data == "settings_info")

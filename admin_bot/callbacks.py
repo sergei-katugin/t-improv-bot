@@ -23,6 +23,13 @@ class AdminManualCheckinCb(CallbackData, prefix="adm_mci"):
     attendee_id: int
 
 
+class AdminPartyCountCb(CallbackData, prefix="adm_pc"):
+    show_id: int
+    kind: str
+    item_id: int
+    count: int
+
+
 class AdminTeamActionCb(CallbackData, prefix="adm_t"):
     action: str
     team_id: int

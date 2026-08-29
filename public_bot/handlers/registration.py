@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 from app_logging import get_project_logger
-from aiogram import Router, F
+from aiogram import Bot, Router, F
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import BufferedInputFile, Message, CallbackQuery
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,9 +13,9 @@ from db import crud
 from db.models import User
 from public_bot.keyboards.inline import (
     confirm_registration_kb, show_detail_kb,
-    reminder_prefs_kb, guests_kb, attendance_kb, calendar_kb,
+    registration_success_kb, guests_kb, attendance_kb, calendar_kb,
 )
-from public_bot.keyboards.reply import main_menu_kb
+from public_bot.keyboards.inline import registrar_username
 from public_bot.callbacks import (
     RegisterCb, ConfirmRegCb, GuestsCb, GuestsCustomCb,
     RemindToggleCb, EditGuestsCb, AttendanceCb, CalendarCb, FeedbackCb,
@@ -45,6 +48,43 @@ def _guests_label(guests: int) -> str:
     return f" (+{guests} гостей)"
 
 
+def _registration_privacy_note(data: dict) -> str:
+    mode = data.get("registration_chat_name_mode")
+    if not mode:
+        return ""
+    visibility = "полностью" if mode == "full" else "в сокращённом виде"
+    return f"\n\n🔐 Имя будет видно уполномоченным организаторам {visibility}."
+
+
+async def _notify_registration_chat(admin_bot: Bot, show, attendee_name: str, guests: int, source: str | None) -> None:
+    if not getattr(show, "registration_chat_id", None):
+        return
+    party = 1 + guests
+    display_name = attendee_name
+    if getattr(show, "registration_chat_name_mode", "short") != "full":
+        parts = attendee_name.split()
+        display_name = parts[0] + (f" {parts[1][0]}." if len(parts) > 1 and parts[1] else "")
+    source_line = f"\nИсточник: {h(source)}" if source else ""
+    builder = InlineKeyboardBuilder()
+    try:
+        admin_me = await admin_bot.get_me()
+        if admin_me.username:
+            builder.button(
+                text="➕ Добавить запись из другой соцсети",
+                url=f"https://t.me/{admin_me.username}?start=manual_{show.id}",
+            )
+        await admin_bot.send_message(
+            show.registration_chat_id,
+            f"👤 <b>Новая запись</b>\n"
+            f"🎭 {h(show.title)}\n"
+            f"Имя: <b>{h(display_name)}</b>\n"
+            f"Мест: {party}{source_line}",
+            reply_markup=builder.as_markup() if builder.buttons else None,
+        )
+    except Exception:
+        logger.exception("failed to notify registration chat show_id=%s", show.id)
+
+
 @router.callback_query(RegisterCb.filter())
 async def start_registration(callback: CallbackQuery, callback_data: RegisterCb, state: FSMContext, db_user: User, session: AsyncSession):
     show_id = callback_data.show_id
@@ -72,6 +112,7 @@ async def start_registration(callback: CallbackQuery, callback_data: RegisterCb,
         show_id=show_id,
         show_title=show.title,
         show_date=format_local(show.show_date),
+        registration_chat_name_mode=(show.registration_chat_name_mode if show.registration_chat_id else None),
         registration_source=(
             existing_state_data.get("registration_source")
             if existing_state_data.get("registration_source_show_id") == show_id
@@ -109,7 +150,7 @@ async def process_name(message: Message, state: FSMContext):
         await message.answer(
             f"Записать тебя как <b>{h(name)}</b>{label}\n"
             f"на шоу <b>{h(show_title)}</b>\n"
-            f"📅 {show_date}?",
+            f"📅 {show_date}?{_registration_privacy_note(data)}",
             reply_markup=confirm_registration_kb(show_id),
         )
     else:
@@ -144,7 +185,7 @@ async def choose_guests(callback: CallbackQuery, callback_data: GuestsCb, state:
     await callback.message.edit_text(
         f"Записать тебя как <b>{h(name)}</b>{label}\n"
         f"на шоу <b>{h(show_title)}</b>\n"
-        f"📅 {show_date}?",
+        f"📅 {show_date}?{_registration_privacy_note(data)}",
         reply_markup=confirm_registration_kb(show_id),
     )
 
@@ -187,7 +228,7 @@ async def process_guests_count(message: Message, state: FSMContext):
     await message.answer(
         f"Записать тебя как <b>{h(name)}</b>{label}\n"
         f"на шоу <b>{h(show_title)}</b>\n"
-        f"📅 {show_date}?",
+        f"📅 {show_date}?{_registration_privacy_note(data)}",
         reply_markup=confirm_registration_kb(show_id),
     )
 
@@ -228,7 +269,7 @@ async def process_edit_guests_count(message: Message, state: FSMContext, db_user
 
 
 @router.callback_query(RegisterFSM.confirm, ConfirmRegCb.filter())
-async def confirm_registration(callback: CallbackQuery, callback_data: ConfirmRegCb, state: FSMContext, db_user: User, session: AsyncSession):
+async def confirm_registration(callback: CallbackQuery, callback_data: ConfirmRegCb, state: FSMContext, db_user: User, session: AsyncSession, admin_bot: Bot):
     show_id = callback_data.show_id
     data = await state.get_data()
     if show_id != data.get("show_id") or "attendee_name" not in data:
@@ -257,31 +298,38 @@ async def confirm_registration(callback: CallbackQuery, callback_data: ConfirmRe
         )
         return
 
-    upcoming = await crud.list_upcoming_shows(session)
-    updated_menu = main_menu_kb(has_shows=bool(upcoming), has_regs=True)
-
     label = _guests_label(guests)
     try:
         await callback.message.edit_reply_markup(reply_markup=None)
     except Exception:
         pass
+    support = ""
+    username = registrar_username(show)
+    if username:
+        support = (
+            f'\n\n❓ По вопросам записи можно написать '
+            f'<a href="https://t.me/{h(username)}">@{h(username)}</a>.'
+        )
+    privacy_note = (
+        "Полное имя будет видно организаторам в закрытом рабочем канале."
+        if show.registration_chat_id and show.registration_chat_name_mode == "full"
+        else "Организаторы увидят имя в сокращённом виде."
+        if show.registration_chat_id else ""
+    )
+    if privacy_note:
+        privacy_note = f"\n\n🔐 {privacy_note}"
     await callback.message.answer(
         f"🎉 Ты записан(а) на шоу <b>{h(show_title)}</b>!\n\n"
         f"📅 {show_date}\n"
         f"Имя в записи: <b>{h(attendee_name)}</b>{label}\n\n"
-        f"За день до шоу я пришлю напоминание. Увидимся! 🎭",
-        reply_markup=updated_menu,
+        f"🔔 За день до шоу я пришлю напоминание. Дополнительные уведомления можно включить ниже.\n"
+        f"📅 Здесь же можно добавить шоу в календарь."
+        f"{privacy_note}"
+        f"{support}",
+        reply_markup=registration_success_kb(show, False, False, True),
     )
-    await callback.message.answer("Добавить шоу в календарь:", reply_markup=calendar_kb(show))
+    await _notify_registration_chat(admin_bot, show, attendee_name, guests, source)
     logger.info("user %s registered id=%s show_id=%s attendee=%s guests=%s", db_user.id, reg.id, show_id, attendee_name, guests)
-
-
-    await callback.message.answer(
-        "🔔 <b>Напоминания</b>\n"
-        "В день шоу я напишу тебе автоматически. "
-        "Выбери дополнительные уведомления (нажми ещё раз, чтобы отключить):",
-        reply_markup=reminder_prefs_kb(show_id, remind_7d=False, remind_2d=False, remind_1d=True),
-    )
 
 
 def _ics_escape(value: str) -> str:
@@ -379,9 +427,10 @@ async def toggle_reminder(callback: CallbackQuery, callback_data: RemindToggleCb
 
     await callback.answer()
     try:
+        show = await crud.get_show(session, show_id)
         await callback.message.edit_reply_markup(
-            reply_markup=reminder_prefs_kb(
-                show_id,
+            reply_markup=registration_success_kb(
+                show,
                 remind_7d=reg.remind_7d,
                 remind_2d=reg.remind_2d,
                 remind_1d=reg.remind_1d,

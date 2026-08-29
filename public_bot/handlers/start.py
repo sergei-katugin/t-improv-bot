@@ -1,7 +1,7 @@
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +12,73 @@ from public_bot.callbacks import RegisterCb, CancelRegCb
 from public_bot.show_utils import NO_LINK_PREVIEW, show_text, render_show_detail
 
 router = Router()
+
+
+PRIVACY_TEXT = (
+    "🔐 <b>Политика конфиденциальности</b>\n\n"
+    "Бот сохраняет Telegram ID, имя и username, чтобы показывать твои записи. "
+    "Для работы регистрации также хранятся имя зрителя, количество гостей, настройки напоминаний, "
+    "подтверждение участия, отметка о посещении и добровольный отзыв.\n\n"
+    "Данные используются только для организации шоу, уведомлений, управления вместимостью и статистики. "
+    "Они не продаются и не используются для сторонней рекламы. Доступ к спискам имеют только организаторы соответствующего шоу и администраторы.\n\n"
+    "Данные хранятся, пока нужны для работы сервиса. Удалить свои персональные данные можно командой /delete_me. "
+    "Если пользователь создавал шоу или команды, их история сохранится с обезличенным создателем."
+)
+
+
+@router.message(Command("help"))
+async def cmd_help(message: Message):
+    await message.answer(
+        "ℹ️ <b>Помощь</b>\n\n"
+        "/start — открыть ближайшее шоу\n"
+        "/shows — все предстоящие шоу\n"
+        "/my_shows — мои записи\n"
+        "/settings — настройки и данные\n"
+        "/privacy — политика конфиденциальности"
+    )
+
+
+@router.message(Command("settings"))
+async def cmd_settings(message: Message):
+    await message.answer(
+        "⚙️ <b>Настройки</b>\n\n"
+        "Напоминания настраиваются отдельно в каждой активной записи через /my_shows.\n\n"
+        "Данные: /privacy\nУдалить мои данные: /delete_me"
+    )
+
+
+@router.message(Command("privacy"))
+async def cmd_privacy(message: Message):
+    await message.answer(PRIVACY_TEXT)
+
+
+@router.message(Command("delete_me"))
+async def cmd_delete_me(message: Message):
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🗑 Да, удалить мои данные", callback_data="privacy_delete_confirm"),
+    ], [
+        InlineKeyboardButton(text="Отмена", callback_data="privacy_delete_cancel"),
+    ]])
+    await message.answer(
+        "🗑 <b>Удалить персональные данные?</b>\n\n"
+        "Будут удалены профиль, записи и отзывы. Это действие нельзя отменить.",
+        reply_markup=kb,
+    )
+
+
+@router.callback_query(F.data == "privacy_delete_cancel")
+async def cancel_delete_me(callback: CallbackQuery):
+    await callback.answer("Отменено")
+    await callback.message.edit_text("Удаление данных отменено.")
+
+
+@router.callback_query(F.data == "privacy_delete_confirm")
+async def confirm_delete_me(callback: CallbackQuery, db_user: User, session: AsyncSession):
+    await callback.answer()
+    await crud.delete_or_anonymize_user_data(session, db_user)
+    await callback.message.edit_text(
+        "✅ Твои персональные данные удалены. При следующем обращении бот создаст новый пустой профиль."
+    )
 
 
 @router.message(Command("start"))
