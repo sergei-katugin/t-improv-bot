@@ -211,6 +211,16 @@ async def venue_add_maps_url(message: Message, state: FSMContext, session: Async
 
 # ── FSM back handlers ─────────────────────────────────────────────────────────
 
+@router.callback_query(AddVenueFSM.name, F.data == "fsm_back")
+async def venue_add_name_back(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    await callback.answer()
+    await state.clear()
+    venues = await crud.list_venues(session, active_only=False)
+    await callback.message.edit_text(
+        "🏛 <b>Площадки</b>\n\nВыбери площадку для редактирования или добавь новую:",
+        reply_markup=venues_list_kb(venues),
+    )
+
 @router.callback_query(EditVenueFSM.new_value, F.data == "fsm_back")
 async def venue_edit_back(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
     await callback.answer()

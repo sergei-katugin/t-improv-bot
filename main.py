@@ -7,6 +7,7 @@ import os
 import secrets
 import signal
 import sys
+import time
 
 from app_logging import PROJECT_LOG_PREFIX, get_project_logger, install_project_logging
 
@@ -48,11 +49,36 @@ class TaggedFormatter(logging.Formatter):
         return base
 
 
+class HealthCheckLogFilter(logging.Filter):
+    """Keep successful Render health checks visible without flooding the log."""
+
+    def __init__(self, interval_seconds: float = 60.0) -> None:
+        super().__init__()
+        self.interval_seconds = interval_seconds
+        self._last_logged_at: float | None = None
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.name != "aiohttp.access":
+            return True
+
+        message = record.getMessage()
+        is_successful_health_check = '"GET /health HTTP/' in message and '" 200 ' in message
+        if not is_successful_health_check:
+            return True
+
+        now = time.monotonic()
+        if self._last_logged_at is not None and now - self._last_logged_at < self.interval_seconds:
+            return False
+        self._last_logged_at = now
+        return True
+
+
 root_logger = logging.getLogger()
 root_logger.setLevel(logging.INFO)
 handler = logging.StreamHandler(sys.stdout)
 fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 handler.setFormatter(TaggedFormatter(fmt))
+handler.addFilter(HealthCheckLogFilter(interval_seconds=60.0))
 root_logger.handlers = [handler]
 
 logger = get_project_logger(__name__)

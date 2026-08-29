@@ -213,6 +213,21 @@ def _location_line(show, plain: bool = False) -> str:
     return f"📍 {show.location}, {show.city}"
 
 
+def _registrar_line(show) -> str | None:
+    registrar = getattr(show, "registrar", None)
+    username = getattr(show, "registrar_username", None) or (registrar.username if registrar else None)
+    if username:
+        username = username.lstrip("@")
+        label = f"@{username}"
+        if registrar and registrar.first_name:
+            label = registrar.first_name
+        return f'👥 Ответственный за записи: <a href="https://t.me/{username}">{label}</a>'
+    if registrar:
+        name = registrar.first_name or f"id{registrar.telegram_id}"
+        return f"👥 Ответственный за записи: {name}"
+    return None
+
+
 _ANN_HEADERS = {
     "7d": "🎭 Через неделю:",
     "2d": "🎭 Через два дня:",
@@ -238,6 +253,9 @@ def build_announcement_text(show, ann_type: str | None = None) -> str:
     if not poster_has_date:
         lines.append(f"📅 {_fmt_date(show.show_date)}")
     lines.append(_location_line(show, plain=poster_has_maps))
+    registrar_line = _registrar_line(show)
+    if registrar_line:
+        lines.append(registrar_line)
 
     if poster:
         lines.append("")
@@ -258,5 +276,3 @@ def build_personal_reminder(
     text = "\n".join(lines)
     kb = _register_button(show)
     return text, kb
-
-
