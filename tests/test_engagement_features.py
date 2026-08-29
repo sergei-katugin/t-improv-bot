@@ -47,7 +47,8 @@ def test_create_preview_hides_optional_feature_statuses():
     assert "Отзывы после шоу" not in preview
     assert "👥 Команда: Test &lt;Team&gt;" in preview
     assert "👥 Записаться тут:" in preview
-    assert "@ImprovCypEventBot</a> и <a href=\"https://t.me/alice\">@alice</a>" in preview
+    assert "<b>через бота</b>" in preview
+    assert "@ImprovCypEventBot</a> или у <a href=\"https://t.me/alice\">@alice</a>" in preview
 
 
 def test_edit_keyboard_exposes_current_optional_feature_values():

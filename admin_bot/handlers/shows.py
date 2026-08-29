@@ -592,12 +592,15 @@ def _preview_from_data(data: dict) -> str:
         date_str = data.get("show_date_str", "")
 
     bot_username = settings.PUBLIC_BOT_USERNAME.lstrip("@")
-    registration_targets = f'<a href="https://t.me/{bot_username}">@{h(bot_username)}</a>'
+    registration_targets = (
+        f'<b>через бота</b> '
+        f'<a href="https://t.me/{bot_username}">@{h(bot_username)}</a>'
+    )
     registrar_username = data.get("registrar_username")
     if registrar_username:
         registrar_username = registrar_username.lstrip("@")
         registration_targets += (
-            f' и <a href="https://t.me/{registrar_username}">@{h(registrar_username)}</a>'
+            f' или у <a href="https://t.me/{registrar_username}">@{h(registrar_username)}</a>'
         )
     poster = data.get("poster_text") or ""
     lines = [
