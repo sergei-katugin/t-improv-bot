@@ -8,7 +8,7 @@ from app_logging import get_project_logger
 from datetime import datetime
 
 from aiogram import Router, F, Bot
-from aiogram.filters import Command
+from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery, BufferedInputFile, LinkPreviewOptions, InlineKeyboardMarkup
@@ -22,16 +22,19 @@ from config import ADMIN_ID_LIST, settings
 from db.base import AsyncSessionLocal
 from db import crud
 from db.models import UserRole
-from admin_bot.keyboards.reply import main_menu_kb
+from admin_bot.keyboards.reply import (
+    main_menu_kb, shows_context_kb, show_context_kb, flow_context_kb, settings_context_kb,
+)
 from admin_bot.telegram_usernames import normalize_telegram_username, normalize_telegram_username_list
 from admin_bot.security import can_manage_owned, deny, is_admin, manageable_show
 from html_utils import h
 from time_utils import format_local, local_date, local_naive_to_utc, local_now
+from telegram_delivery import send_with_retry
 from scheduler.jobs import build_announcement_text, send_to_channel, cache_poster_for_public_bot, MAPS_RE, DATE_RE, TIME_RE, _location_line, _fmt_date, _registrar_line
 from admin_bot.keyboards.inline import (
     shows_list_kb, shows_filter_kb, show_detail_kb, show_created_kb, edit_show_fields_kb,
     confirm_kb, confirm_with_back_kb, fsm_cancel_kb, fsm_skip_cancel_kb, venue_kb, city_kb,
-    team_kb, team_select_kb, settings_kb,
+    team_kb, team_select_kb, settings_kb, show_section_kb, edit_notification_mode_kb,
 )
 from admin_bot.callbacks import (
     AdminShowActionCb, AdminShowFieldCb, AdminFilterStatusCb,
@@ -40,6 +43,7 @@ from admin_bot.callbacks import (
 
 logger = get_project_logger(__name__)
 router = Router()
+MAX_POSTER_TEXT_LENGTH = 1800
 
 
 class CreateShowFSM(StatesGroup):
@@ -72,6 +76,13 @@ def _progress(step: int, total: int = _TOTAL_STEPS_PRESET) -> str:
 class EditShowFSM(StatesGroup):
     field = State()
     new_value = State()
+    show_date = State()
+    select_time = State()
+
+
+class CloneShowFSM(StatesGroup):
+    show_date = State()
+    select_time = State()
 
 
 def _registrar_name(registrar, username: str | None = None) -> str | None:
@@ -107,6 +118,8 @@ def _show_summary(data: dict) -> str:
 
 
 def _validate_poster_text(text: str) -> str | None:
+    if len(text) > MAX_POSTER_TEXT_LENGTH:
+        return f"❌ Текст афиши слишком длинный. Максимум — {MAX_POSTER_TEXT_LENGTH} символов. Сократи и попробуй ещё раз:"
     if DATE_RE.search(text):
         return "❌ Текст афиши не должен содержать дату — она уже есть в отдельном поле. Убери дату и попробуй ещё раз:"
     if TIME_RE.search(text):
@@ -127,7 +140,7 @@ def _is_google_maps_url(url: str) -> bool:
 # ── Create flow ─────────────────────────────────────────────────────────────
 
 @router.message(Command("start"))
-async def cmd_start(message: Message, session: AsyncSession, is_super_admin: bool = False):
+async def cmd_start(message: Message, state: FSMContext, session: AsyncSession, command: CommandObject, db_user=None, is_super_admin: bool = False):
     from admin_bot.handlers.onboarding import start_onboarding
     user = await crud.upsert_user(
         session, message.from_user.id, message.from_user.username,
@@ -136,6 +149,26 @@ async def cmd_start(message: Message, session: AsyncSession, is_super_admin: boo
     if not user.onboarding_done:
         await start_onboarding(message)
         return
+    payload = command.args or ""
+    if payload.startswith("manual_"):
+        try:
+            show_id = int(payload.removeprefix("manual_"))
+        except ValueError:
+            show_id = 0
+        show = await manageable_show(session, show_id, db_user or user, is_super_admin)
+        if show is None:
+            await message.answer("⛔ Шоу не найдено или у тебя нет доступа.", reply_markup=main_menu_kb())
+            return
+        from admin_bot.handlers.registrations import AddManualFSM
+        await state.set_state(AddManualFSM.names)
+        await state.update_data(show_id=show.id, manual_source="social")
+        await message.answer(
+            f"➕ <b>Добавить запись на «{h(show.title)}»</b>\n\n"
+            "Подходит для Instagram, звонков и личных сообщений. Отправь имена — каждое с новой строки:\n\n"
+            "<i>Иван Иванов\nМария Петрова</i>",
+            reply_markup=flow_context_kb(),
+        )
+        return
     await message.answer("👋 Привет!", reply_markup=main_menu_kb())
 
 
@@ -143,6 +176,79 @@ async def cmd_start(message: Message, session: AsyncSession, is_super_admin: boo
 async def cmd_home(message: Message, state: FSMContext):
     await state.clear()
     await message.answer("🏠 Главное меню", reply_markup=main_menu_kb())
+
+
+@router.message(F.text == "🏠 Главное меню")
+async def quick_home(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("🏠 Главное меню", reply_markup=main_menu_kb())
+
+
+@router.message(F.text == "❌ Отмена")
+async def quick_cancel(message: Message, state: FSMContext):
+    current = await state.get_state()
+    await state.clear()
+    text = "❌ Действие отменено." if current else "Сейчас нет активного действия."
+    await message.answer(text, reply_markup=main_menu_kb())
+
+
+async def _quick_show(message: Message, state: FSMContext, session: AsyncSession, db_user, is_super_admin):
+    show_id = (await state.get_data()).get("current_show_id")
+    show = await manageable_show(session, show_id, db_user, is_super_admin) if show_id else None
+    if show is None:
+        await state.clear()
+        await message.answer("Сначала открой шоу из афиши.", reply_markup=main_menu_kb())
+    return show
+
+
+@router.message(F.text == "👥 Записи")
+async def quick_show_registrations(
+    message: Message, state: FSMContext, session: AsyncSession, db_user=None, is_super_admin: bool = False,
+):
+    show = await _quick_show(message, state, session, db_user, is_super_admin)
+    if show:
+        from admin_bot.handlers.registrations import _render_registrations
+        await _render_registrations(message, show.id, session, edit=False, is_super_admin=is_super_admin, db_user=db_user)
+
+
+@router.message(F.text == "📣 Продвижение")
+async def quick_show_promotion(
+    message: Message, state: FSMContext, session: AsyncSession, db_user=None, is_super_admin: bool = False,
+):
+    show = await _quick_show(message, state, session, db_user, is_super_admin)
+    if show:
+        await message.answer(
+            f"📣 <b>Продвижение</b>\n\n🎭 {h(show.title)}",
+            reply_markup=show_section_kb(show, "promotion"),
+        )
+
+
+@router.message(F.text == "✏️ Редактировать")
+async def quick_show_edit(
+    message: Message, state: FSMContext, session: AsyncSession, db_user=None, is_super_admin: bool = False,
+):
+    show = await _quick_show(message, state, session, db_user, is_super_admin)
+    if show is None:
+        return
+    await state.set_state(EditShowFSM.field)
+    await state.update_data(editing_show_id=show.id, reply_context="flow")
+    await message.answer("✏️ Режим редактирования", reply_markup=flow_context_kb())
+    if await crud.has_any_announcement_been_sent(session, show.id):
+        await message.answer(
+            "Выбери режим обновления:", reply_markup=edit_notification_mode_kb(show.id),
+        )
+    else:
+        await state.update_data(edit_notify=False)
+        await message.answer("Выбери раздел для редактирования:", reply_markup=edit_show_fields_kb(show))
+
+
+@router.message(F.text == "◀️ К списку шоу")
+async def quick_back_to_shows(
+    message: Message, state: FSMContext, session: AsyncSession, db_user=None, is_super_admin: bool = False,
+):
+    await state.clear()
+    from admin_bot.handlers.registrations import _can_manage
+    await _render_shows_list(message, state, session, edit=False, can_manage=_can_manage(is_super_admin, db_user))
 
 
 @router.message(Command("create_show"))
@@ -164,6 +270,7 @@ async def cmd_create_show(event, state: FSMContext):
         "• текст и изображение для афиши (можно пропустить)\n\n"
         "💡 Шоу не будет опубликовано автоматически — анонс отправляется вручную, когда ты будешь готов.\n\n"
         "На любом шаге можно нажать ◀️ Назад или ❌ Отмена.",
+        reply_markup=flow_context_kb(),
     )
     await msg.answer(
         f"{_progress(1)}Выбери команду из списка или введи своё название:",
@@ -211,6 +318,8 @@ async def cmd_settings(message: Message, state: FSMContext, db_user=None, is_sup
     await state.clear()
     is_admin = is_super_admin or (db_user is not None and db_user.role == UserRole.admin)
     await message.answer("⚙️ <b>Настройки</b>", reply_markup=settings_kb(is_admin=is_admin))
+    await state.update_data(reply_context="settings", current_show_id=None)
+    await message.answer("⌨️ Быстрые действия для настроек", reply_markup=settings_context_kb(is_admin))
 
 
 @router.callback_query(F.data == "admin_settings")
@@ -222,6 +331,8 @@ async def back_to_settings(callback: CallbackQuery, state: FSMContext, db_user=N
         "⚙️ <b>Настройки</b>",
         reply_markup=settings_kb(is_admin=is_admin),
     )
+    await state.update_data(reply_context="settings", current_show_id=None)
+    await callback.message.answer("⌨️ Быстрые действия для настроек", reply_markup=settings_context_kb(is_admin))
 
 
 @router.callback_query(CreateShowFSM.team_name, F.data == "team_show_existing")
@@ -906,13 +1017,14 @@ async def confirm_create(callback: CallbackQuery, state: FSMContext, bot: Bot, p
     logger.info("admin %s created show id=%s title=%s", tg_id, show.id, data.get('title'))
 
     await state.clear()
+    await state.update_data(reply_context="show", current_show_id=show.id)
     try:
         await callback.message.delete()
     except Exception:
         pass
     await callback.message.answer(
         f"✅ Шоу <b>{h(data['title'])}</b> создано и пока нигде не опубликовано.",
-        reply_markup=main_menu_kb(),
+        reply_markup=show_context_kb(),
     )
     await callback.message.answer(
         "Что делаем дальше:\n"
@@ -985,6 +1097,10 @@ async def _render_shows_list(msg, state: FSMContext, session: AsyncSession, edit
             await msg.answer(text, reply_markup=kb)
     except Exception:
         await msg.answer(text, reply_markup=kb)
+    data = await state.get_data()
+    if data.get("reply_context") != "shows":
+        await state.update_data(reply_context="shows", current_show_id=None)
+        await msg.answer("⌨️ Быстрые действия для списка шоу", reply_markup=shows_context_kb())
 
 
 @router.callback_query(F.data == "admin_shows_list")
@@ -1085,18 +1201,30 @@ async def filter_input(message: Message, state: FSMContext, session: AsyncSessio
 
 
 @router.callback_query(AdminShowActionCb.filter(F.action == "open"))
-async def show_detail(callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession, answer_callback: bool = True):
+async def show_detail(
+    callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession,
+    state: FSMContext, answer_callback: bool = True,
+):
     show_id = callback_data.show_id
-    if answer_callback:
-        await callback.answer()
-
     show = await crud.get_show(session, show_id)
     if show is None:
+        if answer_callback:
+            await callback.answer("Шоу не найдено.", show_alert=True)
         await callback.message.edit_text("Шоу не найдено.")
         return
     active_count = await crud.count_active_registrations(session, show_id)
     tg_id = callback.from_user.id
     user = await crud.get_user_by_telegram_id(session, tg_id)
+
+    if not (
+        (show.creator and show.creator.telegram_id == tg_id)
+        or tg_id in ADMIN_ID_LIST
+        or (user and user.role == UserRole.admin)
+    ):
+        await deny(callback, "⛔ Нет доступа к этому шоу.")
+        return
+    if answer_callback:
+        await callback.answer()
 
     is_creator = (show.creator and show.creator.telegram_id == tg_id) or tg_id in ADMIN_ID_LIST
     if user and user.role == UserRole.admin:
@@ -1116,6 +1244,10 @@ async def show_detail(callback: CallbackQuery, callback_data: AdminShowActionCb,
         registrar_label = f"{_registrar_line(show)}\n"
     else:
         registrar_label = "👥 Ответственный за записи: (через бот)\n"
+    registration_chat_label = (
+        f"🔔 Чат записей: {h(show.registration_chat_title or show.registration_chat_id)}\n"
+        if show.registration_chat_id else ""
+    )
 
     text = (
         f"🎭 <b>{h(show.title)}</b>\n"
@@ -1125,6 +1257,7 @@ async def show_detail(callback: CallbackQuery, callback_data: AdminShowActionCb,
         f"🪑 Мест: {seats_left}/{show.max_seats}\n"
         f"{creator_label}"
         f"{registrar_label}"
+        f"{registration_chat_label}"
     )
     if show.poster_text:
         text += f"\n📝 {h(show.poster_text)}"
@@ -1135,6 +1268,111 @@ async def show_detail(callback: CallbackQuery, callback_data: AdminShowActionCb,
         await callback.message.edit_text(text, reply_markup=show_detail_kb(show, is_creator, can_delete=can_delete))
     except TelegramBadRequest:
         await callback.message.answer(text, reply_markup=show_detail_kb(show, is_creator, can_delete=can_delete))
+    data = await state.get_data()
+    if data.get("reply_context") != "show" or data.get("current_show_id") != show_id:
+        await state.update_data(reply_context="show", current_show_id=show_id)
+        await callback.message.answer("⌨️ Быстрые действия для этого шоу", reply_markup=show_context_kb())
+
+
+@router.callback_query(AdminShowActionCb.filter(F.action.in_({"promotion", "audience", "show_settings", "danger"})))
+async def show_section(callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession, db_user=None, is_super_admin: bool = False):
+    show = await manageable_show(session, callback_data.show_id, db_user, is_super_admin)
+    if show is None:
+        await deny(callback, "⛔ Нет доступа к этому шоу.")
+        return
+    await callback.answer()
+    titles = {
+        "promotion": "📣 <b>Продвижение</b>",
+        "audience": "📊 <b>Аналитика</b>",
+        "show_settings": "⚙️ <b>Настройки шоу</b>",
+        "danger": "⚠️ <b>Управление шоу</b>",
+    }
+    user = await crud.get_user_by_telegram_id(session, callback.from_user.id)
+    can_delete = callback.from_user.id in ADMIN_ID_LIST or bool(user and user.role == UserRole.admin)
+    await callback.message.edit_text(
+        f"{titles[callback_data.action]}\n\n🎭 {h(show.title)}",
+        reply_markup=show_section_kb(show, callback_data.action, can_delete=can_delete),
+    )
+
+
+@router.callback_query(AdminShowActionCb.filter(F.action == "clone"))
+async def clone_show_start(callback: CallbackQuery, callback_data: AdminShowActionCb, state: FSMContext, session: AsyncSession, db_user=None, is_super_admin: bool = False):
+    show = await manageable_show(session, callback_data.show_id, db_user, is_super_admin)
+    if show is None:
+        await deny(callback, "⛔ Нет доступа к этому шоу.")
+        return
+    await callback.answer()
+    await state.set_state(CloneShowFSM.show_date)
+    await state.update_data(clone_show_id=show.id)
+    await callback.message.edit_text(
+        f"📄 Создаём новое шоу по шаблону «{h(show.title)}».\n\nВыбери новую дату:",
+        reply_markup=await (await _make_calendar(session)).start_calendar(
+            year=local_now().year, month=local_now().month,
+        ),
+    )
+
+
+@router.callback_query(CloneShowFSM.show_date, simple_cal_callback.filter())
+async def clone_show_date(callback: CallbackQuery, callback_data: dict, state: FSMContext, session: AsyncSession):
+    selected, selected_date = await (await _make_calendar(session)).process_selection(callback, callback_data)
+    if not selected:
+        return
+    if selected_date.date() < local_now().date():
+        await callback.answer("❌ Дата в прошлом.", show_alert=True)
+        return
+    await state.update_data(clone_date=selected_date.strftime("%d.%m.%Y"))
+    await state.set_state(CloneShowFSM.select_time)
+    await callback.message.answer("Выбери время начала:", reply_markup=_time_kb())
+
+
+@router.callback_query(CloneShowFSM.select_time, TimePresetCb.filter())
+async def clone_show_time_preset(callback: CallbackQuery, callback_data: TimePresetCb, state: FSMContext, session: AsyncSession, db_user=None, is_super_admin: bool = False):
+    await callback.answer()
+    await _finish_clone_show(callback.message, callback_data.time, state, session, db_user, is_super_admin)
+
+
+@router.callback_query(CloneShowFSM.select_time, F.data == "time_custom")
+async def clone_show_custom_time(callback: CallbackQuery):
+    await callback.answer()
+    await callback.message.edit_text("Введи время начала (ЧЧ:ММ), например 19:00:", reply_markup=fsm_cancel_kb())
+
+
+@router.message(CloneShowFSM.select_time, F.text)
+async def clone_show_time_text(message: Message, state: FSMContext, session: AsyncSession, db_user=None, is_super_admin: bool = False):
+    await _finish_clone_show(message, message.text.strip(), state, session, db_user, is_super_admin)
+
+
+async def _finish_clone_show(message: Message, raw_time: str, state: FSMContext, session: AsyncSession, db_user, is_super_admin: bool) -> None:
+    data = await state.get_data()
+    try:
+        local_value = datetime.strptime(f"{data['clone_date']} {raw_time}", "%d.%m.%Y %H:%M")
+    except (ValueError, KeyError):
+        await message.answer("Неверное время. Введи как ЧЧ:ММ, например 19:00:")
+        return
+    if local_value.replace(tzinfo=local_now().tzinfo) <= local_now():
+        await message.answer("Дата и время должны быть в будущем.")
+        return
+    source = await manageable_show(session, data.get("clone_show_id"), db_user, is_super_admin)
+    if source is None:
+        await state.clear()
+        await message.answer("⛔ Исходное шоу недоступно.")
+        return
+    clone = await crud.create_show(
+        session, title=source.title, team_name=source.team_name,
+        show_date=local_naive_to_utc(local_value), location=source.location,
+        location_url=source.location_url, city=source.city,
+        poster_text=source.poster_text, poster_file_id=source.poster_file_id,
+        max_seats=source.max_seats, creator_id=db_user.id,
+        registrar_id=source.registrar_id, registrar_username=source.registrar_username,
+        checkin_enabled=source.checkin_enabled, feedback_enabled=source.feedback_enabled,
+    )
+    await state.clear()
+    await state.update_data(reply_context="show", current_show_id=clone.id)
+    await message.answer(
+        f"✅ Создано новое шоу «{h(clone.title)}» на {format_local(clone.show_date)}.\n"
+        "Записи, публикации и рабочий канал не копировались.",
+        reply_markup=show_created_kb(clone.id),
+    )
 
 
 @router.callback_query(AdminShowActionCb.filter(F.action == "toggle_checkin"))
@@ -1142,6 +1380,7 @@ async def toggle_show_checkin(
     callback: CallbackQuery,
     callback_data: AdminShowActionCb,
     session: AsyncSession,
+    state: FSMContext,
     db_user=None,
     is_super_admin: bool = False,
 ):
@@ -1151,7 +1390,7 @@ async def toggle_show_checkin(
         return
     show = await crud.update_show(session, show.id, checkin_enabled=not show.checkin_enabled)
     await callback.answer(f"Check-in {'включён' if show.checkin_enabled else 'выключен'}")
-    await show_detail(callback, AdminShowActionCb(action="open", show_id=show.id), session, answer_callback=False)
+    await show_detail(callback, AdminShowActionCb(action="open", show_id=show.id), session, state, answer_callback=False)
 
 
 @router.callback_query(AdminShowActionCb.filter(F.action == "toggle_feedback"))
@@ -1159,6 +1398,7 @@ async def toggle_show_feedback(
     callback: CallbackQuery,
     callback_data: AdminShowActionCb,
     session: AsyncSession,
+    state: FSMContext,
     db_user=None,
     is_super_admin: bool = False,
 ):
@@ -1168,23 +1408,22 @@ async def toggle_show_feedback(
         return
     show = await crud.update_show(session, show.id, feedback_enabled=not show.feedback_enabled)
     await callback.answer(f"Отзывы {'включены' if show.feedback_enabled else 'выключены'}")
-    await show_detail(callback, AdminShowActionCb(action="open", show_id=show.id), session, answer_callback=False)
+    await show_detail(callback, AdminShowActionCb(action="open", show_id=show.id), session, state, answer_callback=False)
 
 
 @router.callback_query(AdminShowActionCb.filter(F.action == "preview"))
-async def show_announcement_preview(callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession):
+async def show_announcement_preview(callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession, db_user=None, is_super_admin: bool = False):
     show_id = callback_data.show_id
-    await callback.answer()
-
-    show = await crud.get_show(session, show_id)
+    show = await manageable_show(session, show_id, db_user, is_super_admin)
     if show is None:
-        await callback.message.answer("Шоу не найдено.")
+        await deny(callback, "⛔ Нет доступа к этому шоу.")
         return
+    await callback.answer()
 
     from aiogram.utils.keyboard import InlineKeyboardBuilder
     from scheduler.jobs import _register_button
     back_kb = InlineKeyboardBuilder()
-    back_kb.button(text="◀️ Назад", callback_data=AdminShowActionCb(action="open", show_id=show_id).pack())
+    back_kb.button(text="◀️ К шоу", callback_data=AdminShowActionCb(action="open", show_id=show_id).pack())
 
     preview_text = build_announcement_text(show)
     reg_btn = _register_button(show)
@@ -1193,7 +1432,7 @@ async def show_announcement_preview(callback: CallbackQuery, callback_data: Admi
         for row in reg_btn.inline_keyboard:
             for btn in row:
                 preview_kb.button(text=btn.text, url=btn.url)
-    preview_kb.button(text="◀️ Назад", callback_data=AdminShowActionCb(action="open", show_id=show_id).pack())
+    preview_kb.button(text="◀️ К шоу", callback_data=AdminShowActionCb(action="open", show_id=show_id).pack())
     preview_kb.adjust(1)
 
     if show.poster_file_id:
@@ -1218,8 +1457,11 @@ def _tracked_show_link(show_id: int, source: str) -> str:
 
 
 @router.callback_query(AdminShowActionCb.filter(F.action == "link"))
-async def send_show_link(callback: CallbackQuery, callback_data: AdminShowActionCb):
+async def send_show_link(callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession, db_user=None, is_super_admin: bool = False):
     show_id = callback_data.show_id
+    if await manageable_show(session, show_id, db_user, is_super_admin) is None:
+        await deny(callback, "⛔ Нет доступа к этому шоу.")
+        return
     await callback.answer()
     link = _show_deep_link(show_id)
     await callback.message.answer(
@@ -1233,14 +1475,13 @@ async def send_show_link(callback: CallbackQuery, callback_data: AdminShowAction
 
 
 @router.callback_query(AdminShowActionCb.filter(F.action == "qr"))
-async def send_show_qr(callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession):
+async def send_show_qr(callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession, db_user=None, is_super_admin: bool = False):
     show_id = callback_data.show_id
-    await callback.answer()
-
-    show = await crud.get_show(session, show_id)
+    show = await manageable_show(session, show_id, db_user, is_super_admin)
     if show is None:
-        await callback.message.answer("Шоу не найдено.")
+        await deny(callback, "⛔ Нет доступа к этому шоу.")
         return
+    await callback.answer()
 
     link = _show_deep_link(show_id)
     qr = qrcode.QRCode(box_size=10, border=4)
@@ -1275,9 +1516,12 @@ async def send_manual_announcement(
     if show is None:
         await deny(callback, "⛔ Нет доступа к этому шоу.")
         return
-    await callback.answer()
     if not show.is_active:
+        await callback.answer()
         await callback.message.answer("❌ Шоу отменено — анонс нельзя отправить.")
+        return
+    if await crud.has_any_announcement_been_sent(session, show_id):
+        await callback.answer("Анонс уже был отправлен.", show_alert=True)
         return
 
     missing = []
@@ -1293,12 +1537,18 @@ async def send_manual_announcement(
         )
         return
 
+    await callback.answer()
     text = build_announcement_text(show)
     try:
         msg_id = await send_to_channel(public_bot, bot, show, text)
-        if msg_id:
-            await crud.save_channel_message_id(session, show_id, msg_id)
+        await crud.save_channel_message_id(session, show_id, msg_id)
         await callback.message.answer("✅ Анонс отправлен в канал!")
+        refreshed = await crud.get_show(session, show_id)
+        if refreshed:
+            try:
+                await callback.message.edit_reply_markup(reply_markup=show_section_kb(refreshed, "promotion"))
+            except Exception:
+                pass
         logger.info("manual announcement sent show_id=%s channel_msg_id=%s by admin=%s", show_id, msg_id, callback.from_user.id)
     except Exception as e:
         logger.exception("Failed to send manual announcement for show_id=%s", show_id)
@@ -1349,7 +1599,7 @@ async def remind_viewers(
             kwargs = {}
             if post_url:
                 kwargs["link_preview_options"] = LinkPreviewOptions(url=post_url)
-            await public_bot.send_message(user.telegram_id, reminder_text, **kwargs)
+            await send_with_retry(public_bot.send_message, user.telegram_id, reminder_text, **kwargs)
             sent += 1
         except Exception:
             failed += 1
@@ -1401,7 +1651,7 @@ async def free_ad(
     for ch in channels:
         nav_builder.button(text=f"➡️ {ch.username}", url=ch.url)
     # add a back button to return to the show detail view
-    nav_builder.button(text="◀️ Назад", callback_data=AdminShowActionCb(action="open", show_id=show_id).pack())
+    nav_builder.button(text="◀️ К шоу", callback_data=AdminShowActionCb(action="open", show_id=show_id).pack())
     nav_builder.adjust(1)
 
     await callback.message.answer(
@@ -1546,7 +1796,7 @@ async def cancel_show_execute(
     sent, failed = 0, 0
     for user in users:
         try:
-            await public_bot.send_message(user.telegram_id, personal_text, reply_markup=cancel_kb)
+            await send_with_retry(public_bot.send_message, user.telegram_id, personal_text, reply_markup=cancel_kb)
             sent += 1
         except Exception:
             failed += 1
@@ -1601,10 +1851,43 @@ async def start_edit(
         await deny(callback, "⛔ Нет доступа к этому шоу.")
         return
     await callback.answer()
+    await state.update_data(editing_show_id=show_id, current_show_id=show_id, reply_context="flow")
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await callback.message.answer("✏️ Режим редактирования", reply_markup=flow_context_kb())
+    if await crud.has_any_announcement_been_sent(session, show_id):
+        await state.set_state(EditShowFSM.field)
+        await callback.message.answer(
+            "✏️ <b>Редактирование опубликованного шоу</b>\n\n"
+            "При обычном обновлении записанные зрители получат сообщение, а в канале появится обновление. "
+            "Для небольшой правки без рассылки выбери скрытое обновление.",
+            reply_markup=edit_notification_mode_kb(show_id),
+        )
+    else:
+        await state.set_state(EditShowFSM.field)
+        await state.update_data(edit_notify=False)
+        await callback.message.answer("Выбери поле для редактирования:", reply_markup=edit_show_fields_kb(show))
+
+
+@router.callback_query(AdminShowActionCb.filter(F.action.in_({"edit_notify", "edit_silent"})))
+async def choose_edit_notification_mode(
+    callback: CallbackQuery, callback_data: AdminShowActionCb, state: FSMContext,
+    session: AsyncSession, db_user=None, is_super_admin: bool = False,
+):
+    show = await manageable_show(session, callback_data.show_id, db_user, is_super_admin)
+    if show is None:
+        await deny(callback, "⛔ Нет доступа к этому шоу.")
+        return
+    notify = callback_data.action == "edit_notify"
+    await callback.answer("Обновление с уведомлениями" if notify else "Скрытое обновление")
     await state.set_state(EditShowFSM.field)
-    await state.update_data(editing_show_id=show_id)
+    await state.update_data(editing_show_id=show.id, edit_notify=notify)
     await callback.message.edit_text(
-        "Выбери поле для редактирования:",
+        "Выбери поле для редактирования:\n\n" +
+        ("🔔 Изменения важных данных будут отправлены зрителям и в канал."
+         if notify else "🤫 Изменения будут сохранены без сообщений зрителям и в канал."),
         reply_markup=edit_show_fields_kb(show),
     )
 
@@ -1616,6 +1899,23 @@ async def choose_edit_field(
 ):
     show_id = callback_data.show_id
     field = callback_data.field
+    if field.startswith("group_"):
+        show = await manageable_show(session, show_id, db_user, is_super_admin)
+        if show is None:
+            await deny(callback, "⛔ Нет доступа к этому шоу.")
+            return
+        group = field.removeprefix("group_")
+        titles = {
+            "main": "Выбери раздел для редактирования:", "basic": "🎭 Основные данные:",
+            "venue": "📍 Место и вместимость:", "poster": "📝 Афиша:",
+            "registration": "👥 Настройки записи:", "extra": "⚙️ Дополнительно:",
+        }
+        if group not in titles:
+            await deny(callback, "Недоступный раздел.")
+            return
+        await callback.answer()
+        await callback.message.edit_text(titles[group], reply_markup=edit_show_fields_kb(show, group))
+        return
     allowed_fields = {
         "title", "team_name", "show_date", "city", "location", "location_url",
         "max_seats", "registrar_id", "poster_text", "poster_file_id",
@@ -1634,6 +1934,49 @@ async def choose_edit_field(
         await callback.message.edit_text(
             "Выбери поле для редактирования:",
             reply_markup=edit_show_fields_kb(updated),
+        )
+        return
+    if field == "show_date":
+        await callback.answer()
+        await state.set_state(EditShowFSM.show_date)
+        await state.update_data(editing_show_id=show_id, editing_field=field)
+        current = format_local(show.show_date)
+        local_current = local_date(show.show_date)
+        await callback.message.edit_text(
+            f"Выбери новую дату шоу:\n\n<b>Текущее значение:</b>\n<code>{h(current)}</code>",
+            reply_markup=await (await _make_calendar(session)).start_calendar(
+                year=local_current.year, month=local_current.month,
+            ),
+        )
+        return
+    if field == "team_name":
+        await callback.answer()
+        await state.set_state(EditShowFSM.new_value)
+        await state.update_data(editing_show_id=show_id, editing_field=field)
+        await callback.message.edit_text(
+            f"Выбери команду:\n\n<b>Текущее значение:</b> {h(show.team_name)}",
+            reply_markup=team_select_kb(
+                await crud.list_teams(session),
+                back_callback=AdminShowFieldCb(show_id=show_id, field="group_basic").pack(),
+                back_text="◀️ К основным данным",
+            ),
+        )
+        return
+    if field == "city":
+        await callback.answer()
+        await state.set_state(EditShowFSM.new_value)
+        await state.update_data(editing_show_id=show_id, editing_field=field)
+        await callback.message.edit_text(
+            f"Выбери город:\n\n<b>Текущее значение:</b> {h(show.city)}", reply_markup=city_kb(),
+        )
+        return
+    if field == "location":
+        await callback.answer()
+        await state.set_state(EditShowFSM.new_value)
+        await state.update_data(editing_show_id=show_id, editing_field=field)
+        await callback.message.edit_text(
+            f"Выбери площадку:\n\n<b>Текущее значение:</b> {h(show.location)}",
+            reply_markup=venue_kb(await crud.list_venues(session)),
         )
         return
     await callback.answer()
@@ -1677,10 +2020,128 @@ async def choose_edit_field(
     else:
         text = prompt
 
-    if field == "show_date":
-        text += "\n\n⚠️ <i>Все записанные зрители получат уведомление. В канал будет отправлено сообщение об изменении.</i>"
-
     await callback.message.edit_text(text)
+
+
+@router.callback_query(EditShowFSM.new_value, TeamCb.filter())
+async def edit_team_select(
+    callback: CallbackQuery, callback_data: TeamCb, state: FSMContext, session: AsyncSession,
+    db_user=None, is_super_admin: bool = False,
+):
+    data = await state.get_data()
+    if data.get("editing_field") != "team_name":
+        return
+    await callback.answer()
+    if callback_data.team_id == 0:
+        await callback.message.edit_text("Введи название команды:", reply_markup=fsm_cancel_kb())
+        return
+    team = await crud.get_team(session, callback_data.team_id)
+    if team is None:
+        await callback.message.answer("Команда не найдена.")
+        return
+    await _apply_edit(callback.message, state, session, team.name, db_user=db_user, is_super_admin=is_super_admin)
+
+
+@router.callback_query(EditShowFSM.new_value, CityCb.filter())
+async def edit_city_select(
+    callback: CallbackQuery, callback_data: CityCb, state: FSMContext, session: AsyncSession,
+    bot: Bot, public_bot: Bot, db_user=None, is_super_admin: bool = False,
+):
+    data = await state.get_data()
+    if data.get("editing_field") != "city":
+        return
+    await callback.answer()
+    if callback_data.value == "custom":
+        await callback.message.edit_text("Введи название города:", reply_markup=fsm_cancel_kb())
+        return
+    await _apply_edit(callback.message, state, session, callback_data.value, bot=bot, public_bot=public_bot, db_user=db_user, is_super_admin=is_super_admin)
+
+
+@router.callback_query(EditShowFSM.new_value, VenueCb.filter())
+async def edit_venue_select(
+    callback: CallbackQuery, callback_data: VenueCb, state: FSMContext, session: AsyncSession,
+    bot: Bot, public_bot: Bot, db_user=None, is_super_admin: bool = False,
+):
+    data = await state.get_data()
+    if data.get("editing_field") != "location":
+        return
+    await callback.answer()
+    if callback_data.venue_id == 0:
+        await callback.message.edit_text("Введи название площадки/театра:", reply_markup=fsm_cancel_kb())
+        return
+    venue = await crud.get_venue(session, callback_data.venue_id)
+    if venue is None:
+        await callback.message.answer("Площадка не найдена.")
+        return
+    await _apply_edit(
+        callback.message, state, session,
+        {"location": venue.name, "location_url": venue.maps_url, "city": venue.city, "max_seats": venue.default_seats},
+        bot=bot, public_bot=public_bot, db_user=db_user, is_super_admin=is_super_admin,
+    )
+
+
+@router.message(EditShowFSM.show_date)
+async def edit_date_text_guard(message: Message, session: AsyncSession):
+    now = local_now()
+    await message.answer(
+        "👆 Выбери дату кнопками выше.",
+        reply_markup=await (await _make_calendar(session)).start_calendar(year=now.year, month=now.month),
+    )
+
+
+@router.callback_query(EditShowFSM.show_date, simple_cal_callback.filter())
+async def process_edit_calendar(callback: CallbackQuery, callback_data: dict, state: FSMContext, session: AsyncSession):
+    selected, selected_date = await (await _make_calendar(session)).process_selection(callback, callback_data)
+    if not selected:
+        return
+    if selected_date.date() < local_now().date():
+        await callback.answer("❌ Дата в прошлом, выбери другую.", show_alert=True)
+        return
+    await state.update_data(picked_date=selected_date.strftime("%d.%m.%Y"))
+    await state.set_state(EditShowFSM.select_time)
+    await callback.message.answer(
+        f"✅ Дата: {selected_date.strftime('%d.%m.%Y')}\n\nВыбери время начала:",
+        reply_markup=_time_kb(),
+    )
+
+
+@router.callback_query(EditShowFSM.select_time, TimePresetCb.filter())
+async def process_edit_time_preset(
+    callback: CallbackQuery, callback_data: TimePresetCb, state: FSMContext,
+    session: AsyncSession, bot: Bot, public_bot: Bot, db_user=None, is_super_admin: bool = False,
+):
+    await callback.answer()
+    await _save_edit_datetime(callback_data.time, callback.message, state, session, bot, public_bot, db_user, is_super_admin)
+
+
+@router.callback_query(EditShowFSM.select_time, F.data == "time_custom")
+async def process_edit_time_custom(callback: CallbackQuery):
+    await callback.answer()
+    await callback.message.edit_text("Введи время начала (ЧЧ:ММ), например 19:00:", reply_markup=fsm_cancel_kb())
+
+
+@router.message(EditShowFSM.select_time, F.text)
+async def process_edit_time(
+    message: Message, state: FSMContext, session: AsyncSession, bot: Bot, public_bot: Bot,
+    db_user=None, is_super_admin: bool = False,
+):
+    await _save_edit_datetime(message.text.strip(), message, state, session, bot, public_bot, db_user, is_super_admin)
+
+
+async def _save_edit_datetime(raw, message, state, session, bot, public_bot, db_user, is_super_admin):
+    data = await state.get_data()
+    try:
+        local_value = datetime.strptime(f"{data['picked_date']} {raw}", "%d.%m.%Y %H:%M")
+    except (ValueError, KeyError):
+        await message.answer("Неверное время. Введи как ЧЧ:ММ, например 19:00:")
+        return
+    if local_value.replace(tzinfo=local_now().tzinfo) <= local_now():
+        await message.answer("❌ Дата и время уже в прошлом. Выбери другое время:", reply_markup=_time_kb())
+        return
+    await _apply_edit(
+        message, state, session, local_naive_to_utc(local_value), bot=bot, public_bot=public_bot,
+        db_user=db_user, is_super_admin=is_super_admin,
+    )
 
 
 async def _ask_edit_registrar(message: Message | CallbackQuery, state: FSMContext):
@@ -1689,6 +2150,12 @@ async def _ask_edit_registrar(message: Message | CallbackQuery, state: FSMContex
     async with AsyncSessionLocal() as session:
         show = await crud.get_show(session, show_id) if show_id else None
         organizers = await crud.get_all_organizers(session)
+        teams = await crud.list_teams(session)
+
+    team = next((item for item in teams if show and item.name == show.team_name), None)
+    team_usernames = normalize_telegram_username_list(team.members) if team and team.members else []
+    organizer_usernames = {u.username.lower() for u in organizers if u.username}
+    team_usernames = [username for username in team_usernames if username not in organizer_usernames]
 
     lines = []
     for idx, u in enumerate(organizers, start=1):
@@ -1696,6 +2163,9 @@ async def _ask_edit_registrar(message: Message | CallbackQuery, state: FSMContex
             lines.append(f"{idx}. <a href=\"https://t.me/{u.username}\">{h(u.first_name or ('@'+u.username))}</a>")
         else:
             lines.append(f"{idx}. {h(u.first_name or ('id'+str(u.telegram_id)))}")
+    if team_usernames:
+        lines.append("\n<b>Участники команды:</b>")
+        lines.extend(f'• <a href="https://t.me/{username}">@{username}</a>' for username in team_usernames)
 
     text = "Выбери ответственного за записи (или пропусти):\n\n" + "\n".join(lines)
     if show and (show.registrar or show.registrar_username):
@@ -1706,9 +2176,11 @@ async def _ask_edit_registrar(message: Message | CallbackQuery, state: FSMContex
     for u in organizers:
         label = u.first_name or (('@' + u.username) if u.username else f'id{u.telegram_id}')
         kb.button(text=label, callback_data=f"registrar:{u.id}")
+    for username in team_usernames:
+        kb.button(text=f"@{username}", callback_data=f"registrar:username:{username}")
     kb.button(text="✍️ Ввести Telegram ник", callback_data="registrar:manual")
     kb.button(text="Пропустить (через бот)", callback_data="registrar:0")
-    kb.button(text="◀️ Назад", callback_data=AdminShowActionCb(action="open", show_id=show_id).pack())
+    kb.button(text="◀️ К шоу", callback_data=AdminShowActionCb(action="open", show_id=show_id).pack())
     kb.adjust(1)
 
     if isinstance(message, CallbackQuery):
@@ -1733,13 +2205,18 @@ async def edit_process_registrar_choice(
             reply_markup=fsm_cancel_kb(),
         )
         return
-    try:
-        value = int(raw)
-    except ValueError:
-        value = None
-    if value == 0:
-        registrar_value = {"registrar_id": None, "registrar_username": None}
+    if raw.startswith("username:"):
+        username = normalize_telegram_username(raw.removeprefix("username:"))
+        user = await crud.get_user_by_username(session, username) if username else None
+        registrar_value = {"registrar_id": user.id if user else None, "registrar_username": username}
     else:
+        try:
+            value = int(raw)
+        except ValueError:
+            value = None
+    if not raw.startswith("username:") and value == 0:
+        registrar_value = {"registrar_id": None, "registrar_username": None}
+    elif not raw.startswith("username:"):
         user = await crud.get_user_by_id(session, value) if value else None
         registrar_value = {
             "registrar_id": value,
@@ -1854,6 +2331,7 @@ async def _apply_edit(
     data = await state.get_data()
     show_id = data["editing_show_id"]
     field = data["editing_field"]
+    should_notify = bool(data.get("edit_notify"))
     old_show = await manageable_show(session, show_id, db_user, is_super_admin)
     if old_show is None:
         await state.clear()
@@ -1861,7 +2339,7 @@ async def _apply_edit(
         return
     await state.clear()
     old_value = getattr(old_show, field, None)
-    update_fields = value if field == "registrar_id" and isinstance(value, dict) else {field: value}
+    update_fields = value if field in {"registrar_id", "location"} and isinstance(value, dict) else {field: value}
     show = await crud.update_show(session, show_id, **update_fields)
 
     logger.info("updated show id=%s field=%s by admin=%s", show_id, field, message.from_user.id)
@@ -1877,12 +2355,10 @@ async def _apply_edit(
             async with AsyncSessionLocal() as extra_session:
                 await crud.update_show(extra_session, show_id, pub_poster_file_id=pub_file_id)
 
-    from aiogram.utils.keyboard import InlineKeyboardBuilder
-    back_kb = InlineKeyboardBuilder()
-    back_kb.button(text="◀️ К шоу", callback_data=AdminShowActionCb(action="open", show_id=show_id).pack())
-    await message.answer("✅ Поле обновлено!", reply_markup=back_kb.as_markup())
+    await state.update_data(reply_context="show", current_show_id=show_id)
+    await message.answer("✅ Поле обновлено!", reply_markup=show_context_kb())
 
-    if field in {"show_date", "title", "location", "city"} and old_value is not None and public_bot and bot:
+    if should_notify and field in {"show_date", "title", "location", "city"} and old_value is not None and public_bot and bot:
         await _notify_show_change(show, field, old_value, bot, public_bot)
 
 
@@ -1923,10 +2399,14 @@ async def _notify_show_change(show, field: str, old_value, admin_bot: Bot, publi
         f"{icon} Стало: <b>{new_text}</b>\n\n"
         f"🎭 {h(show.title)}\n📅 {format_local(show.show_date)}\n{_location_line(show)}"
     )
+    from public_bot.keyboards.inline import manage_registration_kb
     sent, failed = 0, 0
     for user in users:
         try:
-            await public_bot.send_message(user.telegram_id, personal_text)
+            await send_with_retry(
+                public_bot.send_message,
+                user.telegram_id, personal_text, reply_markup=manage_registration_kb(show.id),
+            )
             sent += 1
         except Exception:
             failed += 1
@@ -1935,7 +2415,7 @@ async def _notify_show_change(show, field: str, old_value, admin_bot: Bot, publi
 
 async def _notify_date_change(show, old_date, admin_bot: Bot, public_bot: Bot):
     from db import crud as _crud
-    old_str = old_date.strftime("%d.%m.%Y %H:%M")
+    old_str = format_local(old_date)
     new_str = format_local(show.show_date)
 
     async with AsyncSessionLocal() as session:
@@ -1978,12 +2458,14 @@ async def _notify_date_change(show, old_date, admin_bot: Bot, public_bot: Bot):
             post_url = f"https://t.me/c/{str(ch).replace('-100', '').lstrip('-')}/{channel_msg_id}"
 
     sent, failed = 0, 0
+    from public_bot.keyboards.inline import manage_registration_kb
     for user in users:
         try:
             kwargs = {}
             if post_url:
                 kwargs["link_preview_options"] = LinkPreviewOptions(url=post_url)
-            await public_bot.send_message(user.telegram_id, personal_text, **kwargs)
+            kwargs["reply_markup"] = manage_registration_kb(show.id)
+            await send_with_retry(public_bot.send_message, user.telegram_id, personal_text, **kwargs)
             sent += 1
         except Exception:
             failed += 1

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import secrets
 from datetime import datetime, date, timedelta
-from sqlalchemy import select, func, exists, update
+from sqlalchemy import select, func, exists, update, delete
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -68,6 +68,29 @@ async def get_user_by_telegram_id(session: AsyncSession, telegram_id: int) -> Us
         select(User).where(User.telegram_id == telegram_id)
     )
     return result.scalar_one_or_none()
+
+
+async def delete_or_anonymize_user_data(session: AsyncSession, user: User) -> bool:
+    """Erase user-owned personal data; retain only an anonymous organizer shell if required by history."""
+    await session.execute(delete(ShowFeedback).where(ShowFeedback.user_id == user.id))
+    await session.execute(delete(Registration).where(Registration.user_id == user.id))
+    await session.execute(update(Show).where(Show.registrar_id == user.id).values(registrar_id=None))
+    await session.execute(update(InviteToken).where(InviteToken.used_by_user_id == user.id).values(used_by_user_id=None))
+
+    owns_show = await session.scalar(select(exists().where(Show.creator_id == user.id)))
+    owns_team = await session.scalar(select(exists().where(Team.creator_id == user.id)))
+    if owns_show or owns_team:
+        user.telegram_id = -user.id
+        user.username = None
+        user.first_name = None
+        user.last_name = None
+        user.role = UserRole.user
+        user.onboarding_done = False
+    else:
+        await session.delete(user)
+    await session.commit()
+    logger.info("erased personal data for user_id=%s retained_anonymous=%s", user.id, bool(owns_show or owns_team))
+    return True
 
 
 async def mark_onboarding_done(session: AsyncSession, telegram_id: int) -> None:
@@ -605,6 +628,65 @@ async def toggle_manual_attendee_checkin(
     return attendee
 
 
+async def set_registration_checkin_count(session: AsyncSession, show_id: int, registration_id: int, count: int) -> Registration | None:
+    result = await session.execute(
+        select(Registration).where(
+            Registration.id == registration_id,
+            Registration.show_id == show_id,
+            Registration.is_cancelled == False,
+        )
+    )
+    item = result.scalar_one_or_none()
+    if item is None:
+        return None
+    item.checked_in_count = max(0, count)
+    item.checked_in_at = _utcnow() if item.checked_in_count else None
+    await session.commit()
+    await session.refresh(item)
+    return item
+
+
+async def set_manual_checkin_count(session: AsyncSession, show_id: int, attendee_id: int, count: int) -> ManualAttendee | None:
+    result = await session.execute(
+        select(ManualAttendee).where(
+            ManualAttendee.id == attendee_id, ManualAttendee.show_id == show_id,
+        )
+    )
+    item = result.scalar_one_or_none()
+    if item is None:
+        return None
+    item.checked_in_count = max(0, count)
+    item.checked_in_at = _utcnow() if item.checked_in_count else None
+    await session.commit()
+    await session.refresh(item)
+    return item
+
+
+async def change_checkin_counter(session: AsyncSession, show_id: int, delta: int) -> Show | None:
+    result = await session.execute(select(Show).where(Show.id == show_id).with_for_update())
+    show = result.scalar_one_or_none()
+    if show is None:
+        return None
+    show.checkin_counter = max(0, (show.checkin_counter or 0) + delta)
+    await session.commit()
+    await session.refresh(show)
+    return show
+
+
+async def claim_checkin_milestones(session: AsyncSession, show_id: int, arrived: int) -> tuple[int, int, int | None, str] | None:
+    result = await session.execute(select(Show).where(Show.id == show_id).with_for_update())
+    show = result.scalar_one_or_none()
+    if show is None or not show.registration_chat_id:
+        return None
+    previous = show.checkin_milestone or 0
+    highest = (arrived // 10) * 10
+    if highest <= previous:
+        return None
+    show.checkin_milestone = highest
+    await session.commit()
+    return previous, highest, show.registration_chat_id, show.title
+
+
 async def get_feedback_candidates(
     session: AsyncSession, *, after_id: int = 0, limit: int = 50
 ) -> list[Registration]:
@@ -700,7 +782,7 @@ async def get_registered_users_for_show(session: AsyncSession, show_id: int) -> 
 
 # ── Manual attendees ───────────────────────────────────────────────────────
 
-async def add_manual_attendees(session: AsyncSession, show_id: int, names: list[str]) -> int:
+async def add_manual_attendees(session: AsyncSession, show_id: int, names: list[str], source: str | None = "manual") -> int:
     show_result = await session.execute(
         select(Show).where(Show.id == show_id).with_for_update()
     )
@@ -711,7 +793,7 @@ async def add_manual_attendees(session: AsyncSession, show_id: int, names: list[
     if occupied + len(names) > show.max_seats:
         return 0
     for name in names:
-        session.add(ManualAttendee(show_id=show_id, name=name.strip()))
+        session.add(ManualAttendee(show_id=show_id, name=name.strip(), source=source))
     await session.commit()
     return len(names)
 
@@ -733,6 +815,30 @@ async def delete_manual_attendee(session: AsyncSession, attendee_id: int) -> boo
     await session.delete(attendee)
     await session.commit()
     return True
+
+
+async def mark_manual_attendees_reminded(session: AsyncSession, attendee_ids: list[int]) -> None:
+    if not attendee_ids:
+        return
+    await session.execute(
+        update(ManualAttendee)
+        .where(ManualAttendee.id.in_(attendee_ids))
+        .values(organizer_reminded_at=_utcnow())
+    )
+    await session.commit()
+
+
+async def confirm_manual_attendees_notified(session: AsyncSession, show_id: int) -> int:
+    result = await session.execute(
+        update(ManualAttendee)
+        .where(
+            ManualAttendee.show_id == show_id,
+            ManualAttendee.notification_confirmed_at.is_(None),
+        )
+        .values(notification_confirmed_at=_utcnow())
+    )
+    await session.commit()
+    return int(result.rowcount or 0)
 
 
 # ── Announcements ──────────────────────────────────────────────────────────
@@ -769,7 +875,7 @@ async def mark_announcement_sent(
 
 
 async def save_channel_message_id(
-    session: AsyncSession, show_id: int, channel_message_id: int, ann_type: str = "manual"
+    session: AsyncSession, show_id: int, channel_message_id: int | None, ann_type: str = "manual"
 ) -> None:
     result = await session.execute(
         select(AnnouncementLog).where(

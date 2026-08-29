@@ -53,10 +53,16 @@ class Show(Base):
     max_seats = Column(Integer, nullable=False, default=50)
     is_active = Column(Boolean, default=True, nullable=False)
     checkin_enabled = Column(Boolean, default=False, nullable=False)
+    checkin_mode = Column(String(16), default="named", nullable=False)
+    checkin_counter = Column(Integer, default=0, nullable=False)
+    checkin_milestone = Column(Integer, default=0, nullable=False)
     feedback_enabled = Column(Boolean, default=False, nullable=False)
     creator_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     registrar_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     registrar_username = Column(String(64), nullable=True)
+    registration_chat_id = Column(BigInteger, nullable=True)
+    registration_chat_title = Column(String(256), nullable=True)
+    registration_chat_name_mode = Column(String(16), nullable=False, default="short")
     created_at = Column(DateTime, default=_utcnow)
     updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
 
@@ -104,6 +110,7 @@ class Registration(Base):
     guests = Column(Integer, default=0, nullable=False)
     source = Column(String(64), nullable=True)
     checked_in_at = Column(DateTime, nullable=True)
+    checked_in_count = Column(Integer, default=0, nullable=False)
     feedback_requested_at = Column(DateTime, nullable=True)
 
     __table_args__ = (
@@ -141,8 +148,12 @@ class ManualAttendee(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     show_id = Column(Integer, ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
     name = Column(String(256), nullable=False)
+    source = Column(String(64), nullable=True)
     added_at = Column(DateTime, default=_utcnow)
+    organizer_reminded_at = Column(DateTime, nullable=True)
+    notification_confirmed_at = Column(DateTime, nullable=True)
     checked_in_at = Column(DateTime, nullable=True)
+    checked_in_count = Column(Integer, default=0, nullable=False)
 
     show = relationship("Show")
 

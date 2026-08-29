@@ -101,6 +101,7 @@ def get_webhook_secret(bot_token: str) -> str:
 
 async def register_commands(admin_bot: Bot, public_bot: Bot) -> None:
     await admin_bot.set_my_commands([
+        BotCommand(command="start",       description="Начать работу"),
         BotCommand(command="home",        description="Главное меню"),
         BotCommand(command="shows",       description="Список шоу"),
         BotCommand(command="my",          description="Мои шоу"),
@@ -109,12 +110,17 @@ async def register_commands(admin_bot: Bot, public_bot: Bot) -> None:
         BotCommand(command="teams",       description="Команды"),
         BotCommand(command="venues",      description="Площадки"),
         BotCommand(command="roles",       description="Управление доступом"),
-        BotCommand(command="info",        description="Справка"),
+        BotCommand(command="help",        description="Справка"),
+        BotCommand(command="privacy",     description="Конфиденциальность"),
     ])
     await public_bot.set_my_commands([
         BotCommand(command="start",    description="Главная"),
         BotCommand(command="shows",    description="Все предстоящие шоу"),
         BotCommand(command="my_shows", description="Мои записи"),
+        BotCommand(command="help",     description="Помощь"),
+        BotCommand(command="settings", description="Настройки"),
+        BotCommand(command="privacy",  description="Конфиденциальность"),
+        BotCommand(command="delete_me", description="Удалить мои данные"),
     ])
 
 
@@ -323,6 +329,7 @@ async def main():
 
         logger.info("Webhook-боты запущены на %s и %s", admin_webhook_url, public_webhook_url)
         admin_dp["public_bot"] = public_bot
+        public_dp["admin_bot"] = admin_bot
         await stop_event.wait()
     finally:
         logger.info("Останавливаю webhook-сервер...")

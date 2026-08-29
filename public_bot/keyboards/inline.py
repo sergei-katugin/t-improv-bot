@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from config import settings
@@ -8,6 +10,12 @@ from public_bot.callbacks import (
     EditGuestsCb, GuestsCb, GuestsCustomCb, RemindToggleCb, AttendanceCb,
     CalendarCb, FeedbackCb,
 )
+
+
+def registrar_username(show) -> str | None:
+    registrar = getattr(show, "registrar", None)
+    username = getattr(registrar, "username", None) or getattr(show, "registrar_username", None)
+    return username.lstrip("@") if username else None
 
 
 def shows_list_kb(shows: list[Show], registered_ids: set[int] = None) -> InlineKeyboardMarkup:
@@ -25,8 +33,9 @@ def shows_list_kb(shows: list[Show], registered_ids: set[int] = None) -> InlineK
     return builder.as_markup()
 
 
-def show_detail_kb(show_id: int, is_registered: bool, seats_left: int) -> InlineKeyboardMarkup:
+def show_detail_kb(show: Show, is_registered: bool, seats_left: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    show_id = show.id
     if is_registered:
         builder.button(text="📅 Добавить в календарь", callback_data=CalendarCb(show_id=show_id).pack())
         builder.button(text="👥 Изменить кол-во гостей", callback_data=EditGuestsCb(show_id=show_id).pack())
@@ -35,8 +44,17 @@ def show_detail_kb(show_id: int, is_registered: bool, seats_left: int) -> Inline
         builder.button(text="✅ Записаться", callback_data=RegisterCb(show_id=show_id).pack())
     else:
         builder.button(text="😔 Мест нет", callback_data="pub_no_seats")
-    builder.button(text="◀️ Назад к списку", callback_data="pub_shows_list")
+    username = registrar_username(show)
+    if username:
+        builder.button(text="💬 Помощь с записью", url=f"https://t.me/{username}")
+    builder.button(text="◀️ К списку шоу", callback_data="pub_shows_list")
     builder.adjust(1)
+    return builder.as_markup()
+
+
+def manage_registration_kb(show_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="⚙️ Управлять записью", callback_data=ShowCb(show_id=show_id).pack())
     return builder.as_markup()
 
 
@@ -81,6 +99,33 @@ def reminder_prefs_kb(
         callback_data=RemindToggleCb(show_id=show_id, field="remind_1d", value=int(not remind_1d)).pack(),
     )
     builder.adjust(1)
+    return builder.as_markup()
+
+
+def registration_success_kb(show, remind_7d: bool, remind_2d: bool, remind_1d: bool) -> InlineKeyboardMarkup:
+    from datetime import timedelta
+    from urllib.parse import urlencode
+
+    local_start = utc_to_local(show.show_date)
+    end = local_start + timedelta(hours=2)
+    params = urlencode({
+        "action": "TEMPLATE", "text": show.title,
+        "dates": f"{local_start.strftime('%Y%m%dT%H%M%S')}/{end.strftime('%Y%m%dT%H%M%S')}",
+        "ctz": settings.APP_TIMEZONE, "location": f"{show.location}, {show.city}",
+        "details": show.poster_text or "Импровизационное шоу",
+    })
+    icon = lambda value: "✅" if value else "☐"
+    builder = InlineKeyboardBuilder()
+    builder.button(text="📅 Google Calendar", url=f"https://calendar.google.com/calendar/render?{params}")
+    builder.button(text="📎 Apple / Outlook", callback_data=CalendarCb(show_id=show.id).pack())
+    builder.button(text=f"{icon(remind_7d)} Напомнить за неделю", callback_data=RemindToggleCb(show_id=show.id, field="remind_7d", value=int(not remind_7d)).pack())
+    builder.button(text=f"{icon(remind_2d)} Напомнить за два дня", callback_data=RemindToggleCb(show_id=show.id, field="remind_2d", value=int(not remind_2d)).pack())
+    builder.button(text=f"{icon(remind_1d)} Напомнить за день", callback_data=RemindToggleCb(show_id=show.id, field="remind_1d", value=int(not remind_1d)).pack())
+    builder.button(text="⚙️ Управлять записью", callback_data=ShowCb(show_id=show.id).pack())
+    username = registrar_username(show)
+    if username:
+        builder.button(text="💬 Помощь с записью", url=f"https://t.me/{username}")
+    builder.adjust(2, 1, 1, 1, 1)
     return builder.as_markup()
 
 
