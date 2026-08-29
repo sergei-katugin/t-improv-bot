@@ -1,3 +1,4 @@
+from app_logging import get_project_logger
 from aiogram import Router, F
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
