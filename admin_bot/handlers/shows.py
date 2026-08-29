@@ -591,22 +591,27 @@ def _preview_from_data(data: dict) -> str:
     else:
         date_str = data.get("show_date_str", "")
 
-    registrar_name = data.get("registrar_name") or "(через бот)"
-    registrar_name = _registrar_link(data.get("registrar_username"), registrar_name)
+    bot_username = settings.PUBLIC_BOT_USERNAME.lstrip("@")
+    registration_targets = f'<a href="https://t.me/{bot_username}">@{h(bot_username)}</a>'
+    registrar_username = data.get("registrar_username")
+    if registrar_username:
+        registrar_username = registrar_username.lstrip("@")
+        registration_targets += (
+            f' и <a href="https://t.me/{registrar_username}">@{h(registrar_username)}</a>'
+        )
     poster = data.get("poster_text") or ""
     lines = [
         f"🎭 <b>{h(data.get('title', ''))}</b>",
+    ]
+    if data.get("team_name"):
+        lines.append(f"👥 Команда: {h(data['team_name'])}")
+    lines += [
         f"📅 {date_str}",
         location_line,
-        f"👥 Ответственный за записи: {registrar_name}",
+        f"👥 Записаться тут: {registration_targets}",
     ]
     if poster:
         lines += ["", h(poster)]
-    lines += [
-        "",
-        f"🎟 Check-in: {'включён' if data.get('checkin_enabled', False) else 'выключен'}",
-        f"⭐ Отзывы после шоу: {'включены' if data.get('feedback_enabled', False) else 'выключены'}",
-    ]
     return "\n".join(lines)
 
 

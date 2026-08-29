@@ -11,7 +11,7 @@ from db import crud
 from db.models import User
 from public_bot.keyboards.inline import shows_list_kb, show_detail_kb
 from public_bot.callbacks import ShowCb
-from public_bot.show_utils import show_text
+from public_bot.show_utils import NO_LINK_PREVIEW, show_text
 from html_utils import h
 
 router = Router()
@@ -76,9 +76,17 @@ async def show_detail(callback: CallbackQuery, callback_data: ShowCb, db_user: U
     kb = show_detail_kb(show_id, is_registered, seats_left)
 
     if callback.message.photo:
-        await callback.message.answer(text, reply_markup=kb)
+        await callback.message.answer(
+            text,
+            reply_markup=kb,
+            link_preview_options=NO_LINK_PREVIEW,
+        )
     else:
-        await callback.message.edit_text(text, reply_markup=kb)
+        await callback.message.edit_text(
+            text,
+            reply_markup=kb,
+            link_preview_options=NO_LINK_PREVIEW,
+        )
 
 
 # ── Filters ──────────────────────────────────────────────────────────────────
