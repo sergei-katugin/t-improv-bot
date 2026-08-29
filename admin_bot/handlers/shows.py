@@ -451,6 +451,7 @@ async def process_max_seats(message: Message, state: FSMContext):
     total = data.get("_total", _TOTAL_STEPS_CUSTOM)
     await state.update_data(max_seats=seats)
     await state.set_state(CreateShowFSM.poster_text)
+    logger.info("create_show moved to poster_text state total=%s", total)
     await message.answer(
         f"{_progress(total - 2, total)}Введи текст афиши:\n⚠️ Не указывай дату, время и адрес — они уже есть в отдельных полях.",
         reply_markup=fsm_skip_cancel_kb("fsm_skip_poster_text"),
@@ -474,6 +475,7 @@ async def skip_poster_text(callback: CallbackQuery, state: FSMContext):
 @router.message(CreateShowFSM.poster_text, F.text)
 async def process_poster_text(message: Message, state: FSMContext):
     text = message.text.strip()
+    logger.info("create_show poster_text received length=%s", len(text))
     error = _validate_poster_text(text)
     if error:
         await message.answer(error, reply_markup=fsm_skip_cancel_kb("fsm_skip_poster_text"))
@@ -485,6 +487,16 @@ async def process_poster_text(message: Message, state: FSMContext):
     await message.answer(
         f"{_progress(total - 1, total)}Отправь изображение афиши:",
         reply_markup=fsm_skip_cancel_kb("fsm_skip_poster_image"),
+    )
+
+
+@router.message(CreateShowFSM.poster_text)
+async def process_poster_text_fallback(message: Message, state: FSMContext):
+    if message.text is not None:
+        return
+    await message.answer(
+        "Отправь текст афиши или нажми ⏭ Пропустить.",
+        reply_markup=fsm_skip_cancel_kb("fsm_skip_poster_text"),
     )
 
 

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import os
+import secrets
 import signal
 import sys
 
@@ -56,7 +58,19 @@ root_logger.handlers = [handler]
 logger = get_project_logger(__name__)
 
 
-# Note: alembic migrations are intentionally not run automatically here.
+# Render applies Alembic migrations in its start command before starting this app.
+
+
+def get_webhook_secret(bot_token: str) -> str:
+    """Return the configured secret, with a safe no-config fallback.
+
+    Existing Render services may not receive a newly-added Blueprint variable
+    until it is configured in the dashboard. Deriving a secret from the bot
+    token keeps those deployments authenticated during that transition.
+    """
+    if settings.WEBHOOK_SECRET:
+        return settings.WEBHOOK_SECRET
+    return hashlib.sha256(bot_token.encode()).hexdigest()
 
 
 async def register_commands(admin_bot: Bot, public_bot: Bot) -> None:
@@ -88,17 +102,26 @@ def get_webhook_base_url() -> str:
 async def build_webhook_app(admin_bot: Bot, public_bot: Bot, admin_dp: Dispatcher, public_dp: Dispatcher) -> web.Application:
     app = web.Application()
 
+    def verify_telegram_secret(request: web.Request, expected_secret: str) -> None:
+        supplied_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+        if not secrets.compare_digest(supplied_secret, expected_secret):
+            raise web.HTTPUnauthorized(text="Invalid webhook secret")
+
     async def health_handler(request):
         return web.Response(text="ok")
 
     async def admin_webhook_handler(request):
+        verify_telegram_secret(request, get_webhook_secret(settings.ADMIN_BOT_TOKEN))
         payload = await request.json()
-        await admin_dp.feed_webhook_update(bot=admin_bot, update=Update(**payload))
+        update = Update.model_validate(payload, context={"bot": admin_bot})
+        await admin_dp.feed_webhook_update(bot=admin_bot, update=update)
         return web.Response(status=200)
 
     async def public_webhook_handler(request):
+        verify_telegram_secret(request, get_webhook_secret(settings.PUBLIC_BOT_TOKEN))
         payload = await request.json()
-        await public_dp.feed_webhook_update(bot=public_bot, update=Update(**payload))
+        update = Update.model_validate(payload, context={"bot": public_bot})
+        await public_dp.feed_webhook_update(bot=public_bot, update=update)
         return web.Response(status=200)
 
     app.router.add_get("/health", health_handler)
@@ -120,7 +143,8 @@ def build_admin_bot() -> tuple[Bot, Dispatcher]:
         token=settings.ADMIN_BOT_TOKEN,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
-    dp = Dispatcher()
+    from db.fsm_storage import SQLAlchemyStorage
+    dp = Dispatcher(storage=SQLAlchemyStorage())
     dp.message.outer_middleware(AdminAuthMiddleware())
     dp.callback_query.outer_middleware(AdminAuthMiddleware())
     dp.errors.register(on_error)
@@ -139,7 +163,8 @@ def build_public_bot() -> tuple[Bot, Dispatcher]:
         token=settings.PUBLIC_BOT_TOKEN,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
-    dp = Dispatcher()
+    from db.fsm_storage import SQLAlchemyStorage
+    dp = Dispatcher(storage=SQLAlchemyStorage())
     dp.message.outer_middleware(UserContextMiddleware())
     dp.callback_query.outer_middleware(UserContextMiddleware())
     dp.errors.register(on_error)
@@ -161,6 +186,8 @@ async def main():
 
     admin_bot, admin_dp = build_admin_bot()
     public_bot, public_dp = build_public_bot()
+    if not settings.WEBHOOK_SECRET:
+        logger.warning("WEBHOOK_SECRET is not configured; using token-derived secrets")
 
     base_url = get_webhook_base_url()
     admin_webhook_url = f"{base_url}/telegram/admin"
@@ -184,17 +211,15 @@ async def main():
         while attempt < max_attempts:
             attempt += 1
             try:
-                await admin_bot.delete_webhook(drop_pending_updates=True)
-                await public_bot.delete_webhook(drop_pending_updates=True)
                 await admin_bot.set_webhook(
                     url=admin_url,
                     allowed_updates=["message", "callback_query"],
-                    drop_pending_updates=True,
+                    secret_token=get_webhook_secret(settings.ADMIN_BOT_TOKEN),
                 )
                 await public_bot.set_webhook(
                     url=public_url,
                     allowed_updates=["message", "callback_query"],
-                    drop_pending_updates=True,
+                    secret_token=get_webhook_secret(settings.PUBLIC_BOT_TOKEN),
                 )
                 logger.info("Webhooks configured successfully on attempt %d", attempt)
                 return
@@ -234,11 +259,10 @@ async def main():
     await stop_event.wait()
 
     logger.info("Останавливаю webhook-сервер...")
-    await admin_bot.delete_webhook(drop_pending_updates=True)
-    await public_bot.delete_webhook(drop_pending_updates=True)
-
     scheduler.shutdown(wait=False)
     await runner.cleanup()
+    await admin_dp.storage.close()
+    await public_dp.storage.close()
     await admin_bot.session.close()
     await public_bot.session.close()
     logger.info("Боты остановлены.")

@@ -4,7 +4,7 @@ services:
     env: python
     plan: 0.5c-512mb
     buildCommand: pip install -r requirements.txt
-    startCommand: python main.py
+    startCommand: python -m alembic upgrade head && python main.py
     autoDeploy: true
     envVars:
       - key: ADMIN_BOT_TOKEN
@@ -15,6 +15,8 @@ services:
         sync: false  # set in the Render dashboard
       - key: WEBHOOK_BASE_URL
         sync: false  # set to the public HTTPS URL, or leave blank to use RENDER_EXTERNAL_URL
+      - key: WEBHOOK_SECRET
+        generateValue: true
       - key: ANNOUNCEMENT_CHANNEL_ID
         sync: false  # set in the Render dashboard
       - key: ADMIN_IDS

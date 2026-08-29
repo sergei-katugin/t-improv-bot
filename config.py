@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     ADMIN_IDS: str = ""
     PUBLIC_BOT_USERNAME: str = "ImprovCypEventBot"
     WEBHOOK_BASE_URL: str = ""
+    WEBHOOK_SECRET: str = ""
 
     model_config = SettingsConfigDict(env_file=".env")
 
