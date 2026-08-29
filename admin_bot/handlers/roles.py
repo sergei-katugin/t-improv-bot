@@ -1,4 +1,4 @@
-import logging
+from app_logging import get_project_logger
 
 from aiogram import Router, F
 from aiogram.exceptions import TelegramBadRequest
@@ -13,7 +13,7 @@ from db.models import UserRole
 from admin_bot.keyboards.inline import organizers_list_kb, roles_menu_kb
 from admin_bot.callbacks import AdminRevokeCb
 
-logger = logging.getLogger(__name__)
+logger = get_project_logger(__name__)
 router = Router()
 
 

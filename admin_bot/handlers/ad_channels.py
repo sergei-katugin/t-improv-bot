@@ -1,4 +1,4 @@
-import logging
+from app_logging import get_project_logger
 
 from aiogram import Router, F
 from aiogram.fsm.context import FSMContext
@@ -10,7 +10,7 @@ from db import crud
 from admin_bot.callbacks import AdminAdChannelCb
 from admin_bot.keyboards.inline import ad_channels_list_kb
 
-logger = logging.getLogger(__name__)
+logger = get_project_logger(__name__)
 router = Router()
 
 

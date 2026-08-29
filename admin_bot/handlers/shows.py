@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import io
-import logging
 import qrcode
+
+from app_logging import get_project_logger
 from datetime import datetime
 
 from aiogram import Router, F, Bot
@@ -32,7 +33,7 @@ from admin_bot.callbacks import (
     CityCb, VenueCb, TimePresetCb, TeamCb,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_project_logger(__name__)
 router = Router()
 
 

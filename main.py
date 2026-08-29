@@ -4,6 +4,11 @@ import asyncio
 import logging
 import os
 import signal
+import sys
+
+from app_logging import PROJECT_LOG_PREFIX, get_project_logger, install_project_logging
+
+install_project_logging()
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -27,11 +32,28 @@ from public_bot.handlers import start, shows, registration, my_shows
 
 from scheduler.jobs import setup_scheduler, scheduler
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
-logger = logging.getLogger(__name__)
+
+class TaggedFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        base = super().format(record)
+        name = record.name or ""
+        if getattr(record, "project_prefix", ""):
+            return f"{PROJECT_LOG_PREFIX} {base}"
+        if name.startswith("aiohttp"):
+            return "[HTTP] " + base
+        if name.startswith(("admin_bot", "public_bot", "scheduler", "db", "aiogram")) or name in ("__main__", __name__):
+            return "[BOT] " + base
+        return base
+
+
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+handler = logging.StreamHandler(sys.stdout)
+fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+handler.setFormatter(TaggedFormatter(fmt))
+root_logger.handlers = [handler]
+
+logger = get_project_logger(__name__)
 
 
 # Note: alembic migrations are intentionally not run automatically here.
@@ -154,22 +176,46 @@ async def main():
     await register_commands(admin_bot, public_bot)
     setup_scheduler(public_bot, admin_bot)
 
-    try:
-        await admin_bot.delete_webhook(drop_pending_updates=True)
-        await public_bot.delete_webhook(drop_pending_updates=True)
-        await admin_bot.set_webhook(
-            url=admin_webhook_url,
-            allowed_updates=["message", "callback_query"],
-            drop_pending_updates=True,
+    async def _configure_webhooks_with_retries(
+        admin_bot: Bot, public_bot: Bot, admin_url: str, public_url: str, max_attempts: int = 5
+    ) -> None:
+        logger.info("Configuring webhooks: admin=%s public=%s", admin_url, public_url)
+        attempt = 0
+        while attempt < max_attempts:
+            attempt += 1
+            try:
+                await admin_bot.delete_webhook(drop_pending_updates=True)
+                await public_bot.delete_webhook(drop_pending_updates=True)
+                await admin_bot.set_webhook(
+                    url=admin_url,
+                    allowed_updates=["message", "callback_query"],
+                    drop_pending_updates=True,
+                )
+                await public_bot.set_webhook(
+                    url=public_url,
+                    allowed_updates=["message", "callback_query"],
+                    drop_pending_updates=True,
+                )
+                logger.info("Webhooks configured successfully on attempt %d", attempt)
+                return
+            except Exception as e:
+                logger.warning(
+                    "Attempt %d/%d: Failed to configure Telegram webhooks: %s",
+                    attempt,
+                    max_attempts,
+                    e,
+                )
+                # exponential backoff (in seconds)
+                backoff = min(2 ** attempt, 30)
+                await asyncio.sleep(backoff)
+
+        logger.error(
+            "Could not configure Telegram webhooks after %d attempts; continuing without webhooks",
+            max_attempts,
         )
-        await public_bot.set_webhook(
-            url=public_webhook_url,
-            allowed_updates=["message", "callback_query"],
-            drop_pending_updates=True,
-        )
-    except Exception as e:
-        logger.warning("Failed to configure Telegram webhooks: %s", e)
-        raise
+
+    logger.info("Computed webhook base URL: %s", base_url)
+    await _configure_webhooks_with_retries(admin_bot, public_bot, admin_webhook_url, public_webhook_url)
 
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
