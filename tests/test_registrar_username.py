@@ -30,7 +30,8 @@ def test_registrar_line_links_username():
     show = SimpleNamespace(registrar=None, registrar_username="alice")
     assert _registrar_line(show) == (
         '👥 Записаться тут: '
-        '<a href="https://t.me/ImprovCypEventBot">@ImprovCypEventBot</a> и '
+        '<b>через бота</b> '
+        '<a href="https://t.me/ImprovCypEventBot">@ImprovCypEventBot</a> или у '
         '<a href="https://t.me/alice">@alice</a>'
     )
 
@@ -39,6 +40,7 @@ def test_registrar_line_links_public_bot_without_registrar():
     show = SimpleNamespace(registrar=None, registrar_username=None)
     assert _registrar_line(show) == (
         '👥 Записаться тут: '
+        '<b>через бота</b> '
         '<a href="https://t.me/ImprovCypEventBot">@ImprovCypEventBot</a>'
     )
 

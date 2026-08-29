@@ -319,8 +319,8 @@ def _registrar_line(show) -> str | None:
     if username:
         username = username.lstrip("@")
         person_link = f'<a href="https://t.me/{username}">@{h(username)}</a>'
-        return f"👥 Записаться тут: {bot_link} и {person_link}"
-    return f"👥 Записаться тут: {bot_link}"
+        return f"👥 Записаться тут: <b>через бота</b> {bot_link} или у {person_link}"
+    return f"👥 Записаться тут: <b>через бота</b> {bot_link}"
 
 
 _ANN_HEADERS = {
