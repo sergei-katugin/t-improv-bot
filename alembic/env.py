@@ -16,7 +16,18 @@ from db import models  # noqa: F401 — registers all models with Base
 target_metadata = Base.metadata
 
 from config import settings
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+
+# Keep Alembic aligned with db.base: Render commonly provides a standard
+# ``postgresql://`` URL, while this project uses SQLAlchemy's asyncpg driver.
+raw_db_url = settings.DATABASE_URL
+if raw_db_url.startswith("postgres://"):
+    migration_db_url = raw_db_url.replace("postgres://", "postgresql+asyncpg://", 1)
+elif raw_db_url.startswith("postgresql://") and "+asyncpg" not in raw_db_url:
+    migration_db_url = raw_db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+else:
+    migration_db_url = raw_db_url
+
+config.set_main_option("sqlalchemy.url", migration_db_url)
 
 
 def run_migrations_offline() -> None:
