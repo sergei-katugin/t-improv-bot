@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db import crud
 from db.models import User
 from public_bot.keyboards.inline import show_detail_kb
+from scheduler.jobs import _registrar_line
 
 
 def show_text(show, seats_left: int, reg=None) -> str:
@@ -16,6 +17,9 @@ def show_text(show, seats_left: int, reg=None) -> str:
         f"🏙 {show.city}  |  📍 {show.location}",
         f"🪑 Свободных мест: {seats_left}/{show.max_seats}",
     ]
+    registrar_line = _registrar_line(show)
+    if registrar_line:
+        lines.append(registrar_line)
     if reg and not reg.is_cancelled:
         guests = reg.guests or 0
         total = 1 + guests

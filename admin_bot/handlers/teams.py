@@ -14,6 +14,11 @@ from admin_bot.keyboards.inline import (
     teams_list_kb, team_detail_kb, team_kb, team_select_kb, confirm_kb,
     fsm_cancel_kb, team_create_fsm_skip_kb,
 )
+from admin_bot.telegram_usernames import (
+    normalize_telegram_username_list,
+    render_telegram_username_list,
+    serialize_telegram_usernames,
+)
 
 router = Router()
 
@@ -30,7 +35,7 @@ class EditTeamFSM(StatesGroup):
 
 
 def _team_summary(team) -> str:
-    members = team.members or "не указаны"
+    members = render_telegram_username_list(team.members)
     status = "активна" if team.is_active else "скрыта"
     return (
         f"🎭 <b>{team.name}</b>\n"
@@ -125,7 +130,10 @@ async def team_field_action(
 
     prompts = {
         "name":    "Введи новое название команды:",
-        "members": "Введи новый список участников (или «-» чтобы убрать):",
+        "members": (
+            "Введи Telegram-ники участников через запятую "
+            "(например: @user_one, @user_two) или «-» чтобы убрать:"
+        ),
     }
     await state.set_state(EditTeamFSM.new_value)
     await state.update_data(team_id=team_id, field=field)
@@ -139,7 +147,20 @@ async def team_save_field(message: Message, state: FSMContext, db_user=None, is_
     field: str = data["field"]
     raw = message.text.strip()
 
-    value = None if (field == "members" and raw == "-") else raw
+    if field == "members":
+        if raw == "-":
+            value = None
+        else:
+            usernames = normalize_telegram_username_list(raw)
+            if usernames is None or not usernames:
+                await message.answer(
+                    "Неверный формат. Введи Telegram-ники через запятую, например: "
+                    "@user_one, @user_two"
+                )
+                return
+            value = serialize_telegram_usernames(usernames)
+    else:
+        value = raw
     team = await crud.update_team(session, team_id, **{field: value})
 
     await state.clear()
@@ -219,7 +240,8 @@ async def team_add_name(message: Message, state: FSMContext):
     await state.update_data(team_name=name)
     await state.set_state(AddTeamFSM.members)
     await message.answer(
-        "Введи список участников через запятую (необязательно):",
+        "Введи Telegram-ники участников через запятую (необязательно):\n\n"
+        "Например: @user_one, @user_two",
         reply_markup=team_create_fsm_skip_kb(),
     )
 
@@ -235,7 +257,15 @@ async def team_skip_members(callback: CallbackQuery, state: FSMContext, db_user=
 
 @router.message(AddTeamFSM.members, F.text)
 async def team_add_members(message: Message, state: FSMContext, db_user=None, is_super_admin: bool = False, session: AsyncSession = None):
-    members = message.text.strip() or None
+    usernames = normalize_telegram_username_list(message.text)
+    if usernames is None or not usernames:
+        await message.answer(
+            "Неверный формат. Введи Telegram-ники через запятую, например: "
+            "@user_one, @user_two",
+            reply_markup=team_create_fsm_skip_kb(),
+        )
+        return
+    members = serialize_telegram_usernames(usernames)
     await _finish_team_creation(
         message, state, members=members,
         telegram_id=message.from_user.id, db_user=db_user, is_super_admin=is_super_admin, session=session,
@@ -243,6 +273,25 @@ async def team_add_members(message: Message, state: FSMContext, db_user=None, is
 
 
 # ── FSM back handlers ─────────────────────────────────────────────────────────
+
+@router.callback_query(AddTeamFSM.name, F.data == "fsm_back")
+async def team_add_name_back(
+    callback: CallbackQuery, state: FSMContext, db_user=None,
+    is_super_admin: bool = False, session: AsyncSession = None,
+):
+    await callback.answer()
+    data = await state.get_data()
+    if data.get("_from_show_fsm"):
+        from admin_bot.handlers.shows import CreateShowFSM, _progress
+        await state.set_state(CreateShowFSM.team_name)
+        await callback.message.edit_text(
+            f"{_progress(1)}Выбери команду из списка или введи своё название:",
+            reply_markup=team_kb(),
+        )
+        return
+
+    await state.clear()
+    await _render_teams_list(callback.message, db_user, is_super_admin, session, edit=True)
 
 @router.callback_query(EditTeamFSM.new_value, F.data == "fsm_back")
 async def team_edit_back(callback: CallbackQuery, state: FSMContext, db_user=None, is_super_admin: bool = False, session: AsyncSession = None):

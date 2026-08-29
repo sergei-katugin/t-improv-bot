@@ -53,6 +53,7 @@ class Show(Base):
     is_active = Column(Boolean, default=True, nullable=False)
     creator_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     registrar_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    registrar_username = Column(String(64), nullable=True)
     created_at = Column(DateTime, default=_utcnow)
     updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
 

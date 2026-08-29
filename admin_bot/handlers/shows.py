@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+
 import qrcode
 
 from app_logging import get_project_logger
@@ -22,7 +23,8 @@ from db.base import AsyncSessionLocal
 from db import crud
 from db.models import UserRole
 from admin_bot.keyboards.reply import main_menu_kb
-from scheduler.jobs import build_announcement_text, send_to_channel, cache_poster_for_public_bot, MAPS_RE, DATE_RE, TIME_RE, _location_line, _fmt_date
+from admin_bot.telegram_usernames import normalize_telegram_username, normalize_telegram_username_list
+from scheduler.jobs import build_announcement_text, send_to_channel, cache_poster_for_public_bot, MAPS_RE, DATE_RE, TIME_RE, _location_line, _fmt_date, _registrar_line
 from admin_bot.keyboards.inline import (
     shows_list_kb, shows_filter_kb, show_detail_kb, show_created_kb, edit_show_fields_kb,
     confirm_kb, confirm_with_back_kb, fsm_cancel_kb, fsm_skip_cancel_kb, venue_kb, city_kb,
@@ -69,6 +71,19 @@ class EditShowFSM(StatesGroup):
     new_value = State()
 
 
+def _registrar_name(registrar, username: str | None = None) -> str | None:
+    if registrar:
+        return registrar.first_name or (f"@{registrar.username}" if registrar.username else f"id{registrar.telegram_id}")
+    return f"@{username}" if username else None
+
+
+def _registrar_link(username: str | None, label: str | None = None) -> str | None:
+    if not username:
+        return label
+    username = username.lstrip("@")
+    return f'<a href="https://t.me/{username}">{label or ("@" + username)}</a>'
+
+
 def _show_summary(data: dict) -> str:
     location_str = data.get('location', '')
     if data.get('location_url'):
@@ -83,7 +98,8 @@ def _show_summary(data: dict) -> str:
         f"🪑 Мест: {data.get('max_seats')}\n"
         f"📝 Текст афиши: {data.get('poster_text') or '(не указан)'}\n"
         f"🖼 Изображение: {'есть' if data.get('poster_file_id') else 'нет'}\n"
-        f"👥 Ответственный за записи: {data.get('registrar_name') or '(через бот)'}"
+        f"👥 Ответственный за записи: "
+        f"{_registrar_link(data.get('registrar_username'), data.get('registrar_name')) or '(через бот)'}"
     )
 
 
@@ -194,6 +210,17 @@ async def cmd_settings(message: Message, state: FSMContext, db_user=None, is_sup
     await message.answer("⚙️ <b>Настройки</b>", reply_markup=settings_kb(is_admin=is_admin))
 
 
+@router.callback_query(F.data == "admin_settings")
+async def back_to_settings(callback: CallbackQuery, state: FSMContext, db_user=None, is_super_admin: bool = False):
+    await callback.answer()
+    await state.clear()
+    is_admin = is_super_admin or (db_user is not None and db_user.role == UserRole.admin)
+    await callback.message.edit_text(
+        "⚙️ <b>Настройки</b>",
+        reply_markup=settings_kb(is_admin=is_admin),
+    )
+
+
 @router.callback_query(CreateShowFSM.team_name, F.data == "team_show_existing")
 async def team_show_existing(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
     await callback.answer()
@@ -225,13 +252,13 @@ async def process_team_select(callback: CallbackQuery, callback_data: TeamCb, st
             f"{_progress(1)}Введи название команды:",
             reply_markup=fsm_cancel_kb(),
         )
-        await state.update_data(_team_manual=True)
+        await state.update_data(team_id=None, _team_manual=True)
         return
     team = await crud.get_team(session, callback_data.team_id)
     if team is None:
         await callback.message.answer("Команда не найдена. Попробуй ещё раз.")
         return
-    await state.update_data(team_name=team.name, _team_manual=False)
+    await state.update_data(team_name=team.name, team_id=team.id, _team_manual=False)
     await callback.message.edit_text(f"✅ Команда: {team.name}")
     await callback.message.answer(f"{_progress(2)}Введи название шоу:", reply_markup=fsm_cancel_kb())
     await state.set_state(CreateShowFSM.title)
@@ -249,7 +276,7 @@ async def process_team_name_manual(message: Message, state: FSMContext, session:
     if len(message.text.strip()) < 2:
         await message.answer("Название команды слишком короткое. Попробуй ещё раз:", reply_markup=fsm_cancel_kb())
         return
-    await state.update_data(team_name=message.text.strip(), _team_manual=False)
+    await state.update_data(team_name=message.text.strip(), team_id=None, _team_manual=False)
     await state.set_state(CreateShowFSM.title)
     await message.answer(f"{_progress(2)}Введи название шоу:", reply_markup=fsm_cancel_kb())
 
@@ -562,6 +589,7 @@ def _preview_from_data(data: dict) -> str:
         date_str = data.get("show_date_str", "")
 
     registrar_name = data.get("registrar_name") or "(через бот)"
+    registrar_name = _registrar_link(data.get("registrar_username"), registrar_name)
     poster = data.get("poster_text") or ""
     lines = [
         f"🎭 <b>{data.get('title', '')}</b>",
@@ -598,8 +626,15 @@ async def _ask_registrar(message: Message, state: FSMContext, bot: Bot):
     """Prompt to optionally choose a registrar (organizer/admin) or skip."""
     await state.set_state(CreateShowFSM.registrar)
     # fetch organizers/admins
+    data = await state.get_data()
     async with AsyncSessionLocal() as session:
         organizers = await crud.get_all_organizers(session)
+        team = await crud.get_team(session, data.get("team_id")) if data.get("team_id") else None
+
+    team_usernames = normalize_telegram_username_list(team.members) if team and team.members else []
+    team_usernames = team_usernames or []
+    organizer_usernames = {u.username.lower() for u in organizers if u.username}
+    team_usernames = [username for username in team_usernames if username not in organizer_usernames]
 
     from aiogram.utils.keyboard import InlineKeyboardBuilder
     # build message with clickable t.me links when username exists
@@ -609,6 +644,12 @@ async def _ask_registrar(message: Message, state: FSMContext, bot: Bot):
             lines.append(f"{idx}. <a href=\"https://t.me/{u.username}\">{u.first_name or ('@'+u.username)}</a>")
         else:
             lines.append(f"{idx}. {u.first_name or ('id'+str(u.telegram_id))}")
+    if team_usernames:
+        lines.append("\n<b>Участники выбранной команды:</b>")
+        lines.extend(
+            f'• <a href="https://t.me/{username}">@{username}</a>'
+            for username in team_usernames
+        )
 
     text = "Выбери ответственного за записи (опционально):\n\n" + "\n".join(lines)
 
@@ -616,6 +657,9 @@ async def _ask_registrar(message: Message, state: FSMContext, bot: Bot):
     for u in organizers:
         label = u.first_name or (('@' + u.username) if u.username else f'id{u.telegram_id}')
         kb.button(text=label, callback_data=f"registrar:{u.id}")
+    for username in team_usernames:
+        kb.button(text=f"@{username}", callback_data=f"registrar:username:{username}")
+    kb.button(text="✍️ Ввести Telegram ник", callback_data="registrar:manual")
     kb.button(text="Пропустить (через бот)", callback_data="registrar:0")
     kb.button(text="◀️ Назад", callback_data="fsm_back")
     kb.adjust(1)
@@ -715,7 +759,7 @@ async def fsm_back(callback: CallbackQuery, state: FSMContext, session: AsyncSes
         )
 
     else:
-        await callback.answer("Это первый шаг, назад некуда.", show_alert=True)
+        await callback.message.answer("Это первый шаг, назад некуда.")
 
 
 @router.callback_query(F.data == "fsm_cancel")
@@ -731,12 +775,32 @@ async def process_registrar_choice(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     data = await state.get_data()
     _, raw = callback.data.split(":", 1)
+    if raw == "manual":
+        await callback.message.edit_text(
+            "Введи Telegram ник ответственного в формате @username или username:\n\nНапример: @sergey",
+            reply_markup=fsm_cancel_kb(),
+        )
+        return
+    if raw.startswith("username:"):
+        username = normalize_telegram_username(raw.split(":", 1)[1])
+        if not username:
+            await callback.message.answer("Некорректный Telegram ник.")
+            return
+        async with AsyncSessionLocal() as session:
+            user = await crud.get_user_by_username(session, username)
+        await state.update_data(
+            registrar_id=user.id if user else None,
+            registrar_username=username,
+            registrar_name=f"@{username}",
+        )
+        await _show_confirm(callback.message, state)
+        return
     try:
         uid = int(raw)
     except ValueError:
         uid = 0
     if uid == 0:
-        await state.update_data(registrar_id=None, registrar_name=None)
+        await state.update_data(registrar_id=None, registrar_username=None, registrar_name=None)
     else:
         # store chosen registrar id and name for preview
         async with AsyncSessionLocal() as session:
@@ -744,9 +808,37 @@ async def process_registrar_choice(callback: CallbackQuery, state: FSMContext):
         name = None
         if u:
             name = u.first_name or (('@' + u.username) if u.username else f'id{u.telegram_id}')
-        await state.update_data(registrar_id=uid, registrar_name=name)
+        await state.update_data(
+            registrar_id=uid,
+            registrar_username=u.username.lower() if u and u.username else None,
+            registrar_name=name,
+        )
     # proceed to confirm
     await _show_confirm(callback.message, state)
+
+
+@router.message(CreateShowFSM.registrar, F.text)
+async def process_manual_registrar_input(message: Message, state: FSMContext):
+    raw = (message.text or "").strip()
+    if raw.lower() in {"/skip", "skip"}:
+        await state.update_data(registrar_id=None, registrar_username=None, registrar_name=None)
+        await _show_confirm(message, state)
+        return
+
+    username = normalize_telegram_username(raw)
+    if not username:
+        await message.answer("Неверный Telegram ник. Введи @username, например @sergey:", reply_markup=fsm_cancel_kb())
+        return
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_by_username(session, username)
+        await state.update_data(
+            registrar_id=user.id if user else None,
+            registrar_username=username,
+            registrar_name=f"@{username}",
+        )
+
+    await _show_confirm(message, state)
 
 
 @router.callback_query(CreateShowFSM.confirm, F.data == "admin_confirm_create")
@@ -772,6 +864,7 @@ async def confirm_create(callback: CallbackQuery, state: FSMContext, bot: Bot, p
         max_seats=data["max_seats"],
         creator_id=user.id,
         registrar_id=data.get("registrar_id"),
+        registrar_username=data.get("registrar_username"),
     )
     logger.info("admin %s created show id=%s title=%s", tg_id, show.id, data.get('title'))
 
@@ -961,10 +1054,8 @@ async def show_detail(callback: CallbackQuery, callback_data: AdminShowActionCb,
 
     registrar = show.registrar
     registrar_label = ""
-    if registrar:
-        name = registrar.first_name or registrar.username or str(registrar.telegram_id)
-        uname = f" (@{registrar.username})" if registrar.username else ""
-        registrar_label = f"👥 Ответственный за записи: {name}{uname}\n"
+    if registrar or show.registrar_username:
+        registrar_label = f"{_registrar_line(show)}\n"
     else:
         registrar_label = "👥 Ответственный за записи: (через бот)\n"
 
@@ -1419,7 +1510,7 @@ async def choose_edit_field(callback: CallbackQuery, callback_data: AdminShowFie
         "location": show.location,
         "location_url": show.location_url or "(не указана)",
         "max_seats": str(show.max_seats),
-        "registrar_id": (show.registrar.first_name or (('@' + show.registrar.username) if show.registrar.username else f'id{show.registrar.telegram_id}')) if show and show.registrar else "(не указан)",
+        "registrar_id": _registrar_name(show.registrar, show.registrar_username) if show else "(не указан)",
         "poster_text": show.poster_text or "(не указан)",
     } if show else {}
 
@@ -1456,14 +1547,15 @@ async def _ask_edit_registrar(message: Message | CallbackQuery, state: FSMContex
             lines.append(f"{idx}. {u.first_name or ('id'+str(u.telegram_id))}")
 
     text = "Выбери ответственного за записи (или пропусти):\n\n" + "\n".join(lines)
-    if show and show.registrar:
-        current_name = show.registrar.first_name or (('@' + show.registrar.username) if show.registrar.username else f'id{show.registrar.telegram_id}')
+    if show and (show.registrar or show.registrar_username):
+        current_name = _registrar_name(show.registrar, show.registrar_username)
         text += f"\n\nТекущий: <b>{current_name}</b>"
 
     kb = InlineKeyboardBuilder()
     for u in organizers:
         label = u.first_name or (('@' + u.username) if u.username else f'id{u.telegram_id}')
         kb.button(text=label, callback_data=f"registrar:{u.id}")
+    kb.button(text="✍️ Ввести Telegram ник", callback_data="registrar:manual")
     kb.button(text="Пропустить (через бот)", callback_data="registrar:0")
     kb.button(text="◀️ Назад", callback_data=AdminShowActionCb(action="open", show_id=show_id).pack())
     kb.adjust(1)
@@ -1481,11 +1573,25 @@ async def edit_process_registrar_choice(callback: CallbackQuery, state: FSMConte
     if data.get("editing_field") != "registrar_id":
         return
     _, raw = callback.data.split(":", 1)
+    if raw == "manual":
+        await callback.message.edit_text(
+            "Введи Telegram ник ответственного в формате @username или username:\n\nНапример: @sergey",
+            reply_markup=fsm_cancel_kb(),
+        )
+        return
     try:
         value = int(raw)
     except ValueError:
         value = None
-    await _apply_edit(callback.message, state, session, None if value == 0 else value)
+    if value == 0:
+        registrar_value = {"registrar_id": None, "registrar_username": None}
+    else:
+        user = await crud.get_user_by_id(session, value) if value else None
+        registrar_value = {
+            "registrar_id": value,
+            "registrar_username": user.username.lower() if user and user.username else None,
+        }
+    await _apply_edit(callback.message, state, session, registrar_value)
 
 
 @router.message(EditShowFSM.new_value, F.photo)
@@ -1549,6 +1655,20 @@ async def save_edit_text(message: Message, state: FSMContext, session: AsyncSess
             return
         else:
             value = raw
+    elif field == "registrar_id":
+        if raw.lower() in {"/skip", "skip"}:
+            value = {"registrar_id": None, "registrar_username": None}
+        else:
+            username = normalize_telegram_username(raw)
+            if not username:
+                await message.answer("Неверный Telegram ник. Введи @username, например @sergey:")
+                return
+            async with AsyncSessionLocal() as session_lookup:
+                user = await crud.get_user_by_username(session_lookup, username)
+                value = {
+                    "registrar_id": user.id if user else None,
+                    "registrar_username": username,
+                }
     else:
         value = raw
 
@@ -1564,7 +1684,8 @@ async def _apply_edit(message: Message, state: FSMContext, session: AsyncSession
 
     old_show = await crud.get_show(session, show_id)
     old_date = old_show.show_date if old_show else None
-    show = await crud.update_show(session, show_id, **{field: value})
+    update_fields = value if field == "registrar_id" and isinstance(value, dict) else {field: value}
+    show = await crud.update_show(session, show_id, **update_fields)
 
     logger.info("updated show id=%s field=%s by admin=%s", show_id, field, message.from_user.id)
 

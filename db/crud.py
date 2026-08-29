@@ -150,6 +150,7 @@ async def create_show(
     max_seats: int,
     creator_id: int,
     registrar_id: int | None = None,
+    registrar_username: str | None = None,
 ) -> Show:
     show = Show(
         title=title,
@@ -163,11 +164,15 @@ async def create_show(
         max_seats=max_seats,
         creator_id=creator_id,
         registrar_id=registrar_id,
+        registrar_username=registrar_username,
     )
     session.add(show)
     await session.commit()
     await session.refresh(show)
-    logger.info("created show id=%s title=%s creator_id=%s registrar_id=%s", show.id, title, creator_id, getattr(show, 'registrar_id', None))
+    logger.info(
+        "created show id=%s title=%s creator_id=%s registrar_id=%s registrar_username=%s",
+        show.id, title, creator_id, show.registrar_id, show.registrar_username,
+    )
     return show
 
 
@@ -707,4 +712,3 @@ async def delete_ad_channel(session: AsyncSession, channel_id: int) -> bool:
     await session.delete(ch)
     await session.commit()
     return True
-
