@@ -7,10 +7,67 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from db.models import User, Show, Registration, ShowFeedback, AnnouncementLog, InviteToken, ManualAttendee, UserRole, Venue, Team, FreeAdChannel, _utcnow
+from db.models import User, Show, Registration, ShowFeedback, AnnouncementLog, InviteToken, ManualAttendee, UserRole, Venue, Team, FreeAdChannel, ShowCheckinStaff, CheckinInviteToken, _utcnow
 from app_logging import get_project_logger
 
 logger = get_project_logger(__name__)
+
+
+async def create_checkin_invite(session: AsyncSession, show_id: int, ttl_hours: int = 24) -> CheckinInviteToken:
+    invite = CheckinInviteToken(
+        token=secrets.token_urlsafe(24),
+        show_id=show_id,
+        expires_at=_utcnow() + timedelta(hours=ttl_hours),
+    )
+    session.add(invite)
+    await session.commit()
+    await session.refresh(invite)
+    return invite
+
+
+async def consume_checkin_invite(session: AsyncSession, token: str, user_id: int) -> int | None:
+    result = await session.execute(
+        select(CheckinInviteToken)
+        .where(
+            CheckinInviteToken.token == token,
+            CheckinInviteToken.used_at.is_(None),
+            CheckinInviteToken.expires_at > _utcnow(),
+        )
+        .with_for_update()
+    )
+    invite = result.scalar_one_or_none()
+    if invite is None:
+        return None
+    invite.used_at = _utcnow()
+    invite.used_by_user_id = user_id
+    show = await session.get(Show, invite.show_id)
+    if show is None:
+        await session.rollback()
+        return None
+    exists_result = await session.get(ShowCheckinStaff, (invite.show_id, user_id))
+    if exists_result is None:
+        session.add(ShowCheckinStaff(
+            show_id=invite.show_id,
+            user_id=user_id,
+            expires_at=max(show.show_date + timedelta(hours=12), _utcnow() + timedelta(hours=12)),
+        ))
+    await session.commit()
+    return invite.show_id
+
+
+async def has_any_checkin_access(session: AsyncSession, user_id: int) -> bool:
+    return bool(await session.scalar(select(exists().where(
+        ShowCheckinStaff.user_id == user_id,
+        ShowCheckinStaff.expires_at > _utcnow(),
+    ))))
+
+
+async def has_checkin_access(session: AsyncSession, show_id: int, user_id: int) -> bool:
+    return bool(await session.scalar(select(exists().where(
+        ShowCheckinStaff.show_id == show_id,
+        ShowCheckinStaff.user_id == user_id,
+        ShowCheckinStaff.expires_at > _utcnow(),
+    ))))
 
 
 # ── Users ──────────────────────────────────────────────────────────────────
@@ -253,6 +310,7 @@ async def list_upcoming_shows(
     session: AsyncSession,
     city: str | None = None,
     location: str | None = None,
+    before: datetime | None = None,
 ) -> list[Show]:
     query = (
         select(Show)
@@ -264,6 +322,8 @@ async def list_upcoming_shows(
         query = query.where(Show.city.ilike(f"%{city}%"))
     if location:
         query = query.where(Show.location.ilike(f"%{location}%"))
+    if before is not None:
+        query = query.where(Show.show_date < before)
     result = await session.execute(query)
     return list(result.scalars().all())
 
@@ -358,11 +418,9 @@ async def delete_show(session: AsyncSession, show_id: int) -> bool:
         return False
 
     try:
-        for registration in list(show.registrations or []):
-            await session.delete(registration)
-        for log in list(show.announcement_logs or []):
-            await session.delete(log)
-
+        # ORM cascades remove registrations, announcement logs and feedback.
+        # Manual attendees do not have a mapped relationship and need an
+        # explicit delete.
         manual_attendees = await session.execute(
             select(ManualAttendee).where(ManualAttendee.show_id == show_id)
         )
@@ -687,6 +745,18 @@ async def claim_checkin_milestones(session: AsyncSession, show_id: int, arrived:
     return previous, highest, show.registration_chat_id, show.title
 
 
+async def release_checkin_milestones(
+    session: AsyncSession, show_id: int, claimed_highest: int, previous: int
+) -> None:
+    """Make a failed notification retryable without overwriting a newer claim."""
+    await session.execute(
+        update(Show)
+        .where(Show.id == show_id, Show.checkin_milestone == claimed_highest)
+        .values(checkin_milestone=previous)
+    )
+    await session.commit()
+
+
 async def get_feedback_candidates(
     session: AsyncSession, *, after_id: int = 0, limit: int = 50
 ) -> list[Registration]:
@@ -720,6 +790,24 @@ async def mark_feedback_requested(session: AsyncSession, registration_ids: list[
     await session.commit()
 
 
+async def can_submit_feedback(session: AsyncSession, show_id: int, user_id: int) -> bool:
+    """Return whether this user currently has an issued feedback request."""
+    now = _utcnow()
+    result = await session.scalar(
+        select(exists().where(
+            Registration.show_id == show_id,
+            Registration.user_id == user_id,
+            Registration.is_cancelled == False,
+            Registration.feedback_requested_at.is_not(None),
+            Show.id == Registration.show_id,
+            Show.feedback_enabled == True,
+            Show.show_date <= now - timedelta(hours=2),
+            Show.show_date >= now - timedelta(days=2),
+        ))
+    )
+    return bool(result)
+
+
 async def save_feedback(
     session: AsyncSession,
     show_id: int,
@@ -727,22 +815,40 @@ async def save_feedback(
     rating: int,
     comment: str | None = None,
 ) -> ShowFeedback:
+    identity = (
+        ShowFeedback.show_id == show_id,
+        ShowFeedback.user_id == user_id,
+    )
+    values: dict[str, object] = {"rating": rating}
+    if comment is not None:
+        values["comment"] = comment
+
     result = await session.execute(
+        update(ShowFeedback)
+        .where(*identity)
+        .values(**values)
+    )
+    if result.rowcount == 0:
+        feedback = ShowFeedback(show_id=show_id, user_id=user_id, rating=rating, comment=comment)
+        session.add(feedback)
+        try:
+            await session.commit()
+        except IntegrityError:
+            # Another webhook inserted the same feedback between UPDATE and INSERT.
+            await session.rollback()
+            retry = await session.execute(update(ShowFeedback).where(*identity).values(**values))
+            if retry.rowcount == 0:
+                raise
+            await session.commit()
+    else:
+        await session.commit()
+
+    feedback = (await session.execute(
         select(ShowFeedback).where(
             ShowFeedback.show_id == show_id,
             ShowFeedback.user_id == user_id,
         )
-    )
-    feedback = result.scalar_one_or_none()
-    if feedback is None:
-        feedback = ShowFeedback(show_id=show_id, user_id=user_id, rating=rating, comment=comment)
-        session.add(feedback)
-    else:
-        feedback.rating = rating
-        if comment is not None:
-            feedback.comment = comment
-    await session.commit()
-    await session.refresh(feedback)
+    )).scalar_one()
     return feedback
 
 
@@ -782,7 +888,13 @@ async def get_registered_users_for_show(session: AsyncSession, show_id: int) -> 
 
 # ── Manual attendees ───────────────────────────────────────────────────────
 
-async def add_manual_attendees(session: AsyncSession, show_id: int, names: list[str], source: str | None = "manual") -> int:
+async def add_manual_attendees(
+    session: AsyncSession,
+    show_id: int,
+    names: list[str],
+    source: str | None = "manual",
+    contacts: list[str | None] | None = None,
+) -> int:
     show_result = await session.execute(
         select(Show).where(Show.id == show_id).with_for_update()
     )
@@ -792,8 +904,14 @@ async def add_manual_attendees(session: AsyncSession, show_id: int, names: list[
     occupied = await count_active_registrations(session, show_id)
     if occupied + len(names) > show.max_seats:
         return 0
-    for name in names:
-        session.add(ManualAttendee(show_id=show_id, name=name.strip(), source=source))
+    normalized_contacts = contacts or [None] * len(names)
+    for name, contact in zip(names, normalized_contacts):
+        session.add(ManualAttendee(
+            show_id=show_id,
+            name=name.strip(),
+            contact=contact.strip() if contact and contact.strip() else None,
+            source=source,
+        ))
     await session.commit()
     return len(names)
 
@@ -803,6 +921,22 @@ async def get_manual_attendees(session: AsyncSession, show_id: int) -> list[Manu
         select(ManualAttendee)
         .where(ManualAttendee.show_id == show_id)
         .order_by(ManualAttendee.added_at)
+    )
+    return list(result.scalars().all())
+
+
+async def get_pending_manual_attendees_for_reminder(
+    session: AsyncSession, show_id: int, *, limit: int = 100
+) -> list[ManualAttendee]:
+    result = await session.execute(
+        select(ManualAttendee)
+        .where(
+            ManualAttendee.show_id == show_id,
+            ManualAttendee.notification_confirmed_at.is_(None),
+            ManualAttendee.organizer_reminded_at.is_(None),
+        )
+        .order_by(ManualAttendee.id)
+        .limit(limit)
     )
     return list(result.scalars().all())
 

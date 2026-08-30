@@ -1,10 +1,12 @@
 from datetime import timedelta
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from admin_bot.security import can_manage_owned, is_admin
+from admin_bot import security
 from admin_bot.handlers.registrations import _csv_cell
 from admin_bot.handlers.shows import MAX_POSTER_TEXT_LENGTH, _validate_poster_text
 from db import crud
@@ -66,3 +68,23 @@ async def test_expired_invite_cannot_be_consumed():
             assert user.role == UserRole.user
     finally:
         await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_reusable_show_access_supports_owner_and_checkin_invite(monkeypatch):
+    show = SimpleNamespace(id=10, creator_id=1)
+    monkeypatch.setattr(security.crud, "get_show", AsyncMock(return_value=show))
+    access = AsyncMock(return_value=True)
+    monkeypatch.setattr(security.crud, "has_checkin_access", access)
+    owner = SimpleNamespace(id=1, role=UserRole.organizer)
+    guest = SimpleNamespace(id=2, role=UserRole.user)
+    session = AsyncMock()
+
+    assert await security.manageable_show(session, 10, owner) is show
+    assert await security.manageable_show(session, 10, guest) is None
+    assert await security.checkin_accessible_show(session, 10, guest) is show
+    access.assert_awaited_once_with(session, 10, guest.id)
+
+    monkeypatch.setattr(security.crud, "get_show", AsyncMock(return_value=None))
+    assert await security.manageable_show(session, 999, owner) is None
+    assert await security.checkin_accessible_show(session, 999, owner) is None

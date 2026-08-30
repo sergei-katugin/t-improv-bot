@@ -83,6 +83,16 @@ async def _notify_registration_chat(admin_bot: Bot, show, attendee_name: str, gu
         )
     except Exception:
         logger.exception("failed to notify registration chat show_id=%s", show.id)
+        creator = getattr(show, "creator", None)
+        if creator is not None:
+            try:
+                await admin_bot.send_message(
+                    creator.telegram_id,
+                    f"⚠️ Не удалось отправить новую запись в чат шоу «{h(show.title)}». "
+                    "Проверь, что бот остаётся администратором канала или группы и может публиковать сообщения.",
+                )
+            except Exception:
+                logger.exception("failed to alert show creator about registration chat show_id=%s", show.id)
 
 
 @router.callback_query(RegisterCb.filter())
@@ -375,9 +385,8 @@ async def submit_feedback_rating(
     if callback_data.rating not in range(1, 6):
         await callback.answer("Некорректная оценка.", show_alert=True)
         return
-    reg = await crud.get_registration(session, callback_data.show_id, db_user.id)
-    if reg is None or reg.is_cancelled:
-        await callback.answer("Запись на шоу не найдена.", show_alert=True)
+    if not await crud.can_submit_feedback(session, callback_data.show_id, db_user.id):
+        await callback.answer("Сейчас оставить отзыв для этого шоу нельзя.", show_alert=True)
         return
     await crud.save_feedback(session, callback_data.show_id, db_user.id, callback_data.rating)
     await state.set_state(RegisterFSM.feedback_comment)
@@ -396,14 +405,22 @@ async def submit_feedback_comment(message: Message, state: FSMContext, db_user: 
     if message.text.strip() == "/skip":
         await message.answer("Спасибо за обратную связь! 🎭")
         return
+    show_id = data.get("feedback_show_id")
+    rating = data.get("feedback_rating")
+    if not isinstance(show_id, int) or rating not in range(1, 6):
+        await message.answer("Запрос на отзыв устарел. Открой афишу заново.")
+        return
+    if not await crud.can_submit_feedback(session, show_id, db_user.id):
+        await message.answer("Сейчас оставить отзыв для этого шоу нельзя.")
+        return
     comment = message.text.strip()
     if len(comment) > 1000:
         comment = comment[:1000]
     await crud.save_feedback(
         session,
-        data["feedback_show_id"],
+        show_id,
         db_user.id,
-        data["feedback_rating"],
+        rating,
         comment,
     )
     await message.answer("Спасибо! Комментарий сохранён 🎭")

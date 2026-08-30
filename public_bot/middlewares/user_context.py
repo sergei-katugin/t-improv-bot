@@ -35,4 +35,8 @@ class UserContextMiddleware(BaseMiddleware):
                     has_shows=has_shows,
                     has_regs=has_regs,
                 )
+            # End the middleware transaction before entering code that can
+            # spend seconds waiting for Telegram. expire_on_commit=False keeps
+            # db_user usable and the session reconnects lazily when required.
+            await session.commit()
             return await handler(event, data)

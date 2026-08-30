@@ -7,10 +7,9 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from app_logging import get_project_logger
-from datetime import datetime, date, timedelta, timezone
+from datetime import datetime, date, time, timedelta, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from aiogram import Bot
 from aiogram.types import FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
@@ -22,7 +21,7 @@ from db.base import AsyncSessionLocal, engine, is_sqlite
 from db import crud
 from html_utils import h
 from telegram_delivery import send_with_retry
-from time_utils import format_local, local_date, local_now, utc_to_local
+from time_utils import format_local, local_date, local_naive_to_utc, local_now, utc_to_local
 
 logger = get_project_logger(__name__)
 
@@ -53,28 +52,68 @@ async def _download_photo(bot: Bot, file_id: str):
 def setup_scheduler(public_bot: Bot, admin_bot: Bot) -> None:
     scheduler.add_job(
         check_and_send_announcements,
-        CronTrigger(
-            hour=settings.REMINDER_HOUR_LOCAL,
-            minute=0,
-            timezone=settings.APP_TIMEZONE,
-        ),
+        # Reconcile throughout the day instead of relying on one exact minute.
+        # This catches reminders after deploys and short service outages; the
+        # per-registration and announcement flags keep repeated runs idempotent.
+        IntervalTrigger(minutes=15, timezone=settings.APP_TIMEZONE),
         args=[public_bot, admin_bot],
         id="daily_announcement_check",
         replace_existing=True,
+        next_run_time=datetime.now(timezone.utc),
+        coalesce=True,
+        max_instances=1,
     )
     scheduler.add_job(
         request_post_show_feedback,
-        IntervalTrigger(hours=1),
+        IntervalTrigger(hours=1, timezone=settings.APP_TIMEZONE),
         args=[public_bot],
         id="post_show_feedback",
         replace_existing=True,
+        coalesce=True,
+        max_instances=1,
+    )
+    scheduler.add_job(
+        cleanup_stale_fsm,
+        IntervalTrigger(hours=24, timezone=settings.APP_TIMEZONE),
+        id="fsm_storage_cleanup",
+        replace_existing=True,
+        next_run_time=datetime.now(timezone.utc),
+        coalesce=True,
+        max_instances=1,
     )
     scheduler.start()
     logger.info("Scheduler started")
 
 
+async def cleanup_stale_fsm() -> None:
+    from db.fsm_storage import SQLAlchemyStorage
+
+    deleted = await SQLAlchemyStorage.cleanup_stale(settings.FSM_TTL_DAYS)
+    if deleted:
+        logger.info("Deleted %d stale FSM storage records", deleted)
+
+
 async def request_post_show_feedback(public_bot: Bot) -> None:
     """Ask attendees for feedback shortly after a show, once per registration."""
+    if is_sqlite:
+        await _run_post_show_feedback(public_bot)
+        return
+
+    lock_id = 0x54494D504642
+    async with engine.connect() as lock_connection:
+        acquired = bool((await lock_connection.execute(
+            select(func.pg_try_advisory_lock(lock_id))
+        )).scalar())
+        if not acquired:
+            logger.info("Skipping feedback requests: another replica holds the scheduler lock")
+            return
+        try:
+            await _run_post_show_feedback(public_bot)
+        finally:
+            await lock_connection.execute(select(func.pg_advisory_unlock(lock_id)))
+
+
+async def _run_post_show_feedback(public_bot: Bot) -> None:
     after_id = 0
     while True:
         async with AsyncSessionLocal() as session:
@@ -82,25 +121,33 @@ async def request_post_show_feedback(public_bot: Bot) -> None:
             if not regs:
                 return
             after_id = regs[-1].id
-            sent_ids: list[int] = []
-            for start in range(0, len(regs), 5):
-                batch = regs[start:start + 5]
+            candidates = [
+                (reg.id, reg.user.telegram_id, reg.show_id, reg.show.title)
+                for reg in regs
+            ]
 
-                async def send_one(reg) -> int | None:
-                    try:
-                        await send_with_retry(
-                            public_bot.send_message,
-                            reg.user.telegram_id,
-                            f"🎭 Как тебе шоу <b>{h(reg.show.title)}</b>? Оцени одним нажатием:",
-                            reply_markup=feedback_kb(reg.show_id),
-                        )
-                        return reg.id
-                    except Exception:
-                        logger.warning("Could not request feedback registration_id=%s", reg.id)
-                        return None
+        sent_ids: list[int] = []
+        for start in range(0, len(candidates), 5):
+            batch = candidates[start:start + 5]
 
-                results = await asyncio.gather(*(send_one(reg) for reg in batch))
-                sent_ids.extend(reg_id for reg_id in results if reg_id is not None)
+            async def send_one(candidate) -> int | None:
+                registration_id, telegram_id, show_id, show_title = candidate
+                try:
+                    await send_with_retry(
+                        public_bot.send_message,
+                        telegram_id,
+                        f"🎭 Как тебе шоу <b>{h(show_title)}</b>? Оцени одним нажатием:",
+                        reply_markup=feedback_kb(show_id),
+                    )
+                    return registration_id
+                except Exception:
+                    logger.warning("Could not request feedback registration_id=%s", registration_id)
+                    return None
+
+            results = await asyncio.gather(*(send_one(candidate) for candidate in batch))
+            sent_ids.extend(reg_id for reg_id in results if reg_id is not None)
+
+        async with AsyncSessionLocal() as session:
             await crud.mark_feedback_requested(session, sent_ids)
 
 
@@ -197,11 +244,22 @@ async def check_and_send_announcements(public_bot: Bot, admin_bot: Bot) -> None:
 
 
 async def _run_announcement_check(public_bot: Bot, admin_bot: Bot) -> None:
-    today = local_now().date()
+    now = local_now()
+    if now.hour < settings.REMINDER_HOUR_LOCAL:
+        logger.info(
+            "Skipping reminder reconciliation before configured hour %02d:00",
+            settings.REMINDER_HOUR_LOCAL,
+        )
+        return
+    today = now.date()
     logger.info("Running daily announcement check for %s", today)
     async with AsyncSessionLocal() as session:
-        shows = await crud.list_upcoming_shows(session)
-        for show in shows:
+        reminder_window_end = local_naive_to_utc(
+            datetime.combine(today + timedelta(days=8), time.min)
+        )
+        shows = await crud.list_upcoming_shows(session, before=reminder_window_end)
+    for show in shows:
+        async with AsyncSessionLocal() as session:
             days_left = (local_date(show.show_date) - today).days
             if days_left == 7:
                 await _maybe_send_channel(session, public_bot, admin_bot, show, "7d")
@@ -221,6 +279,7 @@ async def _run_announcement_check(public_bot: Bot, admin_bot: Bot) -> None:
 async def _maybe_send_channel(session, public_bot: Bot, admin_bot: Bot, show, ann_type: str) -> None:
     if await crud.has_announcement_been_sent(session, show.id, ann_type):
         return
+    await session.commit()
     text = build_announcement_text(show, ann_type)
     try:
         msg_id = await send_to_channel(public_bot, admin_bot, show, text)
@@ -240,6 +299,7 @@ async def _maybe_send_personal(session, bot: Bot, show, days: int) -> None:
     location_line = _location_line(show)
 
     channel_msg_id = await crud.get_last_channel_message_id(session, show.id)
+    await session.commit()
     post_url = None
     if channel_msg_id:
         from config import settings
@@ -287,6 +347,8 @@ async def _maybe_send_personal(session, bot: Bot, show, days: int) -> None:
         if not regs:
             break
         after_id = regs[-1].id
+        # Release the DB connection while Telegram sends are in flight.
+        await session.commit()
         sent_ids: list[int] = []
         for start in range(0, len(regs), send_batch_size):
             batch = regs[start:start + send_batch_size]
@@ -301,13 +363,16 @@ async def _maybe_remind_manual_attendees(session, admin_bot: Bot, show) -> None:
     """Ask the organizer to contact attendees whom the public bot cannot message."""
     if not getattr(show, "registration_chat_id", None):
         return
-    attendees = [
-        item for item in await crud.get_manual_attendees(session, show.id)
-        if item.notification_confirmed_at is None and item.organizer_reminded_at is None
-    ]
+    attendees = await crud.get_pending_manual_attendees_for_reminder(
+        session, show.id, limit=100
+    )
     if not attendees:
         return
-    names = "\n".join(f"• {h(item.name)}" for item in attendees)
+    await session.commit()
+    names = "\n".join(
+        f"• {h(item.name)}" + (f" — {h(item.contact)}" if item.contact else " — контакт не указан")
+        for item in attendees
+    )
     if len(names) > 3200:
         names = names[:3200].rsplit("\n", 1)[0] + "\n• …остальные — в списке зрителей"
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[
@@ -329,6 +394,17 @@ async def _maybe_remind_manual_attendees(session, admin_bot: Bot, show) -> None:
         await crud.mark_manual_attendees_reminded(session, [item.id for item in attendees])
     except Exception:
         logger.exception("failed to remind organizer about manual attendees show_id=%s", show.id)
+        creator = getattr(show, "creator", None)
+        if creator is not None:
+            try:
+                await send_with_retry(
+                    admin_bot.send_message,
+                    creator.telegram_id,
+                    f"⚠️ Не удалось отправить задачу в чат записей шоу «{h(show.title)}». "
+                    "Проверь права бота в этом чате.",
+                )
+            except Exception:
+                logger.exception("failed to alert creator about registration chat show_id=%s", show.id)
 
 
 MAPS_RE = re.compile(r'(maps\.google|goo\.gl/maps|maps\.app\.goo\.gl|google\.com/maps)', re.I)

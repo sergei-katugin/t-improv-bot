@@ -147,10 +147,26 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession, 
         session, message.from_user.id, message.from_user.username,
         message.from_user.first_name, message.from_user.last_name,
     )
+    payload = command.args or ""
+    if payload.startswith("door_"):
+        try:
+            show_id = int(payload.removeprefix("door_"))
+        except ValueError:
+            show_id = 0
+        from admin_bot.security import checkin_accessible_show
+        show = await checkin_accessible_show(session, show_id, db_user or user, is_super_admin)
+        if show is None or not show.checkin_enabled:
+            await message.answer("⛔ Доступ к режиму входа недействителен.")
+            return
+        from admin_bot.keyboards.inline import checkin_mode_kb
+        await message.answer(
+            f"🚪 <b>Вход: {h(show.title)}</b>\n\nВыбери режим учёта:",
+            reply_markup=checkin_mode_kb(show.id),
+        )
+        return
     if not user.onboarding_done:
         await start_onboarding(message)
         return
-    payload = command.args or ""
     if payload.startswith("manual_"):
         try:
             show_id = int(payload.removeprefix("manual_"))
@@ -727,8 +743,13 @@ async def _make_calendar(session: AsyncSession) -> RuCalendar:
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
     from db.models import Show, User
+    now = local_now()
+    lower_bound = local_naive_to_utc(datetime(now.year - 1, 1, 1))
+    upper_bound = local_naive_to_utc(datetime(now.year + 2, 1, 1))
     result = await session.execute(
-        select(Show).options(selectinload(Show.creator))
+        select(Show)
+        .options(selectinload(Show.creator))
+        .where(Show.show_date >= lower_bound, Show.show_date < upper_bound)
     )
     shows = result.scalars().all()
     busy: dict[_date, list[str]] = {}

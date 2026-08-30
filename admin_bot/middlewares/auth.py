@@ -33,14 +33,22 @@ class AdminAuthMiddleware(BaseMiddleware):
                     last_name=tg_user.last_name,
                 )
                 data["session"] = session
+                # Do not keep a checked-out connection while the handler waits
+                # for Telegram network calls. The session can acquire a new one
+                # lazily when the handler performs its next database operation.
+                await session.commit()
                 return await handler(event, data)
 
         async with AsyncSessionLocal() as session:
             user = await crud.get_user_by_telegram_id(session, telegram_id)
-            if user and user.role in (UserRole.admin, UserRole.organizer):
+            if user and (
+                user.role in (UserRole.admin, UserRole.organizer)
+                or await crud.has_any_checkin_access(session, user.id)
+            ):
                 data["is_super_admin"] = user.role == UserRole.admin
                 data["db_user"] = user
                 data["session"] = session
+                await session.commit()
                 return await handler(event, data)
 
         if isinstance(event, Message):

@@ -21,3 +21,9 @@ services:
         sync: false  # set in the Render dashboard
       - key: ADMIN_IDS
         sync: false  # set in the Render dashboard
+      - key: PUBLIC_BOT_USERNAME
+        sync: false
+      - key: ADMIN_BOT_USERNAME
+        sync: false
+      - key: ERROR_ALERT_CHAT_ID
+        sync: false  # optional private admin chat for error alerts

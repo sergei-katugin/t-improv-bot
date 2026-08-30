@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Mapping
 
 from aiogram.fsm.state import State
 from aiogram.fsm.storage.base import BaseStorage, StateType, StorageKey
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy import delete
 
 from db.base import AsyncSessionLocal
 from db.models import FSMStorageRecord
@@ -99,6 +100,20 @@ class SQLAlchemyStorage(BaseStorage):
         record_key = self._record_key(key)
         encoded_data = json.dumps(dict(data), default=_json_default, ensure_ascii=False)
         async with AsyncSessionLocal() as session:
+            if not data:
+                record = await session.get(FSMStorageRecord, record_key)
+                if record is None:
+                    return
+                if record.state is None:
+                    # FSMContext.clear() sets state to None and then data to {}.
+                    # Delete that completed conversation instead of retaining
+                    # one empty row for every user forever.
+                    await session.delete(record)
+                else:
+                    # set_data({}) is also valid for an active state; preserve it.
+                    record.data = encoded_data
+                await session.commit()
+                return
             await self._upsert(session, record_key, "data", encoded_data)
             await session.commit()
 
@@ -106,6 +121,17 @@ class SQLAlchemyStorage(BaseStorage):
         async with AsyncSessionLocal() as session:
             record = await session.get(FSMStorageRecord, self._record_key(key))
             return json.loads(record.data, object_hook=_json_object_hook) if record else {}
+
+    @staticmethod
+    async def cleanup_stale(ttl_days: int) -> int:
+        """Delete abandoned conversations so persistent FSM storage stays bounded."""
+        cutoff = utc_now() - timedelta(days=ttl_days)
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                delete(FSMStorageRecord).where(FSMStorageRecord.updated_at < cutoff)
+            )
+            await session.commit()
+            return int(result.rowcount or 0)
 
     async def close(self) -> None:
         # The SQLAlchemy engine is application-wide and closed by main.py.

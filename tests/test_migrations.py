@@ -9,7 +9,7 @@ from alembic.script import ScriptDirectory
 
 def test_alembic_has_single_expected_head():
     scripts = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert scripts.get_heads() == ["0015"]
+    assert scripts.get_heads() == ["0016"]
 
 
 def test_full_migration_chain_upgrades_empty_sqlite_database(tmp_path):
@@ -28,7 +28,7 @@ def test_full_migration_chain_upgrades_empty_sqlite_database(tmp_path):
 
     with sqlite3.connect(database_path) as connection:
         version = connection.execute("SELECT version_num FROM alembic_version").fetchone()
-    assert version == ("0015",)
+    assert version == ("0016",)
 
 
 def test_timezone_migration_converts_existing_local_show_date(tmp_path):
