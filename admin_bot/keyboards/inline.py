@@ -105,7 +105,7 @@ def show_section_kb(show: Show, section: str, can_delete: bool = False) -> Inlin
         if show.creator:
             creator_url = f"https://t.me/{show.creator.username}" if show.creator.username else f"tg://user?id={show.creator.telegram_id}"
             builder.button(text="✉️ Написать создателю", url=creator_url)
-        builder.button(text=f"🎟 Check-in: {'вкл' if show.checkin_enabled else 'выкл'}", callback_data=AdminShowActionCb(action="toggle_checkin", show_id=show_id).pack())
+        builder.button(text=f"🎟 Режим входа: {'вкл' if show.checkin_enabled else 'выкл'}", callback_data=AdminShowActionCb(action="toggle_checkin", show_id=show_id).pack())
         builder.button(text=f"⭐ Отзывы: {'вкл' if show.feedback_enabled else 'выкл'}", callback_data=AdminShowActionCb(action="toggle_feedback", show_id=show_id).pack())
         builder.button(text="⚠️ Управление шоу", callback_data=AdminShowActionCb(action="danger", show_id=show_id).pack())
     else:
@@ -193,6 +193,7 @@ def show_created_kb(show_id: int) -> InlineKeyboardMarkup:
     builder.button(text="📢 Отправить анонс",   callback_data=AdminShowActionCb(action="announce", show_id=show_id).pack())
     builder.button(text="🔗 Получить ссылку",   callback_data=AdminShowActionCb(action="link", show_id=show_id).pack())
     builder.button(text="✏️ Редактировать",     callback_data=AdminShowActionCb(action="edit", show_id=show_id).pack())
+    builder.button(text="🔔 Подключить чат записей", callback_data=AdminShowActionCb(action="reg_chat", show_id=show_id).pack())
     builder.button(text="◀️ К шоу",             callback_data=AdminShowActionCb(action="open", show_id=show_id).pack())
     builder.adjust(2, 2, 1)
     return builder.as_markup()
@@ -218,8 +219,13 @@ def edit_show_fields_kb(show: Show, group: str | None = None) -> InlineKeyboardM
     for label, field in fields:
         builder.button(text=label, callback_data=AdminShowFieldCb(show_id=show_id, field=field).pack())
     if current_group == "extra":
-        builder.button(text=f"🎟 Check-in: {'вкл' if show.checkin_enabled else 'выкл'}", callback_data=AdminShowFieldCb(show_id=show_id, field="checkin_enabled").pack())
+        builder.button(text=f"🎟 Режим входа: {'вкл' if show.checkin_enabled else 'выкл'}", callback_data=AdminShowFieldCb(show_id=show_id, field="checkin_enabled").pack())
         builder.button(text=f"⭐ Отзывы: {'вкл' if show.feedback_enabled else 'выкл'}", callback_data=AdminShowFieldCb(show_id=show_id, field="feedback_enabled").pack())
+    if current_group == "registration":
+        builder.button(
+            text=f"🔔 Чат записей: {'подключён' if show.registration_chat_id else 'не подключён'}",
+            callback_data=AdminShowActionCb(action="reg_chat", show_id=show_id).pack(),
+        )
     if current_group == "main":
         builder.button(text="◀️ К шоу", callback_data=AdminShowActionCb(action="open", show_id=show_id).pack())
         builder.adjust(1)
@@ -279,7 +285,7 @@ def confirm_with_back_kb(
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(
-        text=f"🎟 Check-in: {'вкл' if checkin_enabled else 'выкл'}",
+        text=f"🎟 Режим входа: {'вкл' if checkin_enabled else 'выкл'}",
         callback_data="create_toggle_checkin",
     )
     builder.button(

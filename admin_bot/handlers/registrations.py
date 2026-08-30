@@ -19,7 +19,7 @@ from admin_bot.keyboards.inline import (
     checkin_counter_kb, checkin_kb, checkin_mode_kb, party_count_kb,
     registration_chat_kb, registrations_kb,
 )
-from admin_bot.keyboards.reply import registration_channel_picker_kb, show_context_kb
+from admin_bot.keyboards.reply import flow_context_kb, registration_channel_picker_kb, registrations_context_kb, show_context_kb
 from admin_bot.callbacks import AdminCheckinCb, AdminManualCheckinCb, AdminPartyCountCb, AdminShowActionCb
 from admin_bot.security import deny, manageable_show
 from html_utils import h
@@ -58,6 +58,61 @@ class RegistrationChatFSM(StatesGroup):
 
 class CheckinSearchFSM(StatesGroup):
     query = State()
+
+
+async def _current_show_from_state(state: FSMContext, session: AsyncSession, db_user, is_super_admin: bool):
+    show_id = (await state.get_data()).get("current_show_id")
+    return await manageable_show(session, show_id, db_user, is_super_admin) if show_id else None
+
+
+@router.message(F.text == "➕ Добавить зрителя")
+async def quick_add_attendee(message: Message, state: FSMContext, session: AsyncSession, db_user=None, is_super_admin: bool = False):
+    show = await _current_show_from_state(state, session, db_user, is_super_admin)
+    if show is None:
+        await message.answer("Сначала открой шоу из афиши.", reply_markup=show_context_kb())
+        return
+    await state.set_state(AddManualFSM.names)
+    await state.update_data(show_id=show.id, manual_source="manual", current_show_id=show.id)
+    await message.answer(
+        "Отправь имена зрителей — каждое с новой строки:", reply_markup=flow_context_kb(),
+    )
+
+
+@router.message(F.text == "🔔 Чат записей")
+async def quick_registration_chat(message: Message, state: FSMContext, session: AsyncSession, db_user=None, is_super_admin: bool = False):
+    show = await _current_show_from_state(state, session, db_user, is_super_admin)
+    if show is None:
+        await message.answer("Сначала открой шоу из афиши.", reply_markup=show_context_kb())
+        return
+    await state.set_state(RegistrationChatFSM.chat)
+    await state.update_data(show_id=show.id, current_show_id=show.id)
+    await message.answer(
+        "🔔 <b>Чат записей</b>\n\nНажми «Выбрать канал». Telegram покажет каналы, "
+        "которыми ты управляешь, добавит этого бота и запросит только право публикации. "
+        "Искать @username или ID не нужно.",
+        reply_markup=registration_channel_picker_kb(),
+    )
+
+
+@router.message(RegistrationChatFSM.chat, F.text == "⏭ Пропустить")
+async def skip_registration_chat(message: Message, state: FSMContext):
+    data = await state.get_data()
+    show_id = data.get("show_id") or data.get("current_show_id")
+    await state.clear()
+    await state.update_data(current_show_id=show_id, reply_context="show")
+    await message.answer("Чат записей пока не подключён. Это можно сделать позже в разделе «Записи».", reply_markup=show_context_kb())
+
+
+@router.message(F.text == "🎟 Режим входа")
+async def quick_checkin_mode(message: Message, state: FSMContext, session: AsyncSession, db_user=None, is_super_admin: bool = False):
+    show = await _current_show_from_state(state, session, db_user, is_super_admin)
+    if show is None or not show.checkin_enabled:
+        await message.answer("Режим входа для этого шоу выключен.", reply_markup=registrations_context_kb())
+        return
+    await message.answer(
+        f"🎟 <b>Режим входа: {h(show.title)}</b>\n\nВыбери способ учёта:",
+        reply_markup=checkin_mode_kb(show.id),
+    )
 
 
 async def _render_registrations(target, show_id: int, session: AsyncSession, edit: bool = True, is_super_admin: bool = False, db_user=None):
@@ -109,13 +164,15 @@ async def _render_registrations(target, show_id: int, session: AsyncSession, edi
 
 
 @router.callback_query(AdminShowActionCb.filter(F.action == "regs"))
-async def show_registrations(callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession, is_super_admin: bool = False, db_user=None):
+async def show_registrations(callback: CallbackQuery, callback_data: AdminShowActionCb, state: FSMContext, session: AsyncSession, is_super_admin: bool = False, db_user=None):
     show_id = callback_data.show_id
     if await manageable_show(session, show_id, db_user, is_super_admin) is None:
         await deny(callback, "⛔ Нет доступа к этому шоу.")
         return
     await callback.answer()
     await _render_registrations(callback.message, show_id, session, edit=True, is_super_admin=is_super_admin, db_user=db_user)
+    await state.update_data(current_show_id=show_id, reply_context="registrations")
+    await callback.message.answer("Действия с записями:", reply_markup=registrations_context_kb())
 
 
 @router.callback_query(AdminShowActionCb.filter(F.action == "reg_chat"))
@@ -130,18 +187,16 @@ async def configure_registration_chat(callback: CallbackQuery, callback_data: Ad
     current = f"\n\nСейчас подключён: <b>{h(show.registration_chat_title or show.registration_chat_id)}</b>" if show.registration_chat_id else ""
     await callback.message.edit_text(
         "🔔 <b>Чат записей</b>\n\n"
-        "Это канал или группа организатора — бот не становится владельцем и не меняет настройки.\n\n"
-        "1. Добавь этого административного бота в канал или группу.\n"
-        "2. Для канала выдай право <b>публиковать сообщения</b>. Другие права не нужны.\n"
-        "3. Отправь сюда <code>@username</code> публичного канала либо числовой ID закрытого канала/группы вида <code>-100…</code>.\n\n"
-        "После проверки бот опубликует там тестовое сообщение. Затем туда будут приходить новые записи на это шоу."
+        "Нажми <b>«Выбрать канал»</b> ниже. Telegram покажет каналы, которыми ты управляешь, "
+        "сам добавит этого бота и запросит только право публикации сообщений.\n\n"
+        "Никакой @username или числовой ID искать не нужно. После подключения бот отправит тестовое сообщение."
         f"{current}",
         reply_markup=registration_chat_kb(
             show.id, bool(show.registration_chat_id), show.registration_chat_name_mode,
         ),
     )
     await callback.message.answer(
-        "Выбери канал системной кнопкой Telegram. Если канал не появляется, сначала назначь себя его администратором.",
+        "Выбери канал системной кнопкой Telegram. Если канал не появляется, у тебя нет прав администратора в нём.",
         reply_markup=registration_channel_picker_kb(),
     )
 
@@ -163,7 +218,8 @@ async def _save_registration_chat(message: Message, state: FSMContext, session: 
         session, show.id, registration_chat_id=chat.id, registration_chat_title=title,
     )
     await state.clear()
-    await message.answer(f"✅ Чат записей подключён: <b>{h(title)}</b>.", reply_markup=show_context_kb())
+    await state.update_data(current_show_id=show.id, reply_context="registrations")
+    await message.answer(f"✅ Чат записей подключён: <b>{h(title)}</b>.", reply_markup=registrations_context_kb())
     logger.info("registration chat configured show_id=%s chat_id=%s test_message_id=%s", show.id, chat.id, test.message_id)
 
 
@@ -245,7 +301,7 @@ async def confirm_manual_notifications(callback: CallbackQuery, callback_data: A
 async def _render_checkin(target, show_id: int, session: AsyncSession) -> None:
     show = await crud.get_show(session, show_id)
     if show is None or not show.checkin_enabled:
-        await target.answer("Check-in для этого шоу выключен.")
+        await target.answer("Режим входа для этого шоу выключен.")
         return
     regs = await crud.get_show_registrations(session, show_id)
     manual = await crud.get_manual_attendees(session, show_id)
@@ -255,7 +311,7 @@ async def _render_checkin(target, show_id: int, session: AsyncSession) -> None:
     visible_regs = active[:50]
     visible_manual = manual[:max(0, 50 - len(visible_regs))]
     text = (
-        f"🎟 <b>Check-in: {h(show.title)}</b>\n"
+        f"🎟 <b>Режим входа: {h(show.title)}</b>\n"
         f"Пришли: {arrived} / {total}\n\n"
         "Нажми на участника, чтобы изменить отметку."
     )
@@ -284,7 +340,7 @@ async def show_checkin(callback: CallbackQuery, callback_data: AdminShowActionCb
 async def show_named_checkin(callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession, db_user=None, is_super_admin: bool = False):
     show = await manageable_show(session, callback_data.show_id, db_user, is_super_admin)
     if show is None or not show.checkin_enabled:
-        await deny(callback, "⛔ Check-in недоступен.")
+        await deny(callback, "⛔ Режим входа недоступен.")
         return
     if show.checkin_mode == "counter" and (show.checkin_counter or 0) > 0:
         await callback.answer("Счётчик уже используется. Режим нельзя сменить во время входа.", show_alert=True)
@@ -298,7 +354,7 @@ async def show_named_checkin(callback: CallbackQuery, callback_data: AdminShowAc
 async def start_checkin_search(callback: CallbackQuery, callback_data: AdminShowActionCb, state: FSMContext, session: AsyncSession, db_user=None, is_super_admin: bool = False):
     show = await manageable_show(session, callback_data.show_id, db_user, is_super_admin)
     if show is None or not show.checkin_enabled:
-        await deny(callback, "⛔ Check-in недоступен.")
+        await deny(callback, "⛔ Режим входа недоступен.")
         return
     await callback.answer()
     await state.set_state(CheckinSearchFSM.query)
@@ -314,7 +370,7 @@ async def find_checkin_attendee(message: Message, state: FSMContext, session: As
     show = await manageable_show(session, show_id, db_user, is_super_admin)
     if show is None or not show.checkin_enabled:
         await state.clear()
-        await message.answer("⛔ Check-in недоступен.")
+        await message.answer("⛔ Режим входа недоступен.")
         return
     query = message.text.strip().lstrip("@").casefold()
     regs = [item for item in await crud.get_show_registrations(session, show.id) if not item.is_cancelled]
@@ -369,7 +425,7 @@ async def _named_arrived_total(session: AsyncSession, show_id: int) -> int:
 async def toggle_checkin(callback: CallbackQuery, callback_data: AdminCheckinCb, session: AsyncSession, db_user=None, is_super_admin: bool = False):
     show = await manageable_show(session, callback_data.show_id, db_user, is_super_admin)
     if show is None or not show.checkin_enabled:
-        await deny(callback, "⛔ Check-in недоступен.")
+        await deny(callback, "⛔ Режим входа недоступен.")
         return
     regs = await crud.get_show_registrations(session, show.id)
     reg = next((item for item in regs if item.id == callback_data.registration_id and not item.is_cancelled), None)
@@ -388,7 +444,7 @@ async def toggle_checkin(callback: CallbackQuery, callback_data: AdminCheckinCb,
 async def toggle_manual_checkin(callback: CallbackQuery, callback_data: AdminManualCheckinCb, session: AsyncSession, db_user=None, is_super_admin: bool = False):
     show = await manageable_show(session, callback_data.show_id, db_user, is_super_admin)
     if show is None or not show.checkin_enabled:
-        await deny(callback, "⛔ Check-in недоступен.")
+        await deny(callback, "⛔ Режим входа недоступен.")
         return
     manual = await crud.get_manual_attendees(session, show.id)
     attendee = next((item for item in manual if item.id == callback_data.attendee_id), None)
@@ -406,7 +462,7 @@ async def toggle_manual_checkin(callback: CallbackQuery, callback_data: AdminMan
 async def set_party_checkin(callback: CallbackQuery, callback_data: AdminPartyCountCb, session: AsyncSession, bot, db_user=None, is_super_admin: bool = False):
     show = await manageable_show(session, callback_data.show_id, db_user, is_super_admin)
     if show is None or not show.checkin_enabled:
-        await deny(callback, "⛔ Check-in недоступен.")
+        await deny(callback, "⛔ Режим входа недоступен.")
         return
     if callback_data.kind == "r":
         item = await crud.set_registration_checkin_count(session, show.id, callback_data.item_id, callback_data.count)
@@ -427,7 +483,7 @@ async def set_party_checkin(callback: CallbackQuery, callback_data: AdminPartyCo
 async def counter_checkin(callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession, bot, db_user=None, is_super_admin: bool = False):
     show = await manageable_show(session, callback_data.show_id, db_user, is_super_admin)
     if show is None or not show.checkin_enabled:
-        await deny(callback, "⛔ Check-in недоступен.")
+        await deny(callback, "⛔ Режим входа недоступен.")
         return
     delta = {"checkin_counter": 0, "count_add1": 1, "count_add5": 5, "count_sub1": -1}[callback_data.action]
     if show.checkin_mode != "counter":
@@ -482,7 +538,7 @@ async def show_analytics(callback: CallbackQuery, callback_data: AdminShowAction
         f"👥 Записано людей: {people} / {show.max_seats}\n"
         f"↩️ Отмен регистраций: {cancelled}\n"
         f"✅ Подтвердили: {confirmed}\n"
-        f"🎟 Пришли: {arrived if show.checkin_enabled else 'check-in выключен'}\n"
+        f"🎟 Пришли: {arrived if show.checkin_enabled else 'режим входа выключен'}\n"
         f"⭐ Средняя оценка: {average:.1f} ({len(feedback)} ответов)\n\n"
         f"<b>Источники:</b>\n{source_lines or 'Нет данных'}"
     )
