@@ -34,7 +34,7 @@ def test_create_confirmation_exposes_optional_features():
         feedback_enabled=False,
     )
     buttons = [button for row in keyboard.inline_keyboard for button in row]
-    assert any(button.text == "🎟 Check-in: вкл" for button in buttons)
+    assert any(button.text == "🎟 Режим входа: вкл" for button in buttons)
     assert any(button.text == "⭐ Отзывы: выкл" for button in buttons)
 
 
@@ -64,7 +64,7 @@ def test_edit_keyboard_exposes_current_optional_feature_values():
     assert any(button.text == "🎭 Основное" for button in main_buttons)
     assert any(button.text == "📝 Афиша" for button in main_buttons)
     buttons = [button for row in edit_show_fields_kb(show, "extra").inline_keyboard for button in row]
-    assert any(button.text == "🎟 Check-in: выкл" for button in buttons)
+    assert any(button.text == "🎟 Режим входа: выкл" for button in buttons)
     assert any(button.text == "⭐ Отзывы: вкл" for button in buttons)
 
 

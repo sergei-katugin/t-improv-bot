@@ -23,7 +23,8 @@ from db.base import AsyncSessionLocal
 from db import crud
 from db.models import UserRole
 from admin_bot.keyboards.reply import (
-    main_menu_kb, shows_context_kb, show_context_kb, flow_context_kb, settings_context_kb,
+    main_menu_kb, promotion_context_kb, registrations_context_kb,
+    shows_context_kb, show_context_kb, flow_context_kb, settings_context_kb,
 )
 from admin_bot.telegram_usernames import normalize_telegram_username, normalize_telegram_username_list
 from admin_bot.security import can_manage_owned, deny, is_admin, manageable_show
@@ -209,6 +210,8 @@ async def quick_show_registrations(
     if show:
         from admin_bot.handlers.registrations import _render_registrations
         await _render_registrations(message, show.id, session, edit=False, is_super_admin=is_super_admin, db_user=db_user)
+        await state.update_data(reply_context="registrations")
+        await message.answer("Действия с записями:", reply_markup=registrations_context_kb())
 
 
 @router.message(F.text == "📣 Продвижение")
@@ -217,10 +220,64 @@ async def quick_show_promotion(
 ):
     show = await _quick_show(message, state, session, db_user, is_super_admin)
     if show:
+        await state.update_data(reply_context="promotion")
         await message.answer(
             f"📣 <b>Продвижение</b>\n\n🎭 {h(show.title)}",
-            reply_markup=show_section_kb(show, "promotion"),
+            reply_markup=promotion_context_kb(),
         )
+
+
+@router.message(F.text == "◀️ К шоу")
+async def quick_back_to_show(message: Message, state: FSMContext, session: AsyncSession, db_user=None, is_super_admin: bool = False):
+    show = await _quick_show(message, state, session, db_user, is_super_admin)
+    if show is None:
+        return
+    await state.update_data(reply_context="show", current_show_id=show.id)
+    await message.answer(f"🎭 <b>{h(show.title)}</b>", reply_markup=show_context_kb())
+
+
+@router.message(F.text == "👁 Превью")
+async def quick_promotion_preview(message: Message, state: FSMContext, session: AsyncSession, db_user=None, is_super_admin: bool = False):
+    show = await _quick_show(message, state, session, db_user, is_super_admin)
+    if show is None:
+        return
+    text = build_announcement_text(show)
+    if show.poster_file_id:
+        await message.answer_photo(show.poster_file_id, caption=f"👁 <b>Превью анонса:</b>\n\n{text}", reply_markup=promotion_context_kb())
+    else:
+        await message.answer(f"👁 <b>Превью анонса:</b>\n\n{text}", reply_markup=promotion_context_kb())
+
+
+@router.message(F.text == "📢 Анонс")
+async def quick_promotion_announce(message: Message, state: FSMContext, session: AsyncSession, db_user=None, is_super_admin: bool = False):
+    show = await _quick_show(message, state, session, db_user, is_super_admin)
+    if show is None:
+        return
+    if await crud.has_any_announcement_been_sent(session, show.id):
+        await message.answer("Анонс уже был отправлен.", reply_markup=promotion_context_kb())
+        return
+    kb = InlineKeyboardBuilder()
+    kb.button(text="📢 Подтвердить отправку", callback_data=AdminShowActionCb(action="announce", show_id=show.id).pack())
+    await message.answer("Отправить анонс в основной канал?", reply_markup=kb.as_markup())
+
+
+@router.message(F.text == "🔗 Ссылка и QR")
+async def quick_promotion_link(message: Message, state: FSMContext, session: AsyncSession, db_user=None, is_super_admin: bool = False):
+    show = await _quick_show(message, state, session, db_user, is_super_admin)
+    if show is None:
+        return
+    link = _show_deep_link(show.id)
+    qr = qrcode.QRCode(box_size=8, border=3)
+    qr.add_data(link)
+    qr.make(fit=True)
+    image = qr.make_image(fill_color="black", back_color="white")
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    await message.answer_photo(
+        BufferedInputFile(buffer.getvalue(), filename="show-link.png"),
+        caption=f"🔗 <b>Ссылка на запись</b>\n<code>{link}</code>",
+        reply_markup=promotion_context_kb(),
+    )
 
 
 @router.message(F.text == "✏️ Редактировать")
@@ -1017,21 +1074,21 @@ async def confirm_create(callback: CallbackQuery, state: FSMContext, bot: Bot, p
     logger.info("admin %s created show id=%s title=%s", tg_id, show.id, data.get('title'))
 
     await state.clear()
-    await state.update_data(reply_context="show", current_show_id=show.id)
+    from admin_bot.handlers.registrations import RegistrationChatFSM
+    from admin_bot.keyboards.reply import registration_channel_picker_kb
+    await state.set_state(RegistrationChatFSM.chat)
+    await state.update_data(show_id=show.id, current_show_id=show.id, reply_context="flow")
     try:
         await callback.message.delete()
     except Exception:
         pass
     await callback.message.answer(
         f"✅ Шоу <b>{h(data['title'])}</b> создано и пока нигде не опубликовано.",
-        reply_markup=show_context_kb(),
+        reply_markup=registration_channel_picker_kb(),
     )
     await callback.message.answer(
-        "Что делаем дальше:\n"
-        "• 👁 <b>Превью</b> — проверь, как выглядит анонс\n"
-        "• 📢 <b>Анонс</b> — отправь в канал, когда готов\n"
-        "• 🔗 <b>Ссылка</b> — поделись вручную",
-        reply_markup=show_created_kb(show.id),
+        "Последний необязательный шаг: выбери рабочий канал для новых записей. "
+        "Telegram сам добавит этого бота с правом публикации. Можно пропустить и подключить позже.",
     )
     # Cache poster for public bot so it can display it via deep links
     if show.poster_file_id:
@@ -1265,9 +1322,9 @@ async def show_detail(
     from aiogram.exceptions import TelegramBadRequest
     can_delete = tg_id in ADMIN_ID_LIST or bool(user and user.role == UserRole.admin)
     try:
-        await callback.message.edit_text(text, reply_markup=show_detail_kb(show, is_creator, can_delete=can_delete))
+        await callback.message.edit_text(text, reply_markup=None)
     except TelegramBadRequest:
-        await callback.message.answer(text, reply_markup=show_detail_kb(show, is_creator, can_delete=can_delete))
+        await callback.message.answer(text)
     data = await state.get_data()
     if data.get("reply_context") != "show" or data.get("current_show_id") != show_id:
         await state.update_data(reply_context="show", current_show_id=show_id)
@@ -1275,7 +1332,7 @@ async def show_detail(
 
 
 @router.callback_query(AdminShowActionCb.filter(F.action.in_({"promotion", "audience", "show_settings", "danger"})))
-async def show_section(callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession, db_user=None, is_super_admin: bool = False):
+async def show_section(callback: CallbackQuery, callback_data: AdminShowActionCb, state: FSMContext, session: AsyncSession, db_user=None, is_super_admin: bool = False):
     show = await manageable_show(session, callback_data.show_id, db_user, is_super_admin)
     if show is None:
         await deny(callback, "⛔ Нет доступа к этому шоу.")
@@ -1293,6 +1350,12 @@ async def show_section(callback: CallbackQuery, callback_data: AdminShowActionCb
         f"{titles[callback_data.action]}\n\n🎭 {h(show.title)}",
         reply_markup=show_section_kb(show, callback_data.action, can_delete=can_delete),
     )
+    await state.update_data(
+        current_show_id=show.id,
+        reply_context="promotion" if callback_data.action == "promotion" else "show",
+    )
+    context_kb = promotion_context_kb() if callback_data.action == "promotion" else show_context_kb()
+    await callback.message.answer("Навигация раздела:", reply_markup=context_kb)
 
 
 @router.callback_query(AdminShowActionCb.filter(F.action == "clone"))
@@ -1389,7 +1452,7 @@ async def toggle_show_checkin(
         await deny(callback, "⛔ Нет доступа к этому шоу.")
         return
     show = await crud.update_show(session, show.id, checkin_enabled=not show.checkin_enabled)
-    await callback.answer(f"Check-in {'включён' if show.checkin_enabled else 'выключен'}")
+    await callback.answer(f"Режим входа {'включён' if show.checkin_enabled else 'выключен'}")
     await show_detail(callback, AdminShowActionCb(action="open", show_id=show.id), session, state, answer_callback=False)
 
 
@@ -1927,7 +1990,7 @@ async def choose_edit_field(
         return
     if field in {"checkin_enabled", "feedback_enabled"}:
         updated = await crud.update_show(session, show_id, **{field: not bool(getattr(show, field))})
-        label = "Check-in" if field == "checkin_enabled" else "Отзывы"
+        label = "Режим входа" if field == "checkin_enabled" else "Отзывы"
         enabled = bool(getattr(updated, field))
         await callback.answer(f"{label}: {'вкл' if enabled else 'выкл'}")
         await state.set_state(EditShowFSM.field)

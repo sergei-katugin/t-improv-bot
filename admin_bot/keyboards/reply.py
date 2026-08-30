@@ -30,6 +30,24 @@ def show_context_kb() -> ReplyKeyboardMarkup:
     )
 
 
+def promotion_context_kb() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="👁 Превью"), KeyboardButton(text="📢 Анонс")],
+            [KeyboardButton(text="🔗 Ссылка и QR"), KeyboardButton(text="◀️ К шоу")],
+        ], resize_keyboard=True, persistent=True,
+    )
+
+
+def registrations_context_kb() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="➕ Добавить зрителя"), KeyboardButton(text="🔔 Чат записей")],
+            [KeyboardButton(text="🎟 Режим входа"), KeyboardButton(text="◀️ К шоу")],
+        ], resize_keyboard=True, persistent=True,
+    )
+
+
 def flow_context_kb() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text="❌ Отмена"), KeyboardButton(text="🏠 Главное меню")]],
@@ -59,7 +77,7 @@ def registration_channel_picker_kb() -> ReplyKeyboardMarkup:
                     request_username=True,
                 ),
             )],
-            [KeyboardButton(text="❌ Отмена")],
+            [KeyboardButton(text="⏭ Пропустить")],
         ],
         resize_keyboard=True,
         one_time_keyboard=True,
