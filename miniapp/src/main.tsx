@@ -87,6 +87,12 @@ const theme = createTheme({
   headings: { fontFamily: 'Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' },
 });
 
+function telegramHaptic(kind: "selection" | "light" = "selection") {
+  const haptic = window.Telegram?.WebApp.HapticFeedback;
+  if (kind === "selection") haptic?.selectionChanged();
+  else haptic?.impactOccurred("light");
+}
+
 function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const demoMutation = import.meta.env.DEV &&
     new URLSearchParams(location.search).get("preview") === "1" &&
@@ -264,6 +270,9 @@ function ManagementModal({ opened, onClose, me, options, reload }: {
   const [venueSeats, setVenueSeats] = React.useState(50);
   const [channel, setChannel] = React.useState("");
   const [saving, setSaving] = React.useState(false);
+  const [teamEditorOpened, setTeamEditorOpened] = React.useState(false);
+  const [venueEditorOpened, setVenueEditorOpened] = React.useState(false);
+  const [channelEditorOpened, setChannelEditorOpened] = React.useState(false);
   const [accessUsers, setAccessUsers] = React.useState<AccessUser[]>([]);
   const [accessLoading, setAccessLoading] = React.useState(false);
   const [inviteUrl, setInviteUrl] = React.useState<string | null>(null);
@@ -305,13 +314,15 @@ function ManagementModal({ opened, onClose, me, options, reload }: {
     try {
       await action(); await reload();
       notifications.show({ color: "violet", title: success, message: "Справочник обновлён" });
+      return true;
     } catch (reason) {
       notifications.show({ color: "red", title: "Не удалось сохранить", message: (reason as Error).message });
+      return false;
     } finally { setSaving(false); }
   }
 
   function editTeam(team: Options["teams"][number]) {
-    setTeamId(team.id); setTeamName(team.name); setMembers(team.members ?? "");
+    setTeamId(team.id); setTeamName(team.name); setMembers(team.members ?? ""); setTeamEditorOpened(true);
   }
 
   async function createInvite() {
@@ -342,28 +353,20 @@ function ManagementModal({ opened, onClose, me, options, reload }: {
     finally { setSaving(false); }
   }
 
-  return <Modal opened={opened} onClose={onClose} title="Настройки и справочники" fullScreen>
-    <Tabs defaultValue="teams">
+  return <Modal opened={opened} onClose={onClose} title="Настройки" fullScreen>
+    <Tabs defaultValue="teams" className="settings-tabs" variant="pills">
       <Tabs.List grow><Tabs.Tab value="teams">Команды</Tabs.Tab>{me?.role === "admin" && <Tabs.Tab value="venues">Площадки</Tabs.Tab>}{me?.role === "admin" && <Tabs.Tab value="channels">Каналы</Tabs.Tab>}{me?.role === "admin" && <Tabs.Tab value="access">Доступ</Tabs.Tab>}</Tabs.List>
       <Tabs.Panel value="teams" pt="lg"><Stack>
         {options.teams.map((team) => <Paper className="resource-card" key={team.id}><Group justify="space-between" align="flex-start"><div><Text fw={750}>{team.name}</Text><Text size="sm" c="dimmed">{team.members || "Участники не указаны"}</Text></div><Button size="xs" variant="light" onClick={() => editTeam(team)}>Изменить</Button></Group></Paper>)}
-        <Paper className="resource-form"><Stack>
-          <Title order={3}>{teamId ? "Редактировать команду" : "Новая команда"}</Title>
-          <TextInput label="Название" value={teamName} onChange={(e) => setTeamName(e.currentTarget.value)} />
-          <Textarea label="Telegram-ники участников" description="Через запятую или с новой строки" placeholder="@sergey, @anna_impro" value={members} onChange={(e) => setMembers(e.currentTarget.value)} />
-          <Group><Button loading={saving} onClick={() => perform(
-            () => api(teamId ? `/api/miniapp/teams/${teamId}` : "/api/miniapp/teams", { method: teamId ? "PATCH" : "POST", body: JSON.stringify({ name: teamName, members }) }),
-            teamId ? "Команда обновлена" : "Команда создана",
-          ).then(() => { setTeamId(null); setTeamName(""); setMembers(""); })}>{teamId ? "Сохранить" : "Добавить"}</Button>{teamId && <Button variant="subtle" onClick={() => { setTeamId(null); setTeamName(""); setMembers(""); }}>Отмена</Button>}</Group>
-        </Stack></Paper>
+        <Button variant="light" onClick={() => { setTeamId(null); setTeamName(""); setMembers(""); setTeamEditorOpened(true); }}>＋ Добавить команду</Button>
       </Stack></Tabs.Panel>
       <Tabs.Panel value="venues" pt="lg"><Stack>
         {options.venues.map((venue) => <Paper className="resource-card" key={venue.id}><Text fw={750}>{venue.name}</Text><Text size="sm" c="dimmed">{venue.city} · {venue.defaultSeats} мест</Text></Paper>)}
-        <Paper className="resource-form"><Stack><Title order={3}>Новая площадка</Title><TextInput label="Название" value={venueName} onChange={(e) => setVenueName(e.currentTarget.value)} /><SimpleGrid cols={2}><TextInput label="Город" value={venueCity} onChange={(e) => setVenueCity(e.currentTarget.value)} /><NumberInput min={1} label="Мест" value={venueSeats} onChange={(next) => setVenueSeats(typeof next === "number" ? next : 1)} /></SimpleGrid><TextInput type="url" label="Ссылка на карту" value={venueUrl} onChange={(e) => setVenueUrl(e.currentTarget.value)} /><Button loading={saving} onClick={() => perform(() => api("/api/miniapp/venues", { method: "POST", body: JSON.stringify({ name: venueName, city: venueCity, mapsUrl: venueUrl, defaultSeats: venueSeats }) }), "Площадка добавлена").then(() => { setVenueName(""); setVenueUrl(""); })}>Добавить площадку</Button></Stack></Paper>
+        <Button variant="light" onClick={() => setVenueEditorOpened(true)}>＋ Добавить площадку</Button>
       </Stack></Tabs.Panel>
       <Tabs.Panel value="channels" pt="lg"><Stack>
         {options.adChannels.map((item) => <Paper className="resource-card" key={item.id}><Group justify="space-between"><div><Text fw={750}>{item.username}</Text><Text size="sm" c="dimmed">{item.isActive ? "Активен" : "Отключён"}</Text></div><Switch checked={item.isActive} onChange={() => perform(() => api(`/api/miniapp/ad-channels/${item.id}/toggle`, { method: "PATCH" }), "Канал обновлён")} /></Group></Paper>)}
-        <Paper className="resource-form"><Stack><Title order={3}>Новый рекламный канал</Title><TextInput label="Telegram-ник канала" placeholder="@afisha_cyprus" value={channel} onChange={(e) => setChannel(e.currentTarget.value)} /><Button loading={saving} onClick={() => perform(() => api("/api/miniapp/ad-channels", { method: "POST", body: JSON.stringify({ username: channel }) }), "Канал добавлен").then(() => setChannel(""))}>Добавить канал</Button></Stack></Paper>
+        <Button variant="light" onClick={() => setChannelEditorOpened(true)}>＋ Добавить канал</Button>
       </Stack></Tabs.Panel>
       <Tabs.Panel value="access" pt="lg"><Stack>
         <Paper className="resource-form"><Stack><Title order={3}>Пригласить организатора</Title><Text size="sm" c="dimmed">Ссылка одноразовая и автоматически истечёт. Новый пользователь сможет управлять только созданными им афишами.</Text><Button loading={saving} onClick={() => void createInvite()}>Создать ссылку</Button>{inviteUrl && <><Text size="sm" style={{ wordBreak: "break-all" }}>{inviteUrl}</Text><Button variant="light" onClick={() => void copyInvite()}>Копировать приглашение</Button></>}</Stack></Paper>
@@ -374,6 +377,9 @@ function ManagementModal({ opened, onClose, me, options, reload }: {
         <Button variant="default" onClick={() => { setAuditOpened(true); void loadAudit(); }}>Журнал действий</Button>
       </Stack></Tabs.Panel>
     </Tabs>
+    <Modal opened={teamEditorOpened} onClose={() => setTeamEditorOpened(false)} title={teamId ? "Редактировать команду" : "Новая команда"} centered><Stack><TextInput label="Название" value={teamName} onChange={(e) => setTeamName(e.currentTarget.value)} /><Textarea label="Telegram-ники участников" description="Через запятую или с новой строки" placeholder="@sergey, @anna_impro" value={members} onChange={(e) => setMembers(e.currentTarget.value)} /><Button disabled={!teamName.trim()} loading={saving} onClick={() => perform(() => api(teamId ? `/api/miniapp/teams/${teamId}` : "/api/miniapp/teams", { method: teamId ? "PATCH" : "POST", body: JSON.stringify({ name: teamName, members }) }), teamId ? "Команда обновлена" : "Команда создана").then((saved) => { if (saved) { setTeamEditorOpened(false); setTeamId(null); setTeamName(""); setMembers(""); } })}>{teamId ? "Сохранить" : "Добавить"}</Button></Stack></Modal>
+    <Modal opened={venueEditorOpened} onClose={() => setVenueEditorOpened(false)} title="Новая площадка" centered><Stack><TextInput label="Название" value={venueName} onChange={(e) => setVenueName(e.currentTarget.value)} /><SimpleGrid cols={2}><Autocomplete label="Город" data={["Лимасол", "Никосия", "Пафос"]} value={venueCity} onChange={setVenueCity} /><NumberInput min={1} label="Мест" value={venueSeats} onChange={(next) => setVenueSeats(typeof next === "number" ? next : 1)} /></SimpleGrid><TextInput type="url" label="Ссылка на карту" value={venueUrl} onChange={(e) => setVenueUrl(e.currentTarget.value)} /><Button disabled={!venueName.trim() || !venueCity.trim()} loading={saving} onClick={() => perform(() => api("/api/miniapp/venues", { method: "POST", body: JSON.stringify({ name: venueName, city: venueCity, mapsUrl: venueUrl, defaultSeats: venueSeats }) }), "Площадка добавлена").then((saved) => { if (saved) { setVenueEditorOpened(false); setVenueName(""); setVenueUrl(""); } })}>Добавить площадку</Button></Stack></Modal>
+    <Modal opened={channelEditorOpened} onClose={() => setChannelEditorOpened(false)} title="Новый рекламный канал" centered><Stack><TextInput label="Telegram-ник канала" placeholder="@afisha_cyprus" value={channel} onChange={(e) => setChannel(e.currentTarget.value)} /><Button disabled={!channel.trim()} loading={saving} onClick={() => perform(() => api("/api/miniapp/ad-channels", { method: "POST", body: JSON.stringify({ username: channel }) }), "Канал добавлен").then((saved) => { if (saved) { setChannelEditorOpened(false); setChannel(""); } })}>Добавить канал</Button></Stack></Modal>
     <Modal opened={auditOpened} onClose={() => setAuditOpened(false)} title="Журнал действий" fullScreen><Stack>
         <Group justify="space-between"><div><Title order={3}>Журнал действий</Title><Text size="sm" c="dimmed">Последние 100 административных операций Mini App</Text></div><Button size="xs" variant="light" loading={auditLoading} onClick={() => void loadAudit()}>Обновить</Button></Group>
         {auditError && <Alert color="red" title="Не удалось загрузить журнал">{auditError}<Button mt="sm" size="xs" variant="light" color="red" onClick={() => void loadAudit()}>Повторить</Button></Alert>}
@@ -644,11 +650,33 @@ function App() {
   const [toolsOpened, setToolsOpened] = React.useState(false);
   const [editing, setEditing] = React.useState<Show | null>(null);
 
+  const hasBackTarget = Boolean(selected || formOpened || managementOpened || attendeesOpened || announcementOpened || analyticsOpened || toolsOpened);
+
   React.useEffect(() => {
-    const tg = window.Telegram?.WebApp;
-    tg?.ready();
-    tg?.expand();
-    if (tg?.colorScheme) document.documentElement.dataset.theme = tg.colorScheme;
+    const backButton = window.Telegram?.WebApp.BackButton;
+    if (!backButton) return;
+    const goBack = () => {
+      telegramHaptic("light");
+      if (toolsOpened) setToolsOpened(false);
+      else if (analyticsOpened) setAnalyticsOpened(false);
+      else if (announcementOpened) setAnnouncementOpened(false);
+      else if (attendeesOpened) setAttendeesOpened(false);
+      else if (formOpened) { setFormOpened(false); setEditing(null); }
+      else if (managementOpened) setManagementOpened(false);
+      else if (selected) setSelected(null);
+    };
+    backButton.onClick(goBack);
+    if (hasBackTarget) backButton.show(); else backButton.hide();
+    return () => backButton.offClick(goBack);
+  }, [analyticsOpened, announcementOpened, attendeesOpened, formOpened, hasBackTarget, managementOpened, selected, toolsOpened]);
+
+  React.useEffect(() => {
+    const settingsButton = window.Telegram?.WebApp.SettingsButton;
+    if (!settingsButton) return;
+    const openSettings = () => { telegramHaptic("selection"); setManagementOpened(true); };
+    settingsButton.onClick(openSettings);
+    settingsButton.show();
+    return () => { settingsButton.offClick(openSettings); settingsButton.hide(); };
   }, []);
 
   React.useEffect(() => {
@@ -691,7 +719,7 @@ function App() {
     const fill = Math.min(100, Math.round(selected.occupiedSeats / Math.max(1, selected.maxSeats) * 100));
     const registrationUrl = selected.registrationUrl ?? `https://t.me/ImprovCypEventBot?start=show_${selected.id}`;
     return <main className="shell">
-      <Button className="back" variant="subtle" onClick={() => setSelected(null)}>← Все афиши</Button>
+      <Button className="back" variant="subtle" onClick={() => { telegramHaptic("light"); setSelected(null); }}>← Все афиши</Button>
       <Paper className="detail-card">
         <div className="eyebrow">{selected.teamName}</div>
         <Title order={1}>{selected.title}</Title>
@@ -713,9 +741,9 @@ function App() {
   }
 
   return <main className="shell">
-    <header>
+    <header className="app-header">
       <div><div className="brand">T·IMPRO</div><h1>Мои афиши</h1>{isPreview && <Badge mt={8} color="gray" variant="light">Демо-данные · API отключён</Badge>}</div>
-      <button className="avatar" onClick={() => setManagementOpened(true)} aria-label="Открыть настройки">
+      <button className="avatar" onClick={() => { telegramHaptic("selection"); setManagementOpened(true); }} aria-label="Открыть настройки">
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" />
           <path d="M19.4 13.5a7.8 7.8 0 0 0 0-3l1.7-1.3-2-3.4-2 .8a8 8 0 0 0-2.6-1.5L14.2 3h-4.4l-.3 2.1a8 8 0 0 0-2.6 1.5l-2-.8-2 3.4 1.7 1.3a7.8 7.8 0 0 0 0 3l-1.7 1.3 2 3.4 2-.8a8 8 0 0 0 2.6 1.5l.3 2.1h4.4l.3-2.1a8 8 0 0 0 2.6-1.5l2 .8 2-3.4-1.7-1.3Z" />
@@ -731,7 +759,7 @@ function App() {
     <section className="show-list">
       {shows.map((show) => {
         const fill = Math.min(100, Math.round(show.occupiedSeats / Math.max(1, show.maxSeats) * 100));
-        return <Paper component="button" className="show-card" key={show.id} onClick={() => openShow(show)}>
+        return <Paper component="button" className="show-card" key={show.id} onClick={() => { telegramHaptic("selection"); void openShow(show); }}>
           <div className="card-top"><Badge color="violet" variant="light">{show.showDateLabel}</Badge><span className="arrow">→</span></div>
           <Title order={2}>{show.title}</Title><Text>{show.teamName}</Text><Text className="muted">{show.location} · {show.city}</Text>
           <div className="capacity-head"><span>Заполнено</span><strong>{show.occupiedSeats} / {show.maxSeats}</strong></div>
@@ -739,7 +767,7 @@ function App() {
         </Paper>;
       })}
     </section>
-    <Button className="primary" fullWidth onClick={() => { setEditing(null); setFormOpened(true); }}>＋ Создать афишу</Button>
+    <Button className="primary" fullWidth onClick={() => { telegramHaptic("light"); setEditing(null); setFormOpened(true); }}>＋ Создать афишу</Button>
     <ShowForm opened={formOpened} initial={editing} options={options} me={me} reloadOptions={reloadOptions} onClose={() => setFormOpened(false)} onSaved={() => { setFormOpened(false); reloadShows(); }} />
     <ManagementModal opened={managementOpened} onClose={() => setManagementOpened(false)} me={me} options={options} reload={reloadOptions} />
   </main>;
@@ -807,8 +835,32 @@ function ShowToolsModal({ opened, onClose, show, registrationUrl, demo, onChange
   </Modal>;
 }
 
+function MiniAppRoot() {
+  const telegram = window.Telegram?.WebApp;
+  const [colorScheme, setColorScheme] = React.useState<"light" | "dark">(telegram?.colorScheme ?? "dark");
+
+  React.useEffect(() => {
+    const syncTheme = () => {
+      const next = telegram?.colorScheme ?? "dark";
+      setColorScheme(next);
+      document.documentElement.dataset.theme = next;
+    };
+    if (telegram?.initData) document.documentElement.dataset.telegram = "true";
+    syncTheme();
+    telegram?.onEvent("themeChanged", syncTheme);
+    telegram?.setHeaderColor("bg_color");
+    telegram?.setBackgroundColor("bg_color");
+    telegram?.setBottomBarColor?.("bottom_bar_bg_color");
+    telegram?.ready();
+    telegram?.expand();
+    return () => telegram?.offEvent("themeChanged", syncTheme);
+  }, [telegram]);
+
+  return <MantineProvider theme={theme} forceColorScheme={colorScheme}><DatesProvider settings={{ locale: "ru", firstDayOfWeek: 1, weekendDays: [0, 6] }}><Notifications /><App /></DatesProvider></MantineProvider>;
+}
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <MantineProvider theme={theme} defaultColorScheme="dark"><DatesProvider settings={{ locale: "ru", firstDayOfWeek: 1, weekendDays: [0, 6] }}><Notifications /><App /></DatesProvider></MantineProvider>
+    <MiniAppRoot />
   </React.StrictMode>,
 );
