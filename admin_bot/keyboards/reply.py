@@ -12,7 +12,10 @@ from config import settings
 
 def _miniapp_url() -> str | None:
     base_url = settings.WEBHOOK_BASE_URL or os.getenv("RENDER_EXTERNAL_URL") or os.getenv("PUBLIC_URL")
-    return f"{base_url.rstrip('/')}/app" if base_url else None
+    if not base_url:
+        return None
+    deploy_version = os.getenv("RENDER_GIT_COMMIT", "local")[:12]
+    return f"{base_url.rstrip('/')}/app?v={deploy_version}"
 
 
 def miniapp_launch_kb() -> InlineKeyboardMarkup | None:

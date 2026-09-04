@@ -215,6 +215,12 @@ def _set_miniapp_security_headers(request: web.Request, response: web.StreamResp
     if request.path.startswith("/api/miniapp/"):
         response.headers.setdefault("Cache-Control", "private, no-store")
     elif request.path == "/app" or request.path.startswith("/app/"):
+        if request.path.startswith("/app/assets/"):
+            response.headers.setdefault("Cache-Control", "public, max-age=31536000, immutable")
+        else:
+            response.headers.setdefault("Cache-Control", "no-store, max-age=0, must-revalidate")
+            response.headers.setdefault("Pragma", "no-cache")
+            response.headers.setdefault("Expires", "0")
         response.headers.setdefault(
             "Content-Security-Policy",
             "default-src 'self'; script-src 'self' https://telegram.org; "
