@@ -7,6 +7,7 @@ PROJECT_LOGGER_PREFIXES = (
     "public_bot",
     "scheduler",
     "db",
+    "miniapp_api",
     "t_improv_bot",
     "__main__",
     "main",

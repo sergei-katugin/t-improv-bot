@@ -9,6 +9,7 @@ import json
 import logging
 import mimetypes
 import re
+import secrets
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -122,11 +123,16 @@ def _extract_init_data(request: web.Request) -> str:
 async def miniapp_auth_middleware(request: web.Request, handler):
     if not request.path.startswith("/api/miniapp/"):
         return await handler(request)
+    init_data = _extract_init_data(request)
     try:
         telegram_user = validate_telegram_init_data(
-            _extract_init_data(request), settings.ADMIN_BOT_TOKEN,
+            init_data, settings.ADMIN_BOT_TOKEN,
         )
-    except MiniAppAuthError:
+    except MiniAppAuthError as exc:
+        logger.warning(
+            "Mini App authentication rejected request_id=%s path=%s reason=%s init_data_present=%s",
+            request.get("miniapp_request_id", "unknown"), request.path, exc, bool(init_data),
+        )
         raise web.HTTPUnauthorized(
             text=json.dumps({"error": "telegram_auth_failed"}),
             content_type="application/json",
@@ -147,6 +153,45 @@ async def miniapp_auth_middleware(request: web.Request, handler):
             db_user.role == UserRole.admin or telegram_user.telegram_id in ADMIN_ID_LIST
         )
     return await handler(request)
+
+
+@web.middleware
+async def miniapp_request_logging_middleware(request: web.Request, handler):
+    if not request.path.startswith("/api/miniapp/"):
+        return await handler(request)
+    request_id = secrets.token_hex(6)
+    request["miniapp_request_id"] = request_id
+    started_at = time.monotonic()
+    status = 500
+    try:
+        response = await handler(request)
+        status = response.status
+        response.headers["X-Request-ID"] = request_id
+        return response
+    except web.HTTPException as exc:
+        status = exc.status
+        exc.headers["X-Request-ID"] = request_id
+        raise
+    except Exception:
+        logger.exception(
+            "Mini App request failed request_id=%s method=%s path=%s user_id=%s telegram_id=%s",
+            request_id, request.method, request.path,
+            request.get("miniapp_user_id"), request.get("miniapp_telegram_id"),
+        )
+        response = web.json_response(
+            {"error": "internal_error", "requestId": request_id}, status=500,
+        )
+        response.headers["X-Request-ID"] = request_id
+        return response
+    finally:
+        duration_ms = (time.monotonic() - started_at) * 1000
+        log = logger.warning if status >= 400 else logger.info
+        log(
+            "Mini App request completed request_id=%s method=%s path=%s status=%s "
+            "duration_ms=%.1f user_id=%s telegram_id=%s",
+            request_id, request.method, request.path, status, duration_ms,
+            request.get("miniapp_user_id"), request.get("miniapp_telegram_id"),
+        )
 
 
 @web.middleware
@@ -1277,6 +1322,7 @@ async def miniapp_index(request: web.Request) -> web.FileResponse:
 
 def register_miniapp_routes(app: web.Application) -> None:
     app.middlewares.append(miniapp_security_headers_middleware)
+    app.middlewares.append(miniapp_request_logging_middleware)
     app.middlewares.append(miniapp_auth_middleware)
     app.router.add_get("/api/miniapp/me", miniapp_me)
     app.router.add_get("/api/miniapp/shows", miniapp_shows)
