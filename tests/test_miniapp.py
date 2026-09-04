@@ -15,7 +15,7 @@ from db.base import Base
 from db.models import AuditLog, AnnouncementLog, ManualAttendee, Registration, Show, ShowFeedback, User, UserRole
 from miniapp_api import (
     MiniAppAuthError, _csv_value, _require_admin, _set_miniapp_security_headers,
-    _show_fields, validate_telegram_init_data,
+    _show_fields, miniapp_request_logging_middleware, validate_telegram_init_data,
 )
 from time_utils import utc_now
 
@@ -152,6 +152,40 @@ def test_miniapp_security_headers(path, expected_header):
     assert expected in response.headers[name]
     assert response.headers["X-Content-Type-Options"] == "nosniff"
     assert response.headers["Referrer-Policy"] == "no-referrer"
+
+
+@pytest.mark.asyncio
+async def test_miniapp_request_logging_adds_request_id():
+    request = type(
+        "Request", (dict,), {"path": "/api/miniapp/me", "method": "GET"},
+    )()
+
+    async def handler(_request):
+        return web.json_response({"ok": True})
+
+    response = await miniapp_request_logging_middleware(request, handler)
+
+    assert len(response.headers["X-Request-ID"]) == 12
+    assert request["miniapp_request_id"] == response.headers["X-Request-ID"]
+
+
+@pytest.mark.asyncio
+async def test_miniapp_request_logging_returns_traceable_internal_error():
+    request = type(
+        "Request", (dict,), {"path": "/api/miniapp/me", "method": "GET"},
+    )()
+
+    async def handler(_request):
+        raise RuntimeError("unexpected failure")
+
+    response = await miniapp_request_logging_middleware(request, handler)
+    payload = json.loads(response.text)
+
+    assert response.status == 500
+    assert payload == {
+        "error": "internal_error",
+        "requestId": response.headers["X-Request-ID"],
+    }
 
 
 @pytest.mark.asyncio
