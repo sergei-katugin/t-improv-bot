@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from aiogram.types import (
     ChatAdministratorRights, KeyboardButton, KeyboardButtonRequestChat,
-    ReplyKeyboardMarkup, ReplyKeyboardRemove, WebAppInfo,
+    InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup,
+    ReplyKeyboardRemove, WebAppInfo,
 )
 import os
 
@@ -12,6 +13,18 @@ from config import settings
 def _miniapp_url() -> str | None:
     base_url = settings.WEBHOOK_BASE_URL or os.getenv("RENDER_EXTERNAL_URL") or os.getenv("PUBLIC_URL")
     return f"{base_url.rstrip('/')}/app" if base_url else None
+
+
+def miniapp_launch_kb() -> InlineKeyboardMarkup | None:
+    miniapp_url = _miniapp_url()
+    if not miniapp_url:
+        return None
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(
+            text="🌐 Открыть панель управления",
+            web_app=WebAppInfo(url=miniapp_url),
+        ),
+    ]])
 
 
 def main_menu_kb() -> ReplyKeyboardMarkup:
