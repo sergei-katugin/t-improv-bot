@@ -14,12 +14,13 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.parse import parse_qsl
 from urllib.parse import urlparse
 
 from aiohttp import web
 from aiogram import Bot
-from aiogram.types import BufferedInputFile
+from aiogram.types import BufferedInputFile, LinkPreviewOptions
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import selectinload
 
@@ -1118,6 +1119,27 @@ async def miniapp_create_show(request: web.Request) -> web.Response:
         return web.json_response({"id": show.id}, status=201)
 
 
+async def miniapp_send_show_preview(request: web.Request) -> web.Response:
+    fields = _show_fields(await _json_body(request), require_all=True)
+    preview = SimpleNamespace(
+        title=fields["title"], team_name=fields["team_name"],
+        show_date=fields["show_date"], location=fields["location"],
+        location_url=fields.get("location_url"), city=fields["city"],
+        max_seats=fields["max_seats"], poster_text=fields.get("poster_text"),
+        registrar_username=fields.get("registrar_username"), registrar=None,
+    )
+    from scheduler.jobs import build_announcement_text
+    text = "🧪 <b>Предпросмотр — сообщение не опубликовано</b>\n\n" + build_announcement_text(
+        preview, seats_left=int(fields["max_seats"]),
+    )
+    bot = request.app[ADMIN_BOT_KEY]
+    await send_with_retry(
+        bot.send_message, request["miniapp_telegram_id"], text,
+        link_preview_options=LinkPreviewOptions(is_disabled=True),
+    )
+    return web.json_response({"sent": True})
+
+
 async def miniapp_update_show(request: web.Request) -> web.Response:
     try:
         show_id = int(request.match_info["show_id"])
@@ -1327,6 +1349,7 @@ def register_miniapp_routes(app: web.Application) -> None:
     app.router.add_get("/api/miniapp/me", miniapp_me)
     app.router.add_get("/api/miniapp/shows", miniapp_shows)
     app.router.add_post("/api/miniapp/shows", miniapp_create_show)
+    app.router.add_post("/api/miniapp/shows/preview", miniapp_send_show_preview)
     app.router.add_get("/api/miniapp/shows/{show_id}", miniapp_show_detail)
     app.router.add_patch("/api/miniapp/shows/{show_id}", miniapp_update_show)
     app.router.add_get("/api/miniapp/options", miniapp_options)

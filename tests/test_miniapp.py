@@ -5,6 +5,7 @@ import hmac
 import json
 from datetime import timedelta
 from urllib.parse import urlencode
+from unittest.mock import AsyncMock
 
 import pytest
 from aiohttp import web
@@ -109,6 +110,27 @@ def test_miniapp_show_payload_is_normalized_and_whitelisted():
 def test_miniapp_rejects_invalid_show_fields(field, value):
     with pytest.raises(web.HTTPBadRequest):
         _show_fields({**_valid_show_payload(), field: value}, require_all=True)
+
+
+@pytest.mark.asyncio
+async def test_miniapp_preview_is_sent_only_to_current_telegram_user():
+    bot = type("Bot", (), {"send_message": AsyncMock()})()
+
+    class Request(dict):
+        content_length = None
+
+        def __init__(self):
+            super().__init__(miniapp_telegram_id=42)
+            self.app = {miniapp_api.ADMIN_BOT_KEY: bot}
+
+        async def json(self):
+            return _valid_show_payload()
+
+    response = await miniapp_api.miniapp_send_show_preview(Request())
+
+    assert response.status == 200
+    assert bot.send_message.await_args.args[0] == 42
+    assert "Предпросмотр" in bot.send_message.await_args.args[1]
 
 
 class _Request(dict):
