@@ -36,7 +36,7 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 8vw, 40px); line-height: 1.05; lett
 .capacity-head strong { color: #eef2ff; }
 .progress { height: 6px; margin-top: 8px; overflow: hidden; border-radius: 99px; background: rgba(148,163,184,.14); }
 .progress span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--accent-2), var(--accent)); }
-.primary { width: 100%; margin-top: 16px; padding: 15px; border: 0; border-radius: 16px; color: #0b1020; background: linear-gradient(135deg, #e4b8ff, #9d86ff); font-weight: 850; }
+.primary { width: 100%; min-height: 52px; height: auto; margin-top: 16px; padding: 12px 15px; border: 0; border-radius: 16px; color: #0b1020; background: linear-gradient(135deg, #e4b8ff, #9d86ff); font-weight: 850; }
 .primary:disabled { opacity: .55; }
 .back { margin: 0 0 18px; padding: 8px 0; border: 0; color: var(--accent); background: transparent; font-weight: 750; }
 .detail-card h1 { margin-top: 12px; }

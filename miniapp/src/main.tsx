@@ -1,13 +1,16 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import {
-  Alert, Anchor, Badge, Button, FileInput, Group, Loader, MantineProvider, Modal, NumberInput,
+  Alert, Anchor, Autocomplete, Badge, Button, FileInput, Group, Loader, MantineProvider, Modal, NumberInput,
   Paper, Progress, Select, SimpleGrid, Skeleton, Stack, Switch, Tabs, Text,
   Textarea, TextInput, Title, createTheme,
 } from "@mantine/core";
+import { DateTimePicker, DatesProvider } from "@mantine/dates";
 import { Notifications, notifications } from "@mantine/notifications";
 import "@mantine/core/styles.css";
+import "@mantine/dates/styles.css";
 import "@mantine/notifications/styles.css";
+import "dayjs/locale/ru";
 import "./styles.css";
 
 type Show = {
@@ -131,27 +134,78 @@ function formFromShow(show: Show): ShowFormValue {
   };
 }
 
-function ShowForm({ opened, initial, options, onClose, onSaved }: {
-  opened: boolean; initial: Show | null; options: Options; onClose: () => void; onSaved: (id: number) => void;
+function ShowForm({ opened, initial, options, me, reloadOptions, onClose, onSaved }: {
+  opened: boolean; initial: Show | null; options: Options; me: Me | null;
+  reloadOptions: () => Promise<void>; onClose: () => void; onSaved: (id: number) => void;
 }) {
   const [value, setValue] = React.useState<ShowFormValue>(emptyForm());
   const [venueId, setVenueId] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
-  React.useEffect(() => { if (opened) { setValue(initial ? formFromShow(initial) : emptyForm()); setVenueId(null); } }, [opened, initial]);
+  const [teamModal, setTeamModal] = React.useState(false);
+  const [venueModal, setVenueModal] = React.useState(false);
+  const [newTeamName, setNewTeamName] = React.useState("");
+  const [newTeamMembers, setNewTeamMembers] = React.useState("");
+  const [newVenueName, setNewVenueName] = React.useState("");
+  const [newVenueCity, setNewVenueCity] = React.useState("Лимасол");
+  const [newVenueUrl, setNewVenueUrl] = React.useState("");
+  const [newVenueSeats, setNewVenueSeats] = React.useState(50);
+  React.useEffect(() => {
+    if (!opened) return;
+    const nextValue = initial ? formFromShow(initial) : emptyForm();
+    const venue = initial
+      ? options.venues.find((item) => item.name === initial.location && item.city === initial.city)
+      : undefined;
+    if (venue) nextValue.locationUrl = venue.mapsUrl ?? "";
+    setValue(nextValue);
+    setVenueId(venue ? String(venue.id) : initial ? "__custom__" : null);
+  }, [opened, initial, options.venues]);
   const set = <K extends keyof ShowFormValue>(key: K, next: ShowFormValue[K]) => setValue((current) => ({ ...current, [key]: next }));
+  const selectedVenue = options.venues.find((item) => String(item.id) === venueId);
+
+  function showPayload(): ShowFormValue {
+    return selectedVenue
+      ? { ...value, location: selectedVenue.name, city: selectedVenue.city, locationUrl: selectedVenue.mapsUrl ?? "", maxSeats: selectedVenue.defaultSeats }
+      : value;
+  }
 
   function selectVenue(id: string | null) {
+    if (id === "__new__") { setVenueModal(true); return; }
     setVenueId(id);
     const venue = options.venues.find((item) => String(item.id) === id);
     if (venue) setValue((current) => ({ ...current, location: venue.name, city: venue.city, locationUrl: venue.mapsUrl ?? "", maxSeats: venue.defaultSeats }));
+    else if (id === "__custom__") setValue((current) => ({ ...current, location: "", locationUrl: "" }));
+  }
+
+  async function createTeam() {
+    setSaving(true);
+    try {
+      await api("/api/miniapp/teams", { method: "POST", body: JSON.stringify({ name: newTeamName, members: newTeamMembers }) });
+      set("teamName", newTeamName.trim());
+      setTeamModal(false); setNewTeamName(""); setNewTeamMembers("");
+      await reloadOptions();
+    } catch (reason) { notifications.show({ color: "red", title: "Не удалось создать команду", message: (reason as Error).message }); }
+    finally { setSaving(false); }
+  }
+
+  async function createVenue() {
+    setSaving(true);
+    try {
+      const result = await api<{ id: number }>("/api/miniapp/venues", { method: "POST", body: JSON.stringify({ name: newVenueName, city: newVenueCity, mapsUrl: newVenueUrl, defaultSeats: newVenueSeats }) });
+      setVenueId(String(result.id));
+      setValue((current) => ({ ...current, location: newVenueName.trim(), city: newVenueCity.trim(), locationUrl: newVenueUrl.trim(), maxSeats: newVenueSeats }));
+      setVenueModal(false); setNewVenueName(""); setNewVenueUrl("");
+      await reloadOptions();
+    } catch (reason) { notifications.show({ color: "red", title: "Не удалось создать площадку", message: (reason as Error).message }); }
+    finally { setSaving(false); }
   }
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     setSaving(true);
     try {
+      const payload = showPayload();
       const result = await api<{ id: number }>(initial ? `/api/miniapp/shows/${initial.id}` : "/api/miniapp/shows", {
-        method: initial ? "PATCH" : "POST", body: JSON.stringify(value),
+        method: initial ? "PATCH" : "POST", body: JSON.stringify(payload),
       });
       notifications.show({ color: "violet", title: initial ? "Афиша обновлена" : "Афиша создана", message: "Изменения сохранены" });
       onSaved(result.id);
@@ -160,23 +214,35 @@ function ShowForm({ opened, initial, options, onClose, onSaved }: {
     } finally { setSaving(false); }
   }
 
+  async function sendPreview() {
+    setSaving(true);
+    try {
+      await api("/api/miniapp/shows/preview", { method: "POST", body: JSON.stringify(showPayload()) });
+      notifications.show({ color: "green", title: "Превью отправлено", message: "Проверь сообщение в админ-боте" });
+    } catch (reason) { notifications.show({ color: "red", title: "Не удалось отправить превью", message: (reason as Error).message }); }
+    finally { setSaving(false); }
+  }
+
   return <Modal opened={opened} onClose={onClose} title={initial ? "Редактировать афишу" : "Новая афиша"} fullScreen>
     <form onSubmit={submit} className="show-form">
       <Stack gap="md">
         <TextInput required label="Название" value={value.title} onChange={(e) => set("title", e.currentTarget.value)} maxLength={256} />
-        <Select required searchable allowDeselect={false} label="Команда" data={options.teams.map((team) => ({ value: team.name, label: team.name }))} value={value.teamName || null} onChange={(next) => set("teamName", next ?? "")} />
-        <TextInput required type="datetime-local" label="Дата и время" value={value.showDateLocal} onChange={(e) => set("showDateLocal", e.currentTarget.value)} />
-        <Select searchable clearable label="Выбрать площадку" placeholder="Или заполнить вручную" data={options.venues.map((venue) => ({ value: String(venue.id), label: `${venue.name} · ${venue.city}` }))} value={venueId} onChange={selectVenue} />
-        <TextInput required label="Площадка" value={value.location} onChange={(e) => set("location", e.currentTarget.value)} maxLength={512} />
-        <SimpleGrid cols={2}><TextInput required label="Город" value={value.city} onChange={(e) => set("city", e.currentTarget.value)} /><NumberInput required min={1} max={10000} label="Количество мест" value={value.maxSeats} onChange={(next) => set("maxSeats", typeof next === "number" ? next : 1)} /></SimpleGrid>
-        <TextInput type="url" label="Ссылка на карту" value={value.locationUrl} onChange={(e) => set("locationUrl", e.currentTarget.value)} />
+        <Select required searchable allowDeselect={false} label="Команда" data={[...options.teams.map((team) => ({ value: team.name, label: team.name })), { value: "__new__", label: "＋ Добавить новую команду" }]} value={value.teamName || null} onChange={(next) => next === "__new__" ? setTeamModal(true) : set("teamName", next ?? "")} />
+        <DateTimePicker required size="lg" dropdownType="modal" label="Дата и время" valueFormat="D MMMM YYYY, HH:mm" locale="ru" minDate={new Date().toISOString().slice(0, 10)} value={value.showDateLocal.replace("T", " ")} onChange={(next) => set("showDateLocal", next?.replace(" ", "T") ?? "")} timePickerProps={{ minutesStep: 5 }} clearable={false} className="large-date-picker" />
+        <Select required searchable allowDeselect={false} label="Площадка" placeholder="Выбери площадку" data={[...options.venues.map((venue) => ({ value: String(venue.id), label: `${venue.name} · ${venue.city}` })), { value: "__custom__", label: "Другая площадка" }, ...(me?.role === "admin" ? [{ value: "__new__", label: "＋ Добавить новую площадку" }] : [])]} value={venueId} onChange={selectVenue} />
+        {selectedVenue && <Paper className="venue-summary"><Text fw={700}>{selectedVenue.name}</Text><Text size="sm">{selectedVenue.city} · {selectedVenue.defaultSeats} мест</Text>{selectedVenue.mapsUrl && <Anchor href={selectedVenue.mapsUrl} target="_blank" size="sm">Открыть на карте ↗</Anchor>}</Paper>}
+        {venueId === "__custom__" && <><TextInput required label="Название площадки" value={value.location} onChange={(e) => set("location", e.currentTarget.value)} maxLength={512} /><SimpleGrid cols={2}><Autocomplete required label="Город" data={["Лимасол", "Никосия", "Пафос"]} value={value.city} onChange={(next) => set("city", next)} /><NumberInput required min={1} max={10000} label="Количество мест" value={value.maxSeats} onChange={(next) => set("maxSeats", typeof next === "number" ? next : 1)} /></SimpleGrid><TextInput type="url" label="Ссылка на карту" value={value.locationUrl} onChange={(e) => set("locationUrl", e.currentTarget.value)} /></>}
         <TextInput label="Ответственный в Telegram" placeholder="@username" value={value.registrarUsername} onChange={(e) => set("registrarUsername", e.currentTarget.value)} />
         <Textarea label="Текст афиши" autosize minRows={5} maxLength={1800} value={value.posterText} onChange={(e) => set("posterText", e.currentTarget.value)} />
         <Switch label="Включить check-in" checked={value.checkinEnabled} onChange={(e) => set("checkinEnabled", e.currentTarget.checked)} />
         <Switch label="Запрашивать отзывы после шоу" checked={value.feedbackEnabled} onChange={(e) => set("feedbackEnabled", e.currentTarget.checked)} />
+        <Paper className="telegram-preview"><Text size="xs" fw={800} c="violet.2">ПРЕДПРОСМОТР</Text><Title order={3}>🎭 {value.title || "Название шоу"}</Title><Text>👥 Команда: {value.teamName || "не выбрана"}</Text><Text>📅 {value.showDateLocal ? new Date(value.showDateLocal).toLocaleString("ru-RU", { dateStyle: "long", timeStyle: "short" }) : "дата не выбрана"}</Text><Text>📍 {selectedVenue?.name || value.location || "площадка не выбрана"}, {selectedVenue?.city || value.city}</Text>{value.registrarUsername && <Text>👤 Ответственный: {value.registrarUsername}</Text>}{value.posterText && <Text mt="sm" style={{ whiteSpace: "pre-wrap" }}>{value.posterText}</Text>}</Paper>
+        <Button variant="light" loading={saving} disabled={!value.title || !value.teamName || !value.showDateLocal || !venueId} onClick={() => void sendPreview()}>Отправить тест в админ-бот</Button>
         <Button type="submit" loading={saving} size="md">{initial ? "Сохранить изменения" : "Создать афишу"}</Button>
       </Stack>
     </form>
+    <Modal opened={teamModal} onClose={() => setTeamModal(false)} title="Новая команда" centered><Stack><TextInput required label="Название" value={newTeamName} onChange={(e) => setNewTeamName(e.currentTarget.value)} /><Textarea label="Telegram-ники участников" value={newTeamMembers} onChange={(e) => setNewTeamMembers(e.currentTarget.value)} /><Button disabled={!newTeamName.trim()} loading={saving} onClick={() => void createTeam()}>Создать и выбрать</Button></Stack></Modal>
+    <Modal opened={venueModal} onClose={() => setVenueModal(false)} title="Новая площадка" centered><Stack><TextInput required label="Название" value={newVenueName} onChange={(e) => setNewVenueName(e.currentTarget.value)} /><Autocomplete required label="Город" data={["Лимасол", "Никосия", "Пафос"]} value={newVenueCity} onChange={setNewVenueCity} /><NumberInput required min={1} max={10000} label="Количество мест" value={newVenueSeats} onChange={(next) => setNewVenueSeats(typeof next === "number" ? next : 1)} /><TextInput type="url" label="Ссылка на карту" value={newVenueUrl} onChange={(e) => setNewVenueUrl(e.currentTarget.value)} /><Button disabled={!newVenueName.trim() || !newVenueCity.trim()} loading={saving} onClick={() => void createVenue()}>Сохранить для всех и выбрать</Button></Stack></Modal>
   </Modal>;
 }
 
@@ -627,7 +693,7 @@ function App() {
       <AnnouncementModal opened={announcementOpened} onClose={() => setAnnouncementOpened(false)} show={selected} demo={isPreview} />
       <AnalyticsModal opened={analyticsOpened} onClose={() => setAnalyticsOpened(false)} show={selected} demo={isPreview} />
       <ShowToolsModal opened={toolsOpened} onClose={() => setToolsOpened(false)} show={selected} registrationUrl={registrationUrl} demo={isPreview} onChanged={(next) => { setSelected(next); reloadShows(); }} />
-      <ShowForm opened={formOpened} initial={editing} options={options} onClose={() => setFormOpened(false)} onSaved={() => { setFormOpened(false); setSelected(null); reloadShows(); }} />
+      <ShowForm opened={formOpened} initial={editing} options={options} me={me} reloadOptions={reloadOptions} onClose={() => setFormOpened(false)} onSaved={() => { setFormOpened(false); setSelected(null); reloadShows(); }} />
     </main>;
   }
 
@@ -641,7 +707,7 @@ function App() {
     </Tabs>
     {loading && <Stack gap="sm" aria-label="Загружаем афиши"><Skeleton height={184} radius="lg" /><Skeleton height={184} radius="lg" /><Group justify="center"><Loader color="violet" size="sm" /></Group></Stack>}
     {error && <Alert color="red" title="Не удалось открыть панель">{error}</Alert>}
-    {!loading && !error && shows.length === 0 && <Paper className="state"><Title order={3}>Здесь пока пусто</Title><Text>Создать первую афишу пока можно в боте.</Text></Paper>}
+    {!loading && !error && shows.length === 0 && <Paper className="state"><Title order={3}>Здесь пока пусто</Title><Text>{status === "upcoming" ? "Создай первую афишу прямо здесь или проверь прошедшие события." : "Прошедших афиш пока нет."}</Text></Paper>}
     <section className="show-list">
       {shows.map((show) => {
         const fill = Math.min(100, Math.round(show.occupiedSeats / Math.max(1, show.maxSeats) * 100));
@@ -654,7 +720,7 @@ function App() {
       })}
     </section>
     <Button className="primary" fullWidth onClick={() => { setEditing(null); setFormOpened(true); }}>＋ Создать афишу</Button>
-    <ShowForm opened={formOpened} initial={editing} options={options} onClose={() => setFormOpened(false)} onSaved={() => { setFormOpened(false); reloadShows(); }} />
+    <ShowForm opened={formOpened} initial={editing} options={options} me={me} reloadOptions={reloadOptions} onClose={() => setFormOpened(false)} onSaved={() => { setFormOpened(false); reloadShows(); }} />
     <ManagementModal opened={managementOpened} onClose={() => setManagementOpened(false)} me={me} options={options} reload={reloadOptions} />
   </main>;
 }
@@ -723,6 +789,6 @@ function ShowToolsModal({ opened, onClose, show, registrationUrl, demo, onChange
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <MantineProvider theme={theme} defaultColorScheme="dark"><Notifications /><App /></MantineProvider>
+    <MantineProvider theme={theme} defaultColorScheme="dark"><DatesProvider settings={{ locale: "ru", firstDayOfWeek: 1, weekendDays: [0, 6] }}><Notifications /><App /></DatesProvider></MantineProvider>
   </React.StrictMode>,
 );
