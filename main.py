@@ -17,7 +17,7 @@ install_project_logging()
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.types import BotCommand, ErrorEvent, Update
+from aiogram.types import BotCommand, ErrorEvent, MenuButtonWebApp, Update, WebAppInfo
 from aiohttp import web
 
 from config import settings
@@ -131,6 +131,16 @@ async def register_commands(admin_bot: Bot, public_bot: Bot) -> None:
         BotCommand(command="privacy",  description="Конфиденциальность"),
         BotCommand(command="delete_me", description="Удалить мои данные"),
     ])
+    from admin_bot.keyboards.reply import _miniapp_url
+    miniapp_url = _miniapp_url()
+    if miniapp_url:
+        await admin_bot.set_chat_menu_button(menu_button=MenuButtonWebApp(
+            text="Открыть Mini App",
+            web_app=WebAppInfo(url=miniapp_url),
+        ))
+        logger.info("Admin bot Mini App menu button configured url=%s", miniapp_url)
+    else:
+        logger.warning("Admin bot Mini App menu button is not configured: public base URL is missing")
 
 
 def get_webhook_base_url() -> str:

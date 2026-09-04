@@ -194,7 +194,7 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession, 
     await message.answer("Главное меню:", reply_markup=main_menu_kb())
 
 
-@router.message(F.text == "🌐 Панель управления")
+@router.message(F.text.in_({"🌐 Панель управления", "🚀 Открыть Mini App"}))
 @router.message(Command("app"))
 async def cmd_miniapp(message: Message, state: FSMContext):
     await state.clear()

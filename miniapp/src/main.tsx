@@ -31,6 +31,9 @@ type Show = {
   feedbackEnabled?: boolean;
   checkinEnabled?: boolean;
   hasPoster?: boolean;
+  registrationChatId?: number | null;
+  registrationChatTitle?: string | null;
+  registrationChatNameMode?: "short" | "full";
 };
 
 type Options = {
@@ -161,6 +164,8 @@ function ShowForm({ opened, initial, options, me, reloadOptions, onClose, onSave
   const [newVenueCity, setNewVenueCity] = React.useState("Лимасол");
   const [newVenueUrl, setNewVenueUrl] = React.useState("");
   const [newVenueSeats, setNewVenueSeats] = React.useState(50);
+  const [poster, setPoster] = React.useState<File | null>(null);
+  const [notifyViewers, setNotifyViewers] = React.useState(false);
   React.useEffect(() => {
     if (!opened) return;
     const nextValue = initial ? formFromShow(initial) : emptyForm();
@@ -170,6 +175,7 @@ function ShowForm({ opened, initial, options, me, reloadOptions, onClose, onSave
     if (venue) nextValue.locationUrl = venue.mapsUrl ?? "";
     setValue(nextValue);
     setVenueId(venue ? String(venue.id) : initial ? "__custom__" : null);
+    setPoster(null); setNotifyViewers(false);
   }, [opened, initial, options.venues]);
   const set = <K extends keyof ShowFormValue>(key: K, next: ShowFormValue[K]) => setValue((current) => ({ ...current, [key]: next }));
   const selectedVenue = options.venues.find((item) => String(item.id) === venueId);
@@ -216,9 +222,13 @@ function ShowForm({ opened, initial, options, me, reloadOptions, onClose, onSave
     setSaving(true);
     try {
       const payload = showPayload();
-      const result = await api<{ id: number }>(initial ? `/api/miniapp/shows/${initial.id}` : "/api/miniapp/shows", {
-        method: initial ? "PATCH" : "POST", body: JSON.stringify(payload),
+      const result = await api<{ id: number; notified?: number; failed?: number }>(initial ? `/api/miniapp/shows/${initial.id}` : "/api/miniapp/shows", {
+        method: initial ? "PATCH" : "POST", body: JSON.stringify(initial ? { ...payload, notify: notifyViewers } : payload),
       });
+      if (poster) {
+        const form = new FormData(); form.append("poster", poster);
+        await api(`/api/miniapp/shows/${result.id}/poster`, { method: "POST", body: form });
+      }
       notifications.show({ color: "violet", title: initial ? "Афиша обновлена" : "Афиша создана", message: "Изменения сохранены" });
       onSaved(result.id);
     } catch (reason) {
@@ -246,8 +256,10 @@ function ShowForm({ opened, initial, options, me, reloadOptions, onClose, onSave
         {venueId === "__custom__" && <><TextInput required label="Название площадки" value={value.location} onChange={(e) => set("location", e.currentTarget.value)} maxLength={512} /><SimpleGrid cols={2}><Autocomplete required label="Город" data={["Лимасол", "Никосия", "Пафос"]} value={value.city} onChange={(next) => set("city", next)} /><NumberInput required min={1} max={10000} label="Количество мест" value={value.maxSeats} onChange={(next) => set("maxSeats", typeof next === "number" ? next : 1)} /></SimpleGrid><TextInput type="url" label="Ссылка на карту" value={value.locationUrl} onChange={(e) => set("locationUrl", e.currentTarget.value)} /></>}
         <TextInput label="Ответственный в Telegram" placeholder="@username" value={value.registrarUsername} onChange={(e) => set("registrarUsername", e.currentTarget.value)} />
         <Textarea label="Текст афиши" autosize minRows={5} maxLength={1800} value={value.posterText} onChange={(e) => set("posterText", e.currentTarget.value)} />
+        <FileInput accept="image/jpeg,image/png,image/webp" label="Изображение афиши" description={initial?.hasPoster ? "Выбери файл, чтобы заменить текущее изображение" : "JPEG, PNG или WebP, до 8 МБ"} value={poster} onChange={setPoster} clearable />
         <Switch label="Включить check-in" checked={value.checkinEnabled} onChange={(e) => set("checkinEnabled", e.currentTarget.checked)} />
         <Switch label="Запрашивать отзывы после шоу" checked={value.feedbackEnabled} onChange={(e) => set("feedbackEnabled", e.currentTarget.checked)} />
+        {initial && <Switch label="Уведомить записавшихся об изменениях" checked={notifyViewers} onChange={(event) => setNotifyViewers(event.currentTarget.checked)} />}
         <Paper className="telegram-preview"><Text size="xs" fw={800} c="violet.2">ПРЕДПРОСМОТР</Text><Title order={3}>🎭 {value.title || "Название шоу"}</Title><Text>👥 Команда: {value.teamName || "не выбрана"}</Text><Text>📅 {value.showDateLocal ? new Date(value.showDateLocal).toLocaleString("ru-RU", { dateStyle: "long", timeStyle: "short" }) : "дата не выбрана"}</Text><Text>📍 {selectedVenue?.name || value.location || "площадка не выбрана"}, {selectedVenue?.city || value.city}</Text>{value.registrarUsername && <Text>👤 Ответственный: {value.registrarUsername}</Text>}{value.posterText && <Text mt="sm" style={{ whiteSpace: "pre-wrap" }}>{value.posterText}</Text>}</Paper>
         <Button variant="light" loading={saving} disabled={!value.title || !value.teamName || !value.showDateLocal || !venueId} onClick={() => void sendPreview()}>Отправить тест в админ-бот</Button>
         <Button type="submit" loading={saving} size="md">{initial ? "Сохранить изменения" : "Создать афишу"}</Button>
@@ -265,6 +277,7 @@ function ManagementModal({ opened, onClose, me, options, reload }: {
   const [teamName, setTeamName] = React.useState("");
   const [members, setMembers] = React.useState("");
   const [venueName, setVenueName] = React.useState("");
+  const [venueId, setVenueId] = React.useState<number | null>(null);
   const [venueCity, setVenueCity] = React.useState("Лимасол");
   const [venueUrl, setVenueUrl] = React.useState("");
   const [venueSeats, setVenueSeats] = React.useState(50);
@@ -281,6 +294,7 @@ function ManagementModal({ opened, onClose, me, options, reload }: {
   const [auditLoading, setAuditLoading] = React.useState(false);
   const [auditOpened, setAuditOpened] = React.useState(false);
   const [auditError, setAuditError] = React.useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = React.useState<{ kind: "team" | "venue" | "channel"; id: number; name: string } | null>(null);
 
   const loadAccess = React.useCallback(async () => {
     if (me?.role !== "admin") return;
@@ -325,6 +339,19 @@ function ManagementModal({ opened, onClose, me, options, reload }: {
     setTeamId(team.id); setTeamName(team.name); setMembers(team.members ?? ""); setTeamEditorOpened(true);
   }
 
+  function editVenue(venue: Options["venues"][number]) {
+    setVenueId(venue.id); setVenueName(venue.name); setVenueCity(venue.city);
+    setVenueUrl(venue.mapsUrl ?? ""); setVenueSeats(venue.defaultSeats); setVenueEditorOpened(true);
+  }
+
+  async function confirmResourceDelete() {
+    if (!deleteTarget) return;
+    const target = deleteTarget;
+    const paths = { team: "teams", venue: "venues", channel: "ad-channels" };
+    const saved = await perform(() => api(`/api/miniapp/${paths[target.kind]}/${target.id}`, { method: "DELETE" }), "Удалено");
+    if (saved) setDeleteTarget(null);
+  }
+
   async function createInvite() {
     setSaving(true);
     try {
@@ -357,15 +384,15 @@ function ManagementModal({ opened, onClose, me, options, reload }: {
     <Tabs defaultValue="teams" className="settings-tabs" variant="pills">
       <Tabs.List grow><Tabs.Tab value="teams">Команды</Tabs.Tab>{me?.role === "admin" && <Tabs.Tab value="venues">Площадки</Tabs.Tab>}{me?.role === "admin" && <Tabs.Tab value="channels">Каналы</Tabs.Tab>}{me?.role === "admin" && <Tabs.Tab value="access">Доступ</Tabs.Tab>}</Tabs.List>
       <Tabs.Panel value="teams" pt="lg"><Stack>
-        {options.teams.map((team) => <Paper className="resource-card" key={team.id}><Group justify="space-between" align="flex-start"><div><Text fw={750}>{team.name}</Text><Text size="sm" c="dimmed">{team.members || "Участники не указаны"}</Text></div><Button size="xs" variant="light" onClick={() => editTeam(team)}>Изменить</Button></Group></Paper>)}
+        {options.teams.map((team) => <Paper className="resource-card" key={team.id}><Group justify="space-between" align="flex-start"><div><Text fw={750}>{team.name}</Text><Text size="sm" c="dimmed">{team.members || "Участники не указаны"}</Text></div><Group gap="xs"><Button size="xs" variant="light" onClick={() => editTeam(team)}>Изменить</Button><Button size="xs" color="red" variant="subtle" onClick={() => setDeleteTarget({ kind: "team", id: team.id, name: team.name })}>Удалить</Button></Group></Group></Paper>)}
         <Button variant="light" onClick={() => { setTeamId(null); setTeamName(""); setMembers(""); setTeamEditorOpened(true); }}>＋ Добавить команду</Button>
       </Stack></Tabs.Panel>
       <Tabs.Panel value="venues" pt="lg"><Stack>
-        {options.venues.map((venue) => <Paper className="resource-card" key={venue.id}><Text fw={750}>{venue.name}</Text><Text size="sm" c="dimmed">{venue.city} · {venue.defaultSeats} мест</Text></Paper>)}
-        <Button variant="light" onClick={() => setVenueEditorOpened(true)}>＋ Добавить площадку</Button>
+        {options.venues.map((venue) => <Paper className="resource-card" key={venue.id}><Group justify="space-between" align="flex-start"><div><Text fw={750}>{venue.name}</Text><Text size="sm" c="dimmed">{venue.city} · {venue.defaultSeats} мест</Text></div><Group gap="xs"><Button size="xs" variant="light" onClick={() => editVenue(venue)}>Изменить</Button><Button size="xs" color="red" variant="subtle" onClick={() => setDeleteTarget({ kind: "venue", id: venue.id, name: venue.name })}>Удалить</Button></Group></Group></Paper>)}
+        <Button variant="light" onClick={() => { setVenueId(null); setVenueName(""); setVenueUrl(""); setVenueEditorOpened(true); }}>＋ Добавить площадку</Button>
       </Stack></Tabs.Panel>
       <Tabs.Panel value="channels" pt="lg"><Stack>
-        {options.adChannels.map((item) => <Paper className="resource-card" key={item.id}><Group justify="space-between"><div><Text fw={750}>{item.username}</Text><Text size="sm" c="dimmed">{item.isActive ? "Активен" : "Отключён"}</Text></div><Switch checked={item.isActive} onChange={() => perform(() => api(`/api/miniapp/ad-channels/${item.id}/toggle`, { method: "PATCH" }), "Канал обновлён")} /></Group></Paper>)}
+        {options.adChannels.map((item) => <Paper className="resource-card" key={item.id}><Group justify="space-between"><div><Text fw={750}>{item.username}</Text><Text size="sm" c="dimmed">{item.isActive ? "Активен" : "Отключён"}</Text></div><Group gap="xs"><Switch checked={item.isActive} onChange={() => perform(() => api(`/api/miniapp/ad-channels/${item.id}/toggle`, { method: "PATCH" }), "Канал обновлён")} /><Button size="xs" color="red" variant="subtle" onClick={() => setDeleteTarget({ kind: "channel", id: item.id, name: item.username })}>Удалить</Button></Group></Group></Paper>)}
         <Button variant="light" onClick={() => setChannelEditorOpened(true)}>＋ Добавить канал</Button>
       </Stack></Tabs.Panel>
       <Tabs.Panel value="access" pt="lg"><Stack>
@@ -378,7 +405,7 @@ function ManagementModal({ opened, onClose, me, options, reload }: {
       </Stack></Tabs.Panel>
     </Tabs>
     <Modal opened={teamEditorOpened} onClose={() => setTeamEditorOpened(false)} title={teamId ? "Редактировать команду" : "Новая команда"} centered><Stack><TextInput label="Название" value={teamName} onChange={(e) => setTeamName(e.currentTarget.value)} /><Textarea label="Telegram-ники участников" description="Через запятую или с новой строки" placeholder="@sergey, @anna_impro" value={members} onChange={(e) => setMembers(e.currentTarget.value)} /><Button disabled={!teamName.trim()} loading={saving} onClick={() => perform(() => api(teamId ? `/api/miniapp/teams/${teamId}` : "/api/miniapp/teams", { method: teamId ? "PATCH" : "POST", body: JSON.stringify({ name: teamName, members }) }), teamId ? "Команда обновлена" : "Команда создана").then((saved) => { if (saved) { setTeamEditorOpened(false); setTeamId(null); setTeamName(""); setMembers(""); } })}>{teamId ? "Сохранить" : "Добавить"}</Button></Stack></Modal>
-    <Modal opened={venueEditorOpened} onClose={() => setVenueEditorOpened(false)} title="Новая площадка" centered><Stack><TextInput label="Название" value={venueName} onChange={(e) => setVenueName(e.currentTarget.value)} /><SimpleGrid cols={2}><Autocomplete label="Город" data={["Лимасол", "Никосия", "Пафос"]} value={venueCity} onChange={setVenueCity} /><NumberInput min={1} label="Мест" value={venueSeats} onChange={(next) => setVenueSeats(typeof next === "number" ? next : 1)} /></SimpleGrid><TextInput type="url" label="Ссылка на карту" value={venueUrl} onChange={(e) => setVenueUrl(e.currentTarget.value)} /><Button disabled={!venueName.trim() || !venueCity.trim()} loading={saving} onClick={() => perform(() => api("/api/miniapp/venues", { method: "POST", body: JSON.stringify({ name: venueName, city: venueCity, mapsUrl: venueUrl, defaultSeats: venueSeats }) }), "Площадка добавлена").then((saved) => { if (saved) { setVenueEditorOpened(false); setVenueName(""); setVenueUrl(""); } })}>Добавить площадку</Button></Stack></Modal>
+    <Modal opened={venueEditorOpened} onClose={() => setVenueEditorOpened(false)} title={venueId ? "Редактировать площадку" : "Новая площадка"} centered><Stack><TextInput label="Название" value={venueName} onChange={(e) => setVenueName(e.currentTarget.value)} /><SimpleGrid cols={2}><Autocomplete label="Город" data={["Лимасол", "Никосия", "Пафос"]} value={venueCity} onChange={setVenueCity} /><NumberInput min={1} label="Мест" value={venueSeats} onChange={(next) => setVenueSeats(typeof next === "number" ? next : 1)} /></SimpleGrid><TextInput type="url" label="Ссылка на карту" value={venueUrl} onChange={(e) => setVenueUrl(e.currentTarget.value)} /><Button disabled={!venueName.trim() || !venueCity.trim()} loading={saving} onClick={() => perform(() => api(venueId ? `/api/miniapp/venues/${venueId}` : "/api/miniapp/venues", { method: venueId ? "PATCH" : "POST", body: JSON.stringify({ name: venueName, city: venueCity, mapsUrl: venueUrl, defaultSeats: venueSeats }) }), venueId ? "Площадка обновлена" : "Площадка добавлена").then((saved) => { if (saved) { setVenueEditorOpened(false); setVenueId(null); setVenueName(""); setVenueUrl(""); } })}>{venueId ? "Сохранить" : "Добавить площадку"}</Button></Stack></Modal>
     <Modal opened={channelEditorOpened} onClose={() => setChannelEditorOpened(false)} title="Новый рекламный канал" centered><Stack><TextInput label="Telegram-ник канала" placeholder="@afisha_cyprus" value={channel} onChange={(e) => setChannel(e.currentTarget.value)} /><Button disabled={!channel.trim()} loading={saving} onClick={() => perform(() => api("/api/miniapp/ad-channels", { method: "POST", body: JSON.stringify({ username: channel }) }), "Канал добавлен").then((saved) => { if (saved) { setChannelEditorOpened(false); setChannel(""); } })}>Добавить канал</Button></Stack></Modal>
     <Modal opened={auditOpened} onClose={() => setAuditOpened(false)} title="Журнал действий" fullScreen><Stack>
         <Group justify="space-between"><div><Title order={3}>Журнал действий</Title><Text size="sm" c="dimmed">Последние 100 административных операций Mini App</Text></div><Button size="xs" variant="light" loading={auditLoading} onClick={() => void loadAudit()}>Обновить</Button></Group>
@@ -392,6 +419,7 @@ function ManagementModal({ opened, onClose, me, options, reload }: {
         {!auditLoading && !auditItems.length && <Text c="dimmed">Журнал пока пуст.</Text>}
       </Stack></Modal>
     <Modal opened={revokeUser !== null} onClose={() => setRevokeUser(null)} title="Отозвать доступ?" centered><Text>Пользователь {revokeUser?.username ? `@${revokeUser.username}` : revokeUser?.firstName} больше не сможет открывать Mini App и управлять афишами.</Text><Group justify="flex-end" mt="lg"><Button variant="default" onClick={() => setRevokeUser(null)}>Отмена</Button><Button color="red" loading={saving} onClick={() => void confirmRevoke()}>Отозвать</Button></Group></Modal>
+    <Modal opened={deleteTarget !== null} onClose={() => setDeleteTarget(null)} title="Удалить безвозвратно?" centered><Text>«{deleteTarget?.name}» будет удалено из справочника.</Text><Group justify="flex-end" mt="lg"><Button variant="default" onClick={() => setDeleteTarget(null)}>Отмена</Button><Button color="red" loading={saving} onClick={() => void confirmResourceDelete()}>Удалить</Button></Group></Modal>
   </Modal>;
 }
 
@@ -408,16 +436,26 @@ function AttendeesModal({ opened, onClose, show, demo }: { opened: boolean; onCl
   const [data, setData] = React.useState<Attendees | null>(demo ? previewAttendees : null);
   const [loading, setLoading] = React.useState(!demo);
   const [manualRows, setManualRows] = React.useState("");
+  const [search, setSearch] = React.useState("");
   const [busy, setBusy] = React.useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = React.useState<{ kind: "registration" | "manual"; id: number; name: string } | null>(null);
 
-  const load = React.useCallback(async () => {
+  const load = React.useCallback(async (offset = 0, append = false) => {
     if (demo) { setData(previewAttendees); return; }
     setLoading(true);
-    try { setData(await api<Attendees>(`/api/miniapp/shows/${show.id}/attendees`)); }
+    try {
+      const query = new URLSearchParams({ offset: String(offset) });
+      if (search.trim()) query.set("search", search.trim());
+      const next = await api<Attendees>(`/api/miniapp/shows/${show.id}/attendees?${query}`);
+      setData((current) => append && current ? {
+        ...next,
+        registrations: [...current.registrations, ...next.registrations],
+        manual: [...current.manual, ...next.manual],
+      } : next);
+    }
     catch (reason) { notifications.show({ color: "red", title: "Не удалось загрузить записи", message: (reason as Error).message }); }
     finally { setLoading(false); }
-  }, [demo, show.id]);
+  }, [demo, search, show.id]);
 
   React.useEffect(() => { if (opened) void load(); }, [opened, load]);
 
@@ -425,7 +463,7 @@ function AttendeesModal({ opened, onClose, show, demo }: { opened: boolean; onCl
     setBusy(key);
     try {
       await api(path, { method, body: body ? JSON.stringify(body) : undefined });
-      if (!demo) await load();
+      if (!demo) await load(0);
       notifications.show({ color: "violet", title: "Список обновлён", message: "Изменения сохранены" });
     } catch (reason) { notifications.show({ color: "red", title: "Не удалось изменить запись", message: (reason as Error).message }); }
     finally { setBusy(null); }
@@ -439,7 +477,7 @@ function AttendeesModal({ opened, onClose, show, demo }: { opened: boolean; onCl
     setBusy("add");
     try {
       await api(`/api/miniapp/shows/${show.id}/attendees/manual`, { method: "POST", body: JSON.stringify({ rows }) });
-      setManualRows(""); if (!demo) await load();
+      setManualRows(""); if (!demo) await load(0);
       notifications.show({ color: "violet", title: "Зрители добавлены", message: `Добавлено: ${rows.length}` });
     } catch (reason) { notifications.show({ color: "red", title: "Не удалось добавить", message: (reason as Error).message }); }
     finally { setBusy(null); }
@@ -460,12 +498,13 @@ function AttendeesModal({ opened, onClose, show, demo }: { opened: boolean; onCl
     {loading && <Stack><Skeleton height={100} /><Skeleton height={100} /></Stack>}
     {data && <Stack gap="md">
       <Paper className="attendance-summary"><Group justify="space-between"><div><Text size="sm" c="dimmed">Записано</Text><Title order={2}>{data.occupied} / {data.maxSeats}</Title></div><div><Text size="sm" c="dimmed">Пришли</Text><Title order={2}>{data.arrived}</Title></div></Group><Progress value={Math.min(100, data.occupied / Math.max(1, data.maxSeats) * 100)} mt="md" color="violet" /></Paper>
+      <Group gap="xs" wrap="nowrap"><TextInput style={{ flex: 1 }} aria-label="Поиск зрителя" placeholder="Имя или @username" value={search} onChange={(event) => setSearch(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === "Enter") void load(0); }} /><Button variant="light" loading={loading} onClick={() => void load(0)}>Найти</Button></Group>
       <Title order={3}>Записались через бот</Title>
       {data.registrations.map((item) => <Paper className="attendee-card" key={item.id}><Stack gap="sm"><Group justify="space-between" align="flex-start"><div><Text fw={750}>{item.name}{item.guests ? ` +${item.guests}` : ""}</Text>{item.username && <Anchor size="sm" href={`https://t.me/${item.username}`} target="_blank">@{item.username}</Anchor>}</div><Badge color={item.checkedInCount ? "green" : "gray"}>{item.checkedInCount} / {item.guests + 1}</Badge></Group><Group justify="space-between"><Group gap="xs"><Button size="xs" variant="light" disabled={item.checkedInCount <= 0 || busy !== null} onClick={() => mutate(`check-${item.id}`, `/api/miniapp/shows/${show.id}/registrations/${item.id}`, "PATCH", { checkedInCount: item.checkedInCount - 1 })}>− Пришли</Button><Button size="xs" variant="light" disabled={item.checkedInCount >= item.guests + 1 || busy !== null} onClick={() => mutate(`check-${item.id}`, `/api/miniapp/shows/${show.id}/registrations/${item.id}`, "PATCH", { checkedInCount: item.checkedInCount + 1 })}>+ Пришли</Button></Group><Button size="xs" color="red" variant="subtle" loading={busy === `cancel-${item.id}`} onClick={() => setConfirmDelete({ kind: "registration", id: item.id, name: item.name })}>Отменить</Button></Group><Group gap="xs"><Text size="sm" c="dimmed">Гостей:</Text><Button size="compact-xs" variant="default" disabled={item.guests <= 0 || busy !== null} onClick={() => mutate(`guest-${item.id}`, `/api/miniapp/shows/${show.id}/registrations/${item.id}`, "PATCH", { guests: item.guests - 1 })}>−</Button><Text>{item.guests}</Text><Button size="compact-xs" variant="default" disabled={item.guests >= 50 || busy !== null} onClick={() => mutate(`guest-${item.id}`, `/api/miniapp/shows/${show.id}/registrations/${item.id}`, "PATCH", { guests: item.guests + 1 })}>+</Button></Group></Stack></Paper>)}
       <Title order={3}>Добавлены вручную</Title>
       {data.manual.map((item) => <Paper className="attendee-card" key={item.id}><Group justify="space-between"><div><Text fw={750}>{item.name}</Text>{item.contact && <Text size="sm" c="dimmed">{item.contact}</Text>}</div><Group gap="xs"><Button size="xs" color={item.checkedInCount ? "green" : "gray"} variant="light" loading={busy === `manual-${item.id}`} onClick={() => mutate(`manual-${item.id}`, `/api/miniapp/shows/${show.id}/manual-attendees/${item.id}`, "PATCH", { checkedInCount: item.checkedInCount ? 0 : 1 })}>{item.checkedInCount ? "Пришёл ✓" : "Отметить"}</Button><Button size="xs" color="red" variant="subtle" loading={busy === `delete-${item.id}`} onClick={() => setConfirmDelete({ kind: "manual", id: item.id, name: item.name })}>Удалить</Button></Group></Group></Paper>)}
       <Paper className="resource-form"><Stack><Title order={3}>Добавить вручную</Title><Textarea autosize minRows={4} description="Один зритель на строку, контакт через |" placeholder={"Иван Иванов | @ivan\nМария Петрова"} value={manualRows} onChange={(event) => setManualRows(event.currentTarget.value)} /><Button loading={busy === "add"} onClick={addManual}>Добавить зрителей</Button></Stack></Paper>
-      {data.hasMore && <Alert color="yellow">Показаны первые 100 записей. Пагинацию добавим в следующем проходе.</Alert>}
+      {data.hasMore && <Button variant="default" loading={loading} onClick={() => void load(data.nextOffset, true)}>Показать ещё</Button>}
     </Stack>}
     <Modal opened={confirmDelete !== null} onClose={() => setConfirmDelete(null)} title="Подтвердить действие" centered>
       <Text>Удалить запись «{confirmDelete?.name}»? Это освободит место в афише.</Text>
@@ -638,6 +677,10 @@ function App() {
   const [shows, setShows] = React.useState<Show[]>(isPreview ? previewShows : []);
   const [selected, setSelected] = React.useState<Show | null>(null);
   const [status, setStatus] = React.useState<"upcoming" | "past">("upcoming");
+  const [teamFilter, setTeamFilter] = React.useState<string | null>(null);
+  const [yearFilter, setYearFilter] = React.useState<string | null>(null);
+  const [showsHasMore, setShowsHasMore] = React.useState(false);
+  const [showsNextOffset, setShowsNextOffset] = React.useState(0);
   const [loading, setLoading] = React.useState(!isPreview);
   const [error, setError] = React.useState<string | null>(null);
   const [options, setOptions] = React.useState<Options>({ teams: [], venues: [], adChannels: [] });
@@ -684,10 +727,19 @@ function App() {
     else setOptions({ teams: [{ id: 1, name: "T·IMPRO", members: "@sergey, @anna_impro" }, { id: 2, name: "Импровизаторы Кипра", members: null }], venues: [{ id: 1, name: "Ravens Music Hall", city: "Лимасол", mapsUrl: "https://maps.example", defaultSeats: 50 }], adChannels: [{ id: 1, username: "@afisha_cyprus", isActive: true }] });
   }, [isPreview]);
 
-  function reloadShows() {
+  function reloadShows(offset = 0, append = false) {
     if (isPreview) return;
     setLoading(true);
-    api<{ items: Show[] }>(`/api/miniapp/shows?status=${status}`).then(({ items }) => setShows(items)).finally(() => setLoading(false));
+    const query = new URLSearchParams({ status, offset: String(offset) });
+    if (teamFilter) query.set("team", teamFilter);
+    if (yearFilter) query.set("year", yearFilter);
+    api<{ items: Show[]; hasMore: boolean; nextOffset: number }>(`/api/miniapp/shows?${query}`)
+      .then(({ items, hasMore, nextOffset }) => {
+        setShows((current) => append ? [...current, ...items] : items);
+        setShowsHasMore(hasMore); setShowsNextOffset(nextOffset);
+      })
+      .catch((reason: Error) => setError(reason.message))
+      .finally(() => setLoading(false));
   }
 
   async function reloadOptions() {
@@ -699,11 +751,8 @@ function App() {
     if (isPreview) return;
     setLoading(true);
     setError(null);
-    api<{ items: Show[] }>(`/api/miniapp/shows?status=${status}`)
-      .then(({ items }) => setShows(items))
-      .catch((reason: Error) => setError(reason.message))
-      .finally(() => setLoading(false));
-  }, [status, isPreview]);
+    reloadShows();
+  }, [status, teamFilter, yearFilter, isPreview]);
 
   async function openShow(show: Show) {
     setSelected(show);
@@ -735,7 +784,7 @@ function App() {
       <AttendeesModal opened={attendeesOpened} onClose={() => setAttendeesOpened(false)} show={selected} demo={isPreview} />
       <AnnouncementModal opened={announcementOpened} onClose={() => setAnnouncementOpened(false)} show={selected} demo={isPreview} />
       <AnalyticsModal opened={analyticsOpened} onClose={() => setAnalyticsOpened(false)} show={selected} demo={isPreview} />
-      <ShowToolsModal opened={toolsOpened} onClose={() => setToolsOpened(false)} show={selected} registrationUrl={registrationUrl} demo={isPreview} onChanged={(next) => { setSelected(next); reloadShows(); }} />
+      <ShowToolsModal opened={toolsOpened} onClose={() => setToolsOpened(false)} show={selected} registrationUrl={registrationUrl} demo={isPreview} onChanged={(next) => { setSelected(next); reloadShows(); }} onDeleted={() => { setToolsOpened(false); setSelected(null); reloadShows(); }} />
       <ShowForm opened={formOpened} initial={editing} options={options} me={me} reloadOptions={reloadOptions} onClose={() => setFormOpened(false)} onSaved={() => { setFormOpened(false); setSelected(null); reloadShows(); }} />
     </main>;
   }
@@ -753,6 +802,7 @@ function App() {
     <Tabs value={status} onChange={(value) => setStatus(value as "upcoming" | "past")} className="tabs">
       <Tabs.List grow><Tabs.Tab value="upcoming">Будущие</Tabs.Tab><Tabs.Tab value="past">Прошедшие</Tabs.Tab></Tabs.List>
     </Tabs>
+    <Group gap="xs" mb="md" grow><Select clearable searchable placeholder="Все команды" aria-label="Фильтр по команде" value={teamFilter} onChange={setTeamFilter} data={options.teams.map((team) => team.name)} /><Select clearable placeholder="Все годы" aria-label="Фильтр по году" value={yearFilter} onChange={setYearFilter} data={Array.from({ length: new Date().getFullYear() - 2019 + 3 }, (_, index) => String(new Date().getFullYear() + 3 - index))} /></Group>
     {loading && <Stack gap="sm" aria-label="Загружаем афиши"><Skeleton height={184} radius="lg" /><Skeleton height={184} radius="lg" /><Group justify="center"><Loader color="violet" size="sm" /></Group></Stack>}
     {error && <Alert color="red" title="Не удалось открыть панель">{error}</Alert>}
     {!loading && !error && shows.length === 0 && <Paper className="state"><Title order={3}>Здесь пока пусто</Title><Text>{status === "upcoming" ? "Создай первую афишу прямо здесь или проверь прошедшие события." : "Прошедших афиш пока нет."}</Text></Paper>}
@@ -767,14 +817,15 @@ function App() {
         </Paper>;
       })}
     </section>
+    {showsHasMore && <Button fullWidth mt="md" variant="default" loading={loading} onClick={() => reloadShows(showsNextOffset, true)}>Показать ещё</Button>}
     <Button className="primary" fullWidth onClick={() => { telegramHaptic("light"); setEditing(null); setFormOpened(true); }}>＋ Создать афишу</Button>
     <ShowForm opened={formOpened} initial={editing} options={options} me={me} reloadOptions={reloadOptions} onClose={() => setFormOpened(false)} onSaved={() => { setFormOpened(false); reloadShows(); }} />
     <ManagementModal opened={managementOpened} onClose={() => setManagementOpened(false)} me={me} options={options} reload={reloadOptions} />
   </main>;
 }
 
-function ShowToolsModal({ opened, onClose, show, registrationUrl, demo, onChanged }: {
-  opened: boolean; onClose: () => void; show: Show; registrationUrl: string; demo: boolean; onChanged: (show: Show) => void;
+function ShowToolsModal({ opened, onClose, show, registrationUrl, demo, onChanged, onDeleted }: {
+  opened: boolean; onClose: () => void; show: Show; registrationUrl: string; demo: boolean; onChanged: (show: Show) => void; onDeleted: () => void;
 }) {
   const cloneDefault = React.useMemo(() => {
     const date = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -783,6 +834,16 @@ function ShowToolsModal({ opened, onClose, show, registrationUrl, demo, onChange
   const [cloneDate, setCloneDate] = React.useState(cloneDefault);
   const [busy, setBusy] = React.useState<string | null>(null);
   const [cancelConfirm, setCancelConfirm] = React.useState(false);
+  const [deleteConfirm, setDeleteConfirm] = React.useState(false);
+  const [remindConfirm, setRemindConfirm] = React.useState(false);
+  const [chatTarget, setChatTarget] = React.useState("");
+  const [chatNameMode, setChatNameMode] = React.useState<"short" | "full">(show.registrationChatNameMode ?? "short");
+  const [tasks, setTasks] = React.useState<{ key: string; label: string; count: number }[]>([]);
+
+  React.useEffect(() => {
+    if (!opened || demo) return;
+    api<{ items: { key: string; label: string; count: number }[] }>(`/api/miniapp/shows/${show.id}/tasks`).then(({ items }) => setTasks(items)).catch(() => setTasks([]));
+  }, [demo, opened, show.id]);
 
   async function copyLink() {
     try {
@@ -825,13 +886,78 @@ function ShowToolsModal({ opened, onClose, show, registrationUrl, demo, onChange
     finally { setBusy(null); }
   }
 
+  async function restoreShow() {
+    setBusy("restore");
+    try {
+      if (!demo) await api(`/api/miniapp/shows/${show.id}/restore`, { method: "POST" });
+      onChanged({ ...show, isActive: true }); onClose();
+      notifications.show({ color: "green", title: "Афиша восстановлена", message: "Запись снова доступна" });
+    } catch (reason) { notifications.show({ color: "red", title: "Не удалось восстановить", message: (reason as Error).message }); }
+    finally { setBusy(null); }
+  }
+
+  async function deleteShow() {
+    setBusy("delete");
+    try {
+      if (!demo) await api(`/api/miniapp/shows/${show.id}`, { method: "DELETE" });
+      setDeleteConfirm(false); onDeleted();
+      notifications.show({ color: "green", title: "Афиша удалена", message: "Связанные данные удалены" });
+    } catch (reason) { notifications.show({ color: "red", title: "Не удалось удалить", message: (reason as Error).message }); }
+    finally { setBusy(null); }
+  }
+
+  async function saveRegistrationChat() {
+    setBusy("chat");
+    try {
+      const result = await api<{ id: number; title: string; nameMode: "short" | "full" }>(`/api/miniapp/shows/${show.id}/registration-chat`, { method: "PUT", body: JSON.stringify({ target: chatTarget, nameMode: chatNameMode }) });
+      onChanged({ ...show, registrationChatId: result.id, registrationChatTitle: result.title, registrationChatNameMode: result.nameMode });
+      setChatTarget(""); notifications.show({ color: "green", title: "Рабочий чат подключён", message: result.title });
+    } catch (reason) { notifications.show({ color: "red", title: "Не удалось подключить чат", message: (reason as Error).message }); }
+    finally { setBusy(null); }
+  }
+
+  async function clearRegistrationChat() {
+    setBusy("chat");
+    try {
+      await api(`/api/miniapp/shows/${show.id}/registration-chat`, { method: "DELETE" });
+      onChanged({ ...show, registrationChatId: null, registrationChatTitle: null });
+      notifications.show({ color: "green", title: "Рабочий чат отключён", message: "Уведомления о записях больше не отправляются" });
+    } catch (reason) { notifications.show({ color: "red", title: "Не удалось отключить чат", message: (reason as Error).message }); }
+    finally { setBusy(null); }
+  }
+
+  async function remindViewers() {
+    setBusy("remind");
+    try {
+      const result = await api<{ sent: number; failed: number }>(`/api/miniapp/shows/${show.id}/remind`, { method: "POST" });
+      setRemindConfirm(false); notifications.show({ color: result.failed ? "yellow" : "green", title: "Напоминания отправлены", message: `Доставлено: ${result.sent} · ошибок: ${result.failed}` });
+    } catch (reason) { notifications.show({ color: "red", title: "Не удалось отправить", message: (reason as Error).message }); }
+    finally { setBusy(null); }
+  }
+
+  async function confirmManualNotifications() {
+    setBusy("manual-confirm");
+    try {
+      const result = await api<{ confirmed: number }>(`/api/miniapp/shows/${show.id}/manual-notifications/confirm`, { method: "POST" });
+      setTasks((current) => current.filter((item) => item.key !== "manual_notifications"));
+      notifications.show({ color: "green", title: "Отмечено", message: `Уведомлены вручную: ${result.confirmed}` });
+    } catch (reason) { notifications.show({ color: "red", title: "Не удалось сохранить", message: (reason as Error).message }); }
+    finally { setBusy(null); }
+  }
+
   return <Modal opened={opened} onClose={onClose} title="Ссылка и действия" fullScreen>
     <Stack>
+      <Paper className="resource-form"><Stack><Group justify="space-between"><Title order={3}>Задачи</Title><Badge variant="light">{tasks.length}</Badge></Group>{tasks.length ? tasks.map((task) => <Group key={task.key} justify="space-between"><Text>{task.label}</Text><Badge>{task.count}</Badge></Group>) : <Text c="dimmed">Срочных действий нет</Text>}{tasks.some((item) => item.key === "manual_notifications") && <Button variant="light" loading={busy === "manual-confirm"} onClick={() => void confirmManualNotifications()}>Отметить ручных зрителей уведомлёнными</Button>}</Stack></Paper>
       <Paper className="resource-form"><Stack><Title order={3}>Ссылка на запись</Title><Text size="sm" style={{ wordBreak: "break-all" }}>{registrationUrl}</Text><Group grow><Button variant="light" onClick={() => void copyLink()}>Копировать</Button><Button loading={busy === "qr"} onClick={() => void downloadQr()}>Скачать QR</Button></Group></Stack></Paper>
+      <Paper className="resource-form"><Stack><Title order={3}>Рабочий чат записей</Title>{show.registrationChatId ? <><Text>Подключён: {show.registrationChatTitle || show.registrationChatId}</Text><Button color="red" variant="light" loading={busy === "chat"} onClick={() => void clearRegistrationChat()}>Отключить чат</Button></> : <><Text size="sm" c="dimmed">Добавь админ-бота в канал с правом публикации и укажи @username или ID −100…</Text><TextInput label="Канал или чат" placeholder="@registrations_chat" value={chatTarget} onChange={(event) => setChatTarget(event.currentTarget.value)} /><Select label="Формат имени" value={chatNameMode} onChange={(value) => setChatNameMode((value as "short" | "full") ?? "short")} data={[{ value: "short", label: "Короткое имя" }, { value: "full", label: "Полное имя" }]} /><Button disabled={!chatTarget.trim()} loading={busy === "chat"} onClick={() => void saveRegistrationChat()}>Проверить и подключить</Button></>}</Stack></Paper>
+      {show.isActive && <Button variant="light" loading={busy === "remind"} onClick={() => setRemindConfirm(true)}>Отправить напоминание зрителям</Button>}
       <Paper className="resource-form"><Stack><Title order={3}>Создать похожую афишу</Title><TextInput type="datetime-local" label="Дата и время новой афиши" value={cloneDate} onChange={(event) => setCloneDate(event.currentTarget.value)} /><Button loading={busy === "clone"} onClick={() => void clone()}>Создать копию</Button></Stack></Paper>
       {show.isActive && <Paper className="resource-form"><Stack><Title order={3}>Опасная зона</Title><Text size="sm" c="dimmed">Запись будет закрыта. Если афиша публиковалась, в канал уйдёт сообщение об отмене, а записавшиеся получат уведомление.</Text><Button color="red" variant="light" onClick={() => setCancelConfirm(true)}>Отменить афишу</Button></Stack></Paper>}
+      {!show.isActive && <Paper className="resource-form"><Stack><Title order={3}>Отменённая афиша</Title><Button loading={busy === "restore"} onClick={() => void restoreShow()}>Восстановить афишу</Button><Button color="red" variant="light" onClick={() => setDeleteConfirm(true)}>Удалить навсегда</Button></Stack></Paper>}
     </Stack>
     <Modal opened={cancelConfirm} onClose={() => setCancelConfirm(false)} title="Точно отменить афишу?" centered><Text>Действие закроет новые записи и отправит уведомления зрителям.</Text><Group justify="flex-end" mt="lg"><Button variant="default" onClick={() => setCancelConfirm(false)}>Не отменять</Button><Button color="red" loading={busy === "cancel"} onClick={() => void cancelShow()}>Да, отменить</Button></Group></Modal>
+    <Modal opened={deleteConfirm} onClose={() => setDeleteConfirm(false)} title="Удалить афишу навсегда?" centered><Text>Будут удалены записи, отзывы и история анонсов. Это действие нельзя отменить.</Text><Group justify="flex-end" mt="lg"><Button variant="default" onClick={() => setDeleteConfirm(false)}>Не удалять</Button><Button color="red" loading={busy === "delete"} onClick={() => void deleteShow()}>Удалить навсегда</Button></Group></Modal>
+    <Modal opened={remindConfirm} onClose={() => setRemindConfirm(false)} title="Отправить напоминания?" centered><Text>Сообщение будет отправлено всем записанным зрителям от публичного бота.</Text><Group justify="flex-end" mt="lg"><Button variant="default" onClick={() => setRemindConfirm(false)}>Отмена</Button><Button loading={busy === "remind"} onClick={() => void remindViewers()}>Отправить</Button></Group></Modal>
   </Modal>;
 }
 
