@@ -680,7 +680,9 @@ async def test_registration_chat_is_verified_before_it_is_saved(monkeypatch):
             session.add(show); await session.commit(); show_id, owner_id = show.id, owner.id
         monkeypatch.setattr(miniapp_api, "AsyncSessionLocal", sessions)
         bot = SimpleNamespace(
-            get_chat=AsyncMock(return_value=SimpleNamespace(id=-100123, title="Registrations", username=None)),
+            get_chat=AsyncMock(return_value=SimpleNamespace(id=-100123, title="Registrations", username=None, type="channel")),
+            get_me=AsyncMock(return_value=SimpleNamespace(id=999)),
+            get_chat_member=AsyncMock(return_value=SimpleNamespace(status="administrator", can_post_messages=True)),
             send_message=AsyncMock(),
         )
         request = _Request(show_id=show_id, user_id=owner_id, body={"target": "@registrations", "nameMode": "full"})
@@ -879,7 +881,7 @@ async def test_poster_upload_rejects_invalid_content_type_before_telegram(monkey
         request.multipart = AsyncMock(return_value=SimpleNamespace(next=AsyncMock(return_value=part)))
         with pytest.raises(web.HTTPBadRequest) as error:
             await miniapp_api.miniapp_upload_poster(request)
-        assert json.loads(error.value.text) == {"error": "invalid_poster"}
+        assert json.loads(error.value.text) == {"error": "unsupported_poster_type"}
     finally:
         await engine.dispose()
 

@@ -20,6 +20,7 @@ from urllib.parse import urlparse
 
 from aiohttp import web
 from aiogram import Bot
+from aiogram.enums import ChatMemberStatus, ChatType
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.types import BufferedInputFile, LinkPreviewOptions
 from sqlalchemy import case, func, or_, select
@@ -774,11 +775,13 @@ async def miniapp_upload_poster(request: web.Request) -> web.Response:
         creator_telegram_id = creator.telegram_id
     reader = await request.multipart()
     part = await reader.next()
-    if part is None or part.name != "poster" or part.headers.get("Content-Type") not in {
-        "image/jpeg", "image/png", "image/webp",
+    content_type = part.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() if part else ""
+    if part is None or part.name != "poster" or content_type not in {
+        "image/jpeg", "image/jpg", "image/png", "image/webp", "application/octet-stream", "",
     }:
+        logger.warning("Poster upload rejected: unsupported content_type=%s", content_type or "missing")
         raise web.HTTPBadRequest(
-            text=json.dumps({"error": "invalid_poster"}), content_type="application/json",
+            text=json.dumps({"error": "unsupported_poster_type"}), content_type="application/json",
         )
     content = bytearray()
     while chunk := await part.read_chunk(size=64 * 1024):
@@ -794,6 +797,7 @@ async def miniapp_upload_poster(request: web.Request) -> web.Response:
                 raise ValueError
             image.verify()
     except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError):
+        logger.warning("Poster upload rejected: invalid image content_type=%s size=%s", content_type or "missing", len(content))
         raise web.HTTPBadRequest(
             text=json.dumps({"error": "invalid_poster"}), content_type="application/json",
         )
@@ -1315,6 +1319,39 @@ async def miniapp_remind_viewers(request: web.Request) -> web.Response:
     return web.json_response({"sent": sent, "failed": failed})
 
 
+async def _verified_registration_chat(bot: Bot, target_raw: str):
+    target_raw = target_raw.replace("−", "-")
+    target: str | int = target_raw
+    if not target_raw.startswith("@"):
+        try: target = int(target_raw)
+        except ValueError: raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_field", "field": "target"}), content_type="application/json")
+    try:
+        chat = await bot.get_chat(target)
+        bot_user = await bot.get_me()
+        member = await bot.get_chat_member(chat.id, bot_user.id)
+        status = getattr(member.status, "value", member.status)
+        if status not in {ChatMemberStatus.MEMBER.value, ChatMemberStatus.ADMINISTRATOR.value, ChatMemberStatus.CREATOR.value}:
+            raise web.HTTPConflict(text=json.dumps({"error": "bot_not_in_chat"}), content_type="application/json")
+        chat_type = getattr(chat.type, "value", chat.type)
+        if chat_type == ChatType.CHANNEL.value and status not in {ChatMemberStatus.ADMINISTRATOR.value, ChatMemberStatus.CREATOR.value}:
+            raise web.HTTPConflict(text=json.dumps({"error": "bot_cannot_post"}), content_type="application/json")
+        if chat_type == ChatType.CHANNEL.value and getattr(member, "can_post_messages", True) is False:
+            raise web.HTTPConflict(text=json.dumps({"error": "bot_cannot_post"}), content_type="application/json")
+    except (TelegramBadRequest, TelegramForbiddenError):
+        raise web.HTTPConflict(text=json.dumps({"error": "chat_unavailable"}), content_type="application/json")
+    display_name = getattr(chat, "title", None) or getattr(chat, "username", None) or target_raw
+    return chat, display_name
+
+
+async def miniapp_verify_registration_chat(request: web.Request) -> web.Response:
+    data = await _json_body(request)
+    if any(key not in {"target"} for key in data):
+        raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_payload"}), content_type="application/json")
+    target_raw = _required_text(data, "target", 128)
+    chat, display_name = await _verified_registration_chat(request.app[ADMIN_BOT_KEY], target_raw)
+    return web.json_response({"id": chat.id, "title": display_name})
+
+
 async def miniapp_registration_chat(request: web.Request) -> web.Response:
     show_id = _show_id(request)
     data = await _json_body(request)
@@ -1324,20 +1361,15 @@ async def miniapp_registration_chat(request: web.Request) -> web.Response:
     name_mode = data.get("nameMode", "short")
     if name_mode not in {"short", "full"}:
         raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_field", "field": "nameMode"}), content_type="application/json")
-    target: str | int = target_raw
-    if not target_raw.startswith("@"):
-        try: target = int(target_raw)
-        except ValueError: raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_field", "field": "target"}), content_type="application/json")
     async with AsyncSessionLocal() as session:
         show = await _manageable_api_show(session, request, show_id)
         title = show.title
     bot = request.app[ADMIN_BOT_KEY]
+    chat, display_name = await _verified_registration_chat(bot, target_raw)
     try:
-        chat = await bot.get_chat(target)
         await send_with_retry(bot.send_message, chat.id, f"✅ Чат подключён к шоу «{h(title)}». Здесь будут появляться новые записи.")
     except (TelegramBadRequest, TelegramForbiddenError):
         raise web.HTTPConflict(text=json.dumps({"error": "chat_unavailable"}), content_type="application/json")
-    display_name = getattr(chat, "title", None) or getattr(chat, "username", None) or target_raw
     async with AsyncSessionLocal() as session:
         await _manageable_api_show(session, request, show_id)
         await crud.update_show(session, show_id, registration_chat_id=chat.id, registration_chat_title=display_name, registration_chat_name_mode=name_mode)
@@ -1605,6 +1637,7 @@ def register_miniapp_routes(app: web.Application) -> None:
     app.router.add_post("/api/miniapp/shows/{show_id}/remind", miniapp_remind_viewers)
     app.router.add_put("/api/miniapp/shows/{show_id}/registration-chat", miniapp_registration_chat)
     app.router.add_delete("/api/miniapp/shows/{show_id}/registration-chat", miniapp_clear_registration_chat)
+    app.router.add_post("/api/miniapp/registration-chat/verify", miniapp_verify_registration_chat)
     app.router.add_post("/api/miniapp/shows/{show_id}/manual-notifications/confirm", miniapp_confirm_manual_notifications)
     app.router.add_post("/api/miniapp/shows/{show_id}/attendees/manual", miniapp_add_manual_attendees)
     app.router.add_patch("/api/miniapp/shows/{show_id}/registrations/{registration_id}", miniapp_update_registration)
