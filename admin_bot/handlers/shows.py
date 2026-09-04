@@ -25,6 +25,7 @@ from db.models import UserRole
 from admin_bot.keyboards.reply import (
     main_menu_kb, promotion_context_kb, registrations_context_kb,
     shows_context_kb, show_context_kb, flow_context_kb, settings_context_kb,
+    miniapp_launch_kb,
 )
 from admin_bot.telegram_usernames import normalize_telegram_username, normalize_telegram_username_list
 from admin_bot.security import can_manage_owned, deny, is_admin, manageable_show
@@ -186,7 +187,21 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession, 
             reply_markup=flow_context_kb(),
         )
         return
-    await message.answer("👋 Привет!", reply_markup=main_menu_kb())
+    await message.answer(
+        "👋 Привет! Открой панель управления:",
+        reply_markup=miniapp_launch_kb(),
+    )
+    await message.answer("Главное меню:", reply_markup=main_menu_kb())
+
+
+@router.message(Command("app"))
+async def cmd_miniapp(message: Message, state: FSMContext):
+    await state.clear()
+    keyboard = miniapp_launch_kb()
+    if keyboard is None:
+        await message.answer("Mini App пока не настроен.")
+        return
+    await message.answer("🌐 Панель управления", reply_markup=keyboard)
 
 
 @router.message(Command("home"))
