@@ -16,7 +16,7 @@ from admin_bot.keyboards import reply as reply_keyboards
 from db.base import Base
 from db.models import AuditLog, AnnouncementLog, ManualAttendee, Registration, Show, ShowFeedback, User, UserRole
 from miniapp_api import (
-    MiniAppAuthError, _csv_value, _require_admin, _set_miniapp_security_headers,
+    MiniAppAuthError, _audit_details, _csv_value, _require_admin, _set_miniapp_security_headers,
     _show_fields, miniapp_request_logging_middleware, validate_telegram_init_data,
 )
 from time_utils import utc_now
@@ -159,6 +159,10 @@ def test_miniapp_admin_resources_require_admin_role():
 ])
 def test_csv_export_neutralizes_spreadsheet_formulas(value, expected):
     assert _csv_value(value) == expected
+
+
+def test_malformed_audit_details_do_not_break_the_whole_log():
+    assert _audit_details('{"broken"') == {"unavailable": True}
 
 
 @pytest.mark.parametrize("path,expected_header", [
