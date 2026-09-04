@@ -3,7 +3,9 @@
 # Shared Python resolver. This file is sourced by the public scripts.
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-if [[ -x "$PROJECT_ROOT/.venv/bin/python" ]]; then
+if [[ -n "${PROJECT_PYTHON_OVERRIDE:-}" ]]; then
+  PROJECT_PYTHON="$PROJECT_PYTHON_OVERRIDE"
+elif [[ -x "$PROJECT_ROOT/.venv/bin/python" ]]; then
   PROJECT_PYTHON="$PROJECT_ROOT/.venv/bin/python"
 elif command -v python3 >/dev/null 2>&1; then
   PROJECT_PYTHON="$(command -v python3)"

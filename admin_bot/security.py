@@ -29,6 +29,19 @@ async def manageable_show(
     return show
 
 
+async def checkin_accessible_show(
+    session: AsyncSession, show_id: int, db_user, is_super_admin: bool = False,
+):
+    show = await crud.get_show(session, show_id)
+    if show is None:
+        return None
+    if can_manage_owned(show.creator_id, db_user, is_super_admin):
+        return show
+    if db_user is not None and await crud.has_checkin_access(session, show_id, db_user.id):
+        return show
+    return None
+
+
 async def deny(event: CallbackQuery | Message, text: str = "⛔ Недостаточно прав.") -> None:
     if isinstance(event, CallbackQuery):
         await event.answer(text, show_alert=True)

@@ -20,6 +20,7 @@ from aiogram.types import BotCommand, ErrorEvent, Update
 from aiohttp import web
 
 from config import settings
+from html_utils import h
 
 from admin_bot.middlewares.auth import AdminAuthMiddleware
 from admin_bot.handlers import shows as admin_shows
@@ -34,6 +35,7 @@ from public_bot.middlewares.user_context import UserContextMiddleware
 from public_bot.handlers import start, shows, registration, my_shows
 
 from scheduler.jobs import setup_scheduler, scheduler
+from miniapp_api import ADMIN_BOT_KEY, PUBLIC_BOT_KEY, register_miniapp_routes
 
 
 class TaggedFormatter(logging.Formatter):
@@ -132,9 +134,10 @@ def get_webhook_base_url() -> str:
 
 
 async def build_webhook_app(admin_bot: Bot, public_bot: Bot, admin_dp: Dispatcher, public_dp: Dispatcher) -> web.Application:
-    app = web.Application()
+    app = web.Application(client_max_size=9 * 1024 * 1024)
+    app[ADMIN_BOT_KEY] = admin_bot
+    app[PUBLIC_BOT_KEY] = public_bot
     update_slots = asyncio.Semaphore(settings.MAX_CONCURRENT_UPDATES)
-    processing_tasks: set[asyncio.Task] = set()
 
     def verify_telegram_secret(request: web.Request, expected_secret: str) -> None:
         supplied_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
@@ -143,6 +146,17 @@ async def build_webhook_app(admin_bot: Bot, public_bot: Bot, admin_dp: Dispatche
 
     async def health_handler(request):
         return web.Response(text="ok")
+
+    async def readiness_handler(request):
+        from sqlalchemy import text as sql_text
+        from db.base import engine
+        try:
+            async with engine.connect() as connection:
+                await connection.execute(sql_text("SELECT 1"))
+        except Exception:
+            logger.exception("Readiness database check failed")
+            return web.Response(status=503, text="database unavailable")
+        return web.Response(text="ready")
 
     async def process_update(dp: Dispatcher, bot: Bot, update: Update, bot_name: str) -> None:
         from db.base import sql_query_count
@@ -160,22 +174,12 @@ async def build_webhook_app(admin_bot: Bot, public_bot: Bot, admin_dp: Dispatche
             )
             sql_query_count.reset(query_token)
 
-    def task_finished(task: asyncio.Task) -> None:
-        processing_tasks.discard(task)
-        update_slots.release()
-        if not task.cancelled():
-            exception = task.exception()
-            if exception is not None:
-                logger.error(
-                    "Background update processing failed",
-                    exc_info=(type(exception), exception, exception.__traceback__),
-                )
-
     async def dispatch_update(dp: Dispatcher, bot: Bot, update: Update, bot_name: str) -> None:
-        await update_slots.acquire()
-        task = asyncio.create_task(process_update(dp, bot, update, bot_name))
-        processing_tasks.add(task)
-        task.add_done_callback(task_finished)
+        # Acknowledge Telegram only after the update has been handled.  Returning
+        # 200 before this await would make an update disappear if the process
+        # stopped while a background task was still running.
+        async with update_slots:
+            await process_update(dp, bot, update, bot_name)
 
     async def admin_webhook_handler(request):
         verify_telegram_secret(request, get_webhook_secret(settings.ADMIN_BOT_TOKEN))
@@ -191,23 +195,28 @@ async def build_webhook_app(admin_bot: Bot, public_bot: Bot, admin_dp: Dispatche
         await dispatch_update(public_dp, public_bot, update, "public")
         return web.Response(status=200)
 
-    async def finish_processing_tasks(app: web.Application) -> None:
-        if processing_tasks:
-            await asyncio.gather(*processing_tasks, return_exceptions=True)
-
     app.router.add_get("/health", health_handler)
+    app.router.add_get("/ready", readiness_handler)
     app.router.add_post("/telegram/admin", admin_webhook_handler)
     app.router.add_post("/telegram/public", public_webhook_handler)
-    app.on_cleanup.append(finish_processing_tasks)
+    register_miniapp_routes(app)
     return app
 
 
-async def on_error(event: ErrorEvent):
+async def on_error(event: ErrorEvent, bot: Bot):
     exc = event.exception
     msg = str(exc)
     if any(s in msg for s in ("query is too old", "query ID is invalid", "message is not modified")):
         return
     logger.error("Unhandled error: %s", exc, exc_info=exc)
+    if settings.ERROR_ALERT_CHAT_ID:
+        try:
+            await bot.send_message(
+                settings.ERROR_ALERT_CHAT_ID,
+                f"🚨 <b>Ошибка бота</b>\n\n<code>{h(type(exc).__name__ + ': ' + msg[:2500])}</code>",
+            )
+        except Exception:
+            logger.exception("Could not deliver error alert")
 
 
 def build_admin_bot() -> tuple[Bot, Dispatcher]:

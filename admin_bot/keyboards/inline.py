@@ -102,6 +102,7 @@ def show_section_kb(show: Show, section: str, can_delete: bool = False) -> Inlin
     elif section == "show_settings":
         if show.checkin_enabled:
             builder.button(text="✅ Отметить пришедших", callback_data=AdminShowActionCb(action="checkin", show_id=show_id).pack())
+            builder.button(text="🚪 Доступ сотруднику входа", callback_data=AdminShowActionCb(action="checkin_invite", show_id=show_id).pack())
         if show.creator:
             creator_url = f"https://t.me/{show.creator.username}" if show.creator.username else f"tg://user?id={show.creator.telegram_id}"
             builder.button(text="✉️ Написать создателю", url=creator_url)

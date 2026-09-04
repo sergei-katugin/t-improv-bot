@@ -103,6 +103,25 @@ async def cmd_start(message: Message, state: FSMContext, db_user: User, session:
             )
         return
 
+    if payload.startswith("door_"):
+        show_id = await crud.consume_checkin_invite(session, payload[5:], db_user.id)
+        if show_id is None:
+            await message.answer("❌ Ссылка недействительна, уже использована или устарела.", reply_markup=menu_kb)
+        else:
+            from config import settings
+            admin_username = settings.ADMIN_BOT_USERNAME.lstrip("@")
+            await message.answer(
+                "✅ Доступ сотрудника входа выдан только к этому шоу.\n\n"
+                "Открой служебного бота и запусти режим входа:",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(
+                        text="🚪 Открыть режим входа",
+                        url=f"https://t.me/{admin_username}?start=door_{show_id}",
+                    )
+                ]]),
+            )
+        return
+
     if payload.startswith("show_"):
         show_payload = payload[5:]
         show_id_raw, _, source = show_payload.partition("_")

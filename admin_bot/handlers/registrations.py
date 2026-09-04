@@ -21,7 +21,7 @@ from admin_bot.keyboards.inline import (
 )
 from admin_bot.keyboards.reply import flow_context_kb, registration_channel_picker_kb, registrations_context_kb, show_context_kb
 from admin_bot.callbacks import AdminCheckinCb, AdminManualCheckinCb, AdminPartyCountCb, AdminShowActionCb
-from admin_bot.security import deny, manageable_show
+from admin_bot.security import checkin_accessible_show, deny, manageable_show
 from html_utils import h
 
 
@@ -74,7 +74,8 @@ async def quick_add_attendee(message: Message, state: FSMContext, session: Async
     await state.set_state(AddManualFSM.names)
     await state.update_data(show_id=show.id, manual_source="manual", current_show_id=show.id)
     await message.answer(
-        "Отправь имена зрителей — каждое с новой строки:", reply_markup=flow_context_kb(),
+        "Отправь зрителей по одному на строку. Контакт можно указать после <code>|</code>, "
+        "например: <code>Анна | @anna</code>.", reply_markup=flow_context_kb(),
     )
 
 
@@ -323,9 +324,33 @@ async def _render_checkin(target, show_id: int, session: AsyncSession) -> None:
         await target.answer(text, reply_markup=checkin_kb(show_id, visible_regs, visible_manual))
 
 
+@router.callback_query(AdminShowActionCb.filter(F.action == "checkin_invite"))
+async def create_checkin_staff_invite(
+    callback: CallbackQuery,
+    callback_data: AdminShowActionCb,
+    session: AsyncSession,
+    db_user=None,
+    is_super_admin: bool = False,
+):
+    show = await manageable_show(session, callback_data.show_id, db_user, is_super_admin)
+    if show is None or not show.checkin_enabled:
+        await deny(callback, "⛔ Режим входа недоступен.")
+        return
+    from config import settings
+    invite = await crud.create_checkin_invite(session, show.id, settings.INVITE_TTL_HOURS)
+    link = f"https://t.me/{settings.PUBLIC_BOT_USERNAME.lstrip('@')}?start=door_{invite.token}"
+    await callback.answer()
+    await callback.message.answer(
+        f"🚪 <b>Доступ сотруднику входа</b>\n\n"
+        f"Отправь сотруднику одноразовую ссылку:\n<code>{link}</code>\n\n"
+        f"Она действует {settings.INVITE_TTL_HOURS} ч. и выдаёт доступ только к отметке посетителей этого шоу. "
+        "Редактирование шоу, списки и аналитика останутся закрыты.",
+    )
+
+
 @router.callback_query(AdminShowActionCb.filter(F.action == "checkin"))
 async def show_checkin(callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession, db_user=None, is_super_admin: bool = False):
-    show = await manageable_show(session, callback_data.show_id, db_user, is_super_admin)
+    show = await checkin_accessible_show(session, callback_data.show_id, db_user, is_super_admin)
     if show is None:
         await deny(callback, "⛔ Нет доступа к этому шоу.")
         return
@@ -338,7 +363,7 @@ async def show_checkin(callback: CallbackQuery, callback_data: AdminShowActionCb
 
 @router.callback_query(AdminShowActionCb.filter(F.action == "checkin_named"))
 async def show_named_checkin(callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession, db_user=None, is_super_admin: bool = False):
-    show = await manageable_show(session, callback_data.show_id, db_user, is_super_admin)
+    show = await checkin_accessible_show(session, callback_data.show_id, db_user, is_super_admin)
     if show is None or not show.checkin_enabled:
         await deny(callback, "⛔ Режим входа недоступен.")
         return
@@ -352,7 +377,7 @@ async def show_named_checkin(callback: CallbackQuery, callback_data: AdminShowAc
 
 @router.callback_query(AdminShowActionCb.filter(F.action == "checkin_search"))
 async def start_checkin_search(callback: CallbackQuery, callback_data: AdminShowActionCb, state: FSMContext, session: AsyncSession, db_user=None, is_super_admin: bool = False):
-    show = await manageable_show(session, callback_data.show_id, db_user, is_super_admin)
+    show = await checkin_accessible_show(session, callback_data.show_id, db_user, is_super_admin)
     if show is None or not show.checkin_enabled:
         await deny(callback, "⛔ Режим входа недоступен.")
         return
@@ -367,7 +392,7 @@ async def start_checkin_search(callback: CallbackQuery, callback_data: AdminShow
 @router.message(CheckinSearchFSM.query, F.text)
 async def find_checkin_attendee(message: Message, state: FSMContext, session: AsyncSession, db_user=None, is_super_admin: bool = False):
     show_id = (await state.get_data()).get("checkin_show_id")
-    show = await manageable_show(session, show_id, db_user, is_super_admin)
+    show = await checkin_accessible_show(session, show_id, db_user, is_super_admin)
     if show is None or not show.checkin_enabled:
         await state.clear()
         await message.answer("⛔ Режим входа недоступен.")
@@ -412,6 +437,7 @@ async def _notify_checkin_milestones(bot, session: AsyncSession, show, arrived: 
                 f"🎟 На шоу «{h(title)}» пришли уже <b>{milestone}</b> человек.",
             )
     except Exception:
+        await crud.release_checkin_milestones(session, show.id, highest, previous)
         logger.exception("failed to send check-in milestone show_id=%s", show.id)
 
 
@@ -423,7 +449,7 @@ async def _named_arrived_total(session: AsyncSession, show_id: int) -> int:
 
 @router.callback_query(AdminCheckinCb.filter())
 async def toggle_checkin(callback: CallbackQuery, callback_data: AdminCheckinCb, session: AsyncSession, db_user=None, is_super_admin: bool = False):
-    show = await manageable_show(session, callback_data.show_id, db_user, is_super_admin)
+    show = await checkin_accessible_show(session, callback_data.show_id, db_user, is_super_admin)
     if show is None or not show.checkin_enabled:
         await deny(callback, "⛔ Режим входа недоступен.")
         return
@@ -442,7 +468,7 @@ async def toggle_checkin(callback: CallbackQuery, callback_data: AdminCheckinCb,
 
 @router.callback_query(AdminManualCheckinCb.filter())
 async def toggle_manual_checkin(callback: CallbackQuery, callback_data: AdminManualCheckinCb, session: AsyncSession, db_user=None, is_super_admin: bool = False):
-    show = await manageable_show(session, callback_data.show_id, db_user, is_super_admin)
+    show = await checkin_accessible_show(session, callback_data.show_id, db_user, is_super_admin)
     if show is None or not show.checkin_enabled:
         await deny(callback, "⛔ Режим входа недоступен.")
         return
@@ -460,7 +486,7 @@ async def toggle_manual_checkin(callback: CallbackQuery, callback_data: AdminMan
 
 @router.callback_query(AdminPartyCountCb.filter())
 async def set_party_checkin(callback: CallbackQuery, callback_data: AdminPartyCountCb, session: AsyncSession, bot, db_user=None, is_super_admin: bool = False):
-    show = await manageable_show(session, callback_data.show_id, db_user, is_super_admin)
+    show = await checkin_accessible_show(session, callback_data.show_id, db_user, is_super_admin)
     if show is None or not show.checkin_enabled:
         await deny(callback, "⛔ Режим входа недоступен.")
         return
@@ -481,7 +507,7 @@ async def set_party_checkin(callback: CallbackQuery, callback_data: AdminPartyCo
 
 @router.callback_query(AdminShowActionCb.filter(F.action.in_({"checkin_counter", "count_add1", "count_add5", "count_sub1"})))
 async def counter_checkin(callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession, bot, db_user=None, is_super_admin: bool = False):
-    show = await manageable_show(session, callback_data.show_id, db_user, is_super_admin)
+    show = await checkin_accessible_show(session, callback_data.show_id, db_user, is_super_admin)
     if show is None or not show.checkin_enabled:
         await deny(callback, "⛔ Режим входа недоступен.")
         return
@@ -624,7 +650,7 @@ async def export_show_csv(callback: CallbackQuery, callback_data: AdminShowActio
         ])
     for attendee in manual:
         writer.writerow([
-            _csv_cell(attendee.name), "", 0, "Добавлен вручную", "Не требуется",
+            _csv_cell(attendee.name), _csv_cell(attendee.contact or ""), 0, "Добавлен вручную", "Не требуется",
             attendee.checked_in_count or 0,
             _csv_cell(source_labels.get(attendee.source or "manual", attendee.source or "Добавлен вручную")), "", "",
         ])
@@ -647,8 +673,8 @@ async def start_add_manual(callback: CallbackQuery, callback_data: AdminShowActi
     await state.update_data(show_id=show_id, manual_source="manual")
     await callback.message.edit_text(
         "➕ <b>Добавить участников вручную</b>\n\n"
-        "Отправь список имён — каждое имя с новой строки:\n\n"
-        "<i>Иван Иванов\nМария Петрова\nАлексей Сидоров</i>"
+        "Отправь список — один зритель на строку. Контакт можно указать через <code>|</code>:\n\n"
+        "<i>Иван Иванов | @ivan\nМария Петрова | instagram.com/maria\nАлексей Сидоров</i>"
     )
 
 
@@ -662,13 +688,18 @@ async def process_manual_names(message: Message, state: FSMContext, session: Asy
         await message.answer("⛔ Нет доступа к этому шоу.")
         return
 
-    names = [n.strip() for n in message.text.splitlines() if n.strip()]
+    rows = [line.strip() for line in message.text.splitlines() if line.strip()]
+    parsed = [tuple(part.strip() for part in row.split("|", 1)) for row in rows]
+    names = [parts[0] for parts in parsed if parts[0]]
+    contacts = [parts[1] if len(parts) > 1 else None for parts in parsed if parts[0]]
     if not names:
         await message.answer("Список пустой, попробуй ещё раз.")
         return
 
     source = data.get("manual_source", "manual")
-    count = await crud.add_manual_attendees(session, show_id, names, source=source)
+    count = await crud.add_manual_attendees(
+        session, show_id, names, source=source, contacts=contacts,
+    )
     if count == 0:
         occupied = await crud.count_active_registrations(session, show_id)
         await message.answer(

@@ -19,6 +19,25 @@ class UserRole(str, enum.Enum):
     user = "user"
 
 
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    actor_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    action = Column(String(64), nullable=False)
+    entity_type = Column(String(32), nullable=False)
+    entity_id = Column(Integer, nullable=True)
+    details = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=_utcnow, nullable=False)
+
+    actor = relationship("User")
+
+    __table_args__ = (
+        Index("ix_audit_logs_created_at", "created_at"),
+        Index("ix_audit_logs_entity", "entity_type", "entity_id"),
+    )
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -148,6 +167,7 @@ class ManualAttendee(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     show_id = Column(Integer, ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
     name = Column(String(256), nullable=False)
+    contact = Column(String(512), nullable=True)
     source = Column(String(64), nullable=True)
     added_at = Column(DateTime, default=_utcnow)
     organizer_reminded_at = Column(DateTime, nullable=True)
@@ -156,6 +176,27 @@ class ManualAttendee(Base):
     checked_in_count = Column(Integer, default=0, nullable=False)
 
     show = relationship("Show")
+
+
+class ShowCheckinStaff(Base):
+    __tablename__ = "show_checkin_staff"
+
+    show_id = Column(Integer, ForeignKey("shows.id", ondelete="CASCADE"), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    created_at = Column(DateTime, default=_utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+
+
+class CheckinInviteToken(Base):
+    __tablename__ = "checkin_invite_tokens"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    token = Column(String(64), unique=True, nullable=False, index=True)
+    show_id = Column(Integer, ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime, default=_utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=False, index=True)
+    used_at = Column(DateTime, nullable=True)
+    used_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
 
 class InviteToken(Base):

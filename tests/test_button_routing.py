@@ -57,9 +57,11 @@ def test_every_reply_keyboard_button_has_a_message_handler():
         tree = ast.parse(source, filename=str(path))
         for node in ast.walk(tree):
             if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "KeyboardButton":
-                # Native Telegram selectors return service messages such as
-                # chat_shared/users_shared instead of their visible text.
-                if any(keyword.arg in {"request_chat", "request_users", "request_contact", "request_location"} for keyword in node.keywords):
+                # Native Telegram selectors return service messages instead of
+                # their visible text; web_app buttons open client-side.
+                if any(keyword.arg in {
+                    "request_chat", "request_users", "request_contact", "request_location", "web_app",
+                } for keyword in node.keywords):
                     continue
                 for keyword in node.keywords:
                     if keyword.arg == "text" and isinstance(keyword.value, ast.Constant):

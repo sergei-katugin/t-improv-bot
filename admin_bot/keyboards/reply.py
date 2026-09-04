@@ -1,7 +1,17 @@
+from __future__ import annotations
+
 from aiogram.types import (
     ChatAdministratorRights, KeyboardButton, KeyboardButtonRequestChat,
-    ReplyKeyboardMarkup, ReplyKeyboardRemove,
+    ReplyKeyboardMarkup, ReplyKeyboardRemove, WebAppInfo,
 )
+import os
+
+from config import settings
+
+
+def _miniapp_url() -> str | None:
+    base_url = settings.WEBHOOK_BASE_URL or os.getenv("RENDER_EXTERNAL_URL") or os.getenv("PUBLIC_URL")
+    return f"{base_url.rstrip('/')}/app" if base_url else None
 
 
 def main_menu_kb() -> ReplyKeyboardMarkup:
@@ -9,6 +19,9 @@ def main_menu_kb() -> ReplyKeyboardMarkup:
         [KeyboardButton(text="📋 Афиша"),  KeyboardButton(text="🆕 Создать")],
         [KeyboardButton(text="🎭 Моё"),    KeyboardButton(text="⚙️ Настройки")],
     ]
+    miniapp_url = _miniapp_url()
+    if miniapp_url:
+        rows.insert(0, [KeyboardButton(text="🌐 Панель управления", web_app=WebAppInfo(url=miniapp_url))])
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, persistent=True)
 
 
