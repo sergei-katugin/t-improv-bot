@@ -10,3 +10,5 @@ __pycache__/
 *.db-wal
 .git/
 .fly/
+miniapp/node_modules/
+miniapp/dist/

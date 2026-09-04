@@ -12,3 +12,5 @@ __pycache__/
 .coverage
 .pytest_cache/
 htmlcov/
+miniapp/node_modules/
+miniapp/dist/

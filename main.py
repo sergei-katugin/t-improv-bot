@@ -35,6 +35,7 @@ from public_bot.middlewares.user_context import UserContextMiddleware
 from public_bot.handlers import start, shows, registration, my_shows
 
 from scheduler.jobs import setup_scheduler, scheduler
+from miniapp_api import ADMIN_BOT_KEY, PUBLIC_BOT_KEY, register_miniapp_routes
 
 
 class TaggedFormatter(logging.Formatter):
@@ -133,7 +134,9 @@ def get_webhook_base_url() -> str:
 
 
 async def build_webhook_app(admin_bot: Bot, public_bot: Bot, admin_dp: Dispatcher, public_dp: Dispatcher) -> web.Application:
-    app = web.Application()
+    app = web.Application(client_max_size=9 * 1024 * 1024)
+    app[ADMIN_BOT_KEY] = admin_bot
+    app[PUBLIC_BOT_KEY] = public_bot
     update_slots = asyncio.Semaphore(settings.MAX_CONCURRENT_UPDATES)
 
     def verify_telegram_secret(request: web.Request, expected_secret: str) -> None:
@@ -196,6 +199,7 @@ async def build_webhook_app(admin_bot: Bot, public_bot: Bot, admin_dp: Dispatche
     app.router.add_get("/ready", readiness_handler)
     app.router.add_post("/telegram/admin", admin_webhook_handler)
     app.router.add_post("/telegram/public", public_webhook_handler)
+    register_miniapp_routes(app)
     return app
 
 

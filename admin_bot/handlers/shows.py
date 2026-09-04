@@ -1604,10 +1604,6 @@ async def send_manual_announcement(
         await callback.answer()
         await callback.message.answer("❌ Шоу отменено — анонс нельзя отправить.")
         return
-    if await crud.has_any_announcement_been_sent(session, show_id):
-        await callback.answer("Анонс уже был отправлен.", show_alert=True)
-        return
-
     missing = []
     if not show.poster_text:
         missing.append("📝 текст афиши")
@@ -1619,6 +1615,10 @@ async def send_manual_announcement(
             "Заполни через ✏️ Редактировать.",
             show_alert=True,
         )
+        return
+
+    if not await crud.claim_manual_announcement(session, show_id):
+        await callback.answer("Анонс уже был отправлен.", show_alert=True)
         return
 
     await callback.answer()
@@ -1635,6 +1635,7 @@ async def send_manual_announcement(
                 pass
         logger.info("manual announcement sent show_id=%s channel_msg_id=%s by admin=%s", show_id, msg_id, callback.from_user.id)
     except Exception as e:
+        await crud.release_announcement_claim(session, show_id, "manual")
         logger.exception("Failed to send manual announcement for show_id=%s", show_id)
         await callback.message.answer("❌ Не удалось отправить анонс. Подробности записаны в лог.")
 

@@ -1,10 +1,9 @@
 services:
   - type: web
     name: t-impro-bot
-    env: python
+    runtime: docker
     plan: 0.5c-512mb
-    buildCommand: pip install --require-hashes -r requirements.lock
-    startCommand: python -m alembic upgrade head && python main.py
+    dockerfilePath: ./Dockerfile
     autoDeploy: true
     envVars:
       - key: ADMIN_BOT_TOKEN

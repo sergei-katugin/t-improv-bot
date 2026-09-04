@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import secrets
 from datetime import datetime, date, timedelta
 from sqlalchemy import select, func, exists, update, delete
@@ -410,6 +411,17 @@ async def update_show(session: AsyncSession, show_id: int, **fields) -> Show | N
     await session.refresh(show)
     logger.info("updated show id=%s fields=%s", show_id, list(fields.keys()))
     return show
+
+
+async def deactivate_show(session: AsyncSession, show_id: int) -> bool:
+    """Atomically mark an active show as cancelled."""
+    show = await session.scalar(select(Show).where(Show.id == show_id).with_for_update())
+    if show is None or not show.is_active:
+        await session.rollback()
+        return False
+    show.is_active = False
+    await session.commit()
+    return True
 
 
 async def delete_show(session: AsyncSession, show_id: int) -> bool:
@@ -994,6 +1006,51 @@ async def has_any_announcement_been_sent(session: AsyncSession, show_id: int) ->
         select(AnnouncementLog).where(AnnouncementLog.show_id == show_id).limit(1)
     )
     return result.scalar_one_or_none() is not None
+
+
+async def claim_manual_announcement(session: AsyncSession, show_id: int) -> bool:
+    """Reserve the first announcement while holding the show row lock.
+
+    Both the bot and Mini App use this before a Telegram network call, preventing
+    two near-simultaneous button presses from publishing the same show twice.
+    """
+    show = await session.scalar(select(Show).where(Show.id == show_id).with_for_update())
+    if show is None or await has_any_announcement_been_sent(session, show_id):
+        await session.rollback()
+        return False
+    session.add(AnnouncementLog(show_id=show_id, announcement_type="manual"))
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        return False
+    return True
+
+
+async def claim_repeat_announcement(
+    session: AsyncSession, show_id: int, idempotency_key: str,
+) -> str | None:
+    """Reserve one explicitly confirmed repeat using a stable request key."""
+    digest = hashlib.sha256(idempotency_key.encode()).hexdigest()[:20]
+    announcement_type = f"repeat_{digest}"
+    session.add(AnnouncementLog(show_id=show_id, announcement_type=announcement_type))
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        return None
+    return announcement_type
+
+
+async def release_announcement_claim(
+    session: AsyncSession, show_id: int, announcement_type: str,
+) -> None:
+    await session.execute(delete(AnnouncementLog).where(
+        AnnouncementLog.show_id == show_id,
+        AnnouncementLog.announcement_type == announcement_type,
+        AnnouncementLog.channel_message_id.is_(None),
+    ))
+    await session.commit()
 
 
 async def mark_announcement_sent(
