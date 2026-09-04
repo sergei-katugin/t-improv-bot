@@ -12,6 +12,7 @@ from aiohttp import web
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import miniapp_api
+from admin_bot.keyboards import reply as reply_keyboards
 from db.base import Base
 from db.models import AuditLog, AnnouncementLog, ManualAttendee, Registration, Show, ShowFeedback, User, UserRole
 from miniapp_api import (
@@ -163,6 +164,8 @@ def test_csv_export_neutralizes_spreadsheet_formulas(value, expected):
 @pytest.mark.parametrize("path,expected_header", [
     ("/api/miniapp/me", ("Cache-Control", "private, no-store")),
     ("/app", ("Content-Security-Policy", "default-src 'self'")),
+    ("/app", ("Cache-Control", "no-store")),
+    ("/app/assets/index-deploy.js", ("Cache-Control", "immutable")),
 ])
 def test_miniapp_security_headers(path, expected_header):
     request = type("Request", (), {"path": path})()
@@ -174,6 +177,13 @@ def test_miniapp_security_headers(path, expected_header):
     assert expected in response.headers[name]
     assert response.headers["X-Content-Type-Options"] == "nosniff"
     assert response.headers["Referrer-Policy"] == "no-referrer"
+
+
+def test_miniapp_button_url_is_versioned_per_render_deploy(monkeypatch):
+    monkeypatch.setattr(reply_keyboards.settings, "WEBHOOK_BASE_URL", "https://example.com")
+    monkeypatch.setenv("RENDER_GIT_COMMIT", "abcdef1234567890")
+
+    assert reply_keyboards._miniapp_url() == "https://example.com/app?v=abcdef123456"
 
 
 @pytest.mark.asyncio
