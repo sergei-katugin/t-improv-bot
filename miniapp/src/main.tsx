@@ -166,6 +166,12 @@ function ShowForm({ opened, initial, options, me, reloadOptions, onClose, onSave
   const [newVenueSeats, setNewVenueSeats] = React.useState(50);
   const [poster, setPoster] = React.useState<File | null>(null);
   const [notifyViewers, setNotifyViewers] = React.useState(false);
+  const [chatTarget, setChatTarget] = React.useState("");
+  const [chatNameMode, setChatNameMode] = React.useState<"short" | "full">("short");
+  const [verifiedChat, setVerifiedChat] = React.useState<{ id: number; title: string; target: string } | null>(null);
+  const [checkingChat, setCheckingChat] = React.useState(false);
+  const [chatSetupOpened, setChatSetupOpened] = React.useState(false);
+  const [previewOpened, setPreviewOpened] = React.useState(false);
   React.useEffect(() => {
     if (!opened) return;
     const nextValue = initial ? formFromShow(initial) : emptyForm();
@@ -175,10 +181,25 @@ function ShowForm({ opened, initial, options, me, reloadOptions, onClose, onSave
     if (venue) nextValue.locationUrl = venue.mapsUrl ?? "";
     setValue(nextValue);
     setVenueId(venue ? String(venue.id) : initial ? "__custom__" : null);
-    setPoster(null); setNotifyViewers(false);
+    setPoster(null); setNotifyViewers(false); setChatTarget(""); setChatNameMode("short"); setVerifiedChat(null); setChatSetupOpened(false); setPreviewOpened(false);
   }, [opened, initial, options.venues]);
   const set = <K extends keyof ShowFormValue>(key: K, next: ShowFormValue[K]) => setValue((current) => ({ ...current, [key]: next }));
   const selectedVenue = options.venues.find((item) => String(item.id) === venueId);
+  const registrarOptions = React.useMemo(() => {
+    const team = options.teams.find((item) => item.name === value.teamName);
+    const splitMembers = (members: string | null) => (members ?? "").split(/[\s,;]+/)
+      .map((username) => username.trim())
+      .filter(Boolean)
+      .map((username) => username.startsWith("@") ? username : `@${username}`);
+    const usernames = [
+      ...splitMembers(team?.members ?? null),
+      ...options.teams.filter((item) => item.id !== team?.id).flatMap((item) => splitMembers(item.members)),
+    ];
+    if (me?.username) usernames.unshift(`@${me.username}`);
+    return [...new Set(usernames)];
+  }, [me?.username, options.teams, value.teamName]);
+  const normalizedRegistrar = value.registrarUsername.trim().replace(/^@?/, "@");
+  const registrarIsValid = /^@[A-Za-z][A-Za-z0-9_]{4,31}$/.test(normalizedRegistrar);
 
   function showPayload(): ShowFormValue {
     return selectedVenue
@@ -217,19 +238,52 @@ function ShowForm({ opened, initial, options, me, reloadOptions, onClose, onSave
     finally { setSaving(false); }
   }
 
+  async function verifyRegistrationChat() {
+    const target = chatTarget.trim();
+    if (!target) return;
+    setCheckingChat(true);
+    try {
+      const result = await api<{ id: number; title: string }>("/api/miniapp/registration-chat/verify", { method: "POST", body: JSON.stringify({ target }) });
+      setVerifiedChat({ ...result, target });
+      notifications.show({ color: "green", title: "Чат проверен", message: `${result.title}: бот подключён` });
+    } catch (reason) {
+      setVerifiedChat(null);
+      notifications.show({ color: "red", title: "Чат не прошёл проверку", message: (reason as Error).message });
+    } finally { setCheckingChat(false); }
+  }
+
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    if (!initial && chatTarget.trim() && verifiedChat?.target !== chatTarget.trim()) {
+      notifications.show({ color: "red", title: "Сначала проверь чат записей", message: "Бот должен быть добавлен в выбранный чат" });
+      return;
+    }
     setSaving(true);
     try {
       const payload = showPayload();
       const result = await api<{ id: number; notified?: number; failed?: number }>(initial ? `/api/miniapp/shows/${initial.id}` : "/api/miniapp/shows", {
         method: initial ? "PATCH" : "POST", body: JSON.stringify(initial ? { ...payload, notify: notifyViewers } : payload),
       });
+      let posterError: Error | null = null;
+      let chatError: Error | null = null;
+      if (!initial && verifiedChat) {
+        try {
+          await api(`/api/miniapp/shows/${result.id}/registration-chat`, { method: "PUT", body: JSON.stringify({ target: String(verifiedChat.id), nameMode: chatNameMode }) });
+        } catch (reason) {
+          chatError = reason as Error;
+        }
+      }
       if (poster) {
         const form = new FormData(); form.append("poster", poster);
-        await api(`/api/miniapp/shows/${result.id}/poster`, { method: "POST", body: form });
+        try {
+          await api(`/api/miniapp/shows/${result.id}/poster`, { method: "POST", body: form });
+        } catch (reason) {
+          posterError = reason as Error;
+        }
       }
-      notifications.show({ color: "gray", title: initial ? "Афиша обновлена" : "Афиша создана", message: "Изменения сохранены" });
+      notifications.show(posterError || chatError
+        ? { color: "yellow", title: initial ? "Афиша обновлена частично" : "Афиша создана частично", message: [posterError && "Изображение не загружено", chatError && "Чат записей не подключён"].filter(Boolean).join(" · ") }
+        : { color: "gray", title: initial ? "Афиша обновлена" : "Афиша создана", message: "Изменения сохранены" });
       onSaved(result.id);
     } catch (reason) {
       notifications.show({ color: "red", title: "Не удалось сохранить", message: (reason as Error).message });
@@ -254,15 +308,26 @@ function ShowForm({ opened, initial, options, me, reloadOptions, onClose, onSave
         <Select required searchable allowDeselect={false} label="Площадка" placeholder="Выбери площадку" data={[...options.venues.map((venue) => ({ value: String(venue.id), label: `${venue.name} · ${venue.city}` })), { value: "__custom__", label: "Другая площадка" }, ...(me?.role === "admin" ? [{ value: "__new__", label: "＋ Добавить новую площадку" }] : [])]} value={venueId} onChange={selectVenue} />
         {selectedVenue && <Paper className="venue-summary"><Text fw={700}>{selectedVenue.name}</Text><Text size="sm">{selectedVenue.city} · {selectedVenue.defaultSeats} мест</Text>{selectedVenue.mapsUrl && <Anchor href={selectedVenue.mapsUrl} target="_blank" size="sm">Открыть на карте ↗</Anchor>}</Paper>}
         {venueId === "__custom__" && <><TextInput required label="Название площадки" value={value.location} onChange={(e) => set("location", e.currentTarget.value)} maxLength={512} /><SimpleGrid cols={2}><Autocomplete required label="Город" data={["Лимасол", "Никосия", "Пафос"]} value={value.city} onChange={(next) => set("city", next)} /><NumberInput required min={1} max={10000} label="Количество мест" value={value.maxSeats} onChange={(next) => set("maxSeats", typeof next === "number" ? next : 1)} /></SimpleGrid><TextInput type="url" label="Ссылка на карту" value={value.locationUrl} onChange={(e) => set("locationUrl", e.currentTarget.value)} /></>}
-        <TextInput label="Ответственный в Telegram" placeholder="@username" value={value.registrarUsername} onChange={(e) => set("registrarUsername", e.currentTarget.value)} />
+        <Autocomplete
+          label="Ответственный в Telegram"
+          placeholder="@username"
+          data={registrarOptions}
+          value={value.registrarUsername}
+          onChange={(next) => set("registrarUsername", next)}
+          onBlur={() => value.registrarUsername.trim() && set("registrarUsername", normalizedRegistrar)}
+          maxLength={33}
+          error={value.registrarUsername && !registrarIsValid ? "Проверь ник: от 5 до 32 латинских букв, цифр или _" : undefined}
+          description={registrarIsValid ? <Anchor href={`https://t.me/${normalizedRegistrar.slice(1)}`} target="_blank" size="xs">Проверить профиль в Telegram ↗</Anchor> : "Можно выбрать участника любой команды или ввести другой ник"}
+        />
+        {!initial && <div className="optional-section"><Button type="button" fullWidth variant="light" onClick={() => setChatSetupOpened((opened) => !opened)} aria-expanded={chatSetupOpened}>{chatSetupOpened ? "Скрыть настройку чата" : "＋ Настроить чат записей"}</Button><Collapse expanded={chatSetupOpened}><Paper className="venue-summary"><Stack gap="sm"><div><Text fw={700}>Чат записей <Text component="span" c="dimmed" fw={400}>(необязательно)</Text></Text><Text size="sm" c="dimmed">Бот будет писать сюда о каждой новой записи.</Text></div><TextInput label="Канал или группа" placeholder="@registrations_chat или −100…" value={chatTarget} onChange={(event) => { setChatTarget(event.currentTarget.value); setVerifiedChat(null); }} /><Select label="Как показывать имя" value={chatNameMode} onChange={(next) => setChatNameMode((next as "short" | "full") ?? "short")} data={[{ value: "short", label: "Сокращённо" }, { value: "full", label: "Полностью" }]} /><Button type="button" variant="light" disabled={!chatTarget.trim()} loading={checkingChat} onClick={() => void verifyRegistrationChat()}>{verifiedChat ? `Проверено: ${verifiedChat.title} ✓` : "Проверить чат и бота"}</Button></Stack></Paper></Collapse></div>}
         <Textarea label="Текст афиши" autosize minRows={5} maxLength={1800} value={value.posterText} onChange={(e) => set("posterText", e.currentTarget.value)} />
         <FileInput accept="image/jpeg,image/png,image/webp" label="Изображение афиши" description={initial?.hasPoster ? "Выбери файл, чтобы заменить текущее изображение" : "JPEG, PNG или WebP, до 8 МБ"} value={poster} onChange={setPoster} clearable />
         <Switch label="Включить check-in" checked={value.checkinEnabled} onChange={(e) => set("checkinEnabled", e.currentTarget.checked)} />
         <Switch label="Запрашивать отзывы после шоу" checked={value.feedbackEnabled} onChange={(e) => set("feedbackEnabled", e.currentTarget.checked)} />
         {initial && <Switch label="Уведомить записавшихся об изменениях" checked={notifyViewers} onChange={(event) => setNotifyViewers(event.currentTarget.checked)} />}
-        <Paper className="telegram-preview"><Text size="xs" fw={800} c="dimmed">ПРЕДПРОСМОТР</Text><Title order={3}>🎭 {value.title || "Название шоу"}</Title><Text>👥 Команда: {value.teamName || "не выбрана"}</Text><Text>📅 {value.showDateLocal ? new Date(value.showDateLocal).toLocaleString("ru-RU", { dateStyle: "long", timeStyle: "short" }) : "дата не выбрана"}</Text><Text>📍 {selectedVenue?.name || value.location || "площадка не выбрана"}, {selectedVenue?.city || value.city}</Text>{value.registrarUsername && <Text>👤 Ответственный: {value.registrarUsername}</Text>}{value.posterText && <Text mt="sm" style={{ whiteSpace: "pre-wrap" }}>{value.posterText}</Text>}</Paper>
+        <div className="optional-section"><Button type="button" fullWidth variant="light" onClick={() => setPreviewOpened((opened) => !opened)} aria-expanded={previewOpened}>{previewOpened ? "Скрыть предпросмотр" : "Показать предпросмотр"}</Button><Collapse expanded={previewOpened}><Paper className="telegram-preview"><Text size="xs" fw={800} c="dimmed">ПРЕДПРОСМОТР</Text><Title order={3}>🎭 {value.title || "Название шоу"}</Title><Text>👥 Команда: {value.teamName || "не выбрана"}</Text><Text>📅 {value.showDateLocal ? new Date(value.showDateLocal).toLocaleString("ru-RU", { dateStyle: "long", timeStyle: "short" }) : "дата не выбрана"}</Text><Text>📍 {selectedVenue?.name || value.location || "площадка не выбрана"}, {selectedVenue?.city || value.city}</Text>{value.registrarUsername && <Text>👤 Ответственный: {value.registrarUsername}</Text>}{value.posterText && <Text mt="sm" style={{ whiteSpace: "pre-wrap" }}>{value.posterText}</Text>}</Paper></Collapse></div>
         <Button variant="light" loading={saving} disabled={!value.title || !value.teamName || !value.showDateLocal || !venueId} onClick={() => void sendPreview()}>Отправить тест в админ-бот</Button>
-        <Button type="submit" loading={saving} size="md">{initial ? "Сохранить изменения" : "Создать афишу"}</Button>
+        <Button type="submit" loading={saving} size="md" disabled={!initial && Boolean(chatTarget.trim()) && !verifiedChat}>{initial ? "Сохранить изменения" : "Создать афишу"}</Button>
       </Stack>
     </form>
     <Modal opened={teamModal} onClose={() => setTeamModal(false)} title="Новая команда" centered><Stack><TextInput required label="Название" value={newTeamName} onChange={(e) => setNewTeamName(e.currentTarget.value)} /><Textarea label="Telegram-ники участников" value={newTeamMembers} onChange={(e) => setNewTeamMembers(e.currentTarget.value)} /><Button disabled={!newTeamName.trim()} loading={saving} onClick={() => void createTeam()}>Создать и выбрать</Button></Stack></Modal>
@@ -692,6 +757,8 @@ function App() {
   const [announcementOpened, setAnnouncementOpened] = React.useState(false);
   const [analyticsOpened, setAnalyticsOpened] = React.useState(false);
   const [toolsOpened, setToolsOpened] = React.useState(false);
+  const [toolsMode, setToolsMode] = React.useState<"all" | "chat">("all");
+  const [descriptionOpened, setDescriptionOpened] = React.useState(false);
   const [editing, setEditing] = React.useState<Show | null>(null);
 
   const hasBackTarget = Boolean(selected || formOpened || managementOpened || attendeesOpened || announcementOpened || analyticsOpened || toolsOpened);
@@ -756,6 +823,7 @@ function App() {
   }, [status, teamFilter, yearFilter, isPreview]);
 
   async function openShow(show: Show) {
+    setDescriptionOpened(false);
     setSelected(show);
     if (isPreview) return;
     try {
@@ -770,22 +838,26 @@ function App() {
     const registrationUrl = selected.registrationUrl ?? `https://t.me/ImprovCypEventBot?start=show_${selected.id}`;
     return <main className="shell">
       <Button className="back" variant="subtle" onClick={() => { telegramHaptic("light"); setSelected(null); }}>← Все афиши</Button>
-      <Paper className="detail-card">
+      <section className="show-detail">
         <div className="eyebrow">{selected.teamName}</div>
         <Title order={1}>{selected.title}</Title>
         <Text className="date">{selected.showDateLabel}</Text>
-        <Text className="place">{selected.location} · {selected.city}</Text>
+        {selected.locationUrl ? <Anchor className="place-link" href={selected.locationUrl} target="_blank">{selected.location} · {selected.city} ↗</Anchor> : <Text className="place">{selected.location} · {selected.city}</Text>}
         <div className="capacity-head"><span>Записи</span><strong>{selected.occupiedSeats} / {selected.maxSeats}</strong></div>
         <Progress value={fill} color="gray" mt={8} />
         {selected.registrarUsername && <Anchor className="registrar" href={`https://t.me/${selected.registrarUsername}`} target="_blank">Ответственный · @{selected.registrarUsername} ↗</Anchor>}
-        {selected.posterText && <Text className="poster-text">{selected.posterText}</Text>}
-      </Paper>
+        {selected.posterText && <div className="description-block"><Button variant="subtle" size="xs" onClick={() => setDescriptionOpened((opened) => !opened)} aria-expanded={descriptionOpened}>{descriptionOpened ? "Скрыть описание" : "Показать описание"}</Button><Collapse expanded={descriptionOpened}><Text className="poster-text">{selected.posterText}</Text></Collapse></div>}
+      </section>
       {!selected.isActive && <Alert color="red" mt="md">Эта афиша отменена. Новые записи недоступны.</Alert>}
-      <SimpleGrid cols={2} mt="md"><Button variant="light" onClick={() => setAttendeesOpened(true)}>Зрители</Button><Button variant="light" onClick={() => setAnnouncementOpened(true)}>Анонс</Button><Button variant="light" onClick={() => setAnalyticsOpened(true)}>Аналитика</Button><Button variant="light" onClick={() => setToolsOpened(true)}>Ссылка и QR</Button><Button onClick={() => { setEditing(selected); setFormOpened(true); }}>Изменить</Button></SimpleGrid>
+      <div className="show-actions">
+        <Button className="primary" fullWidth onClick={() => setAttendeesOpened(true)}>Зрители · {selected.occupiedSeats}</Button>
+        <SimpleGrid cols={2}><Button variant="light" onClick={() => { setEditing(selected); setFormOpened(true); }}>Изменить</Button><Button variant="light" onClick={() => setAnnouncementOpened(true)}>Анонс</Button><Button variant="light" onClick={() => setAnalyticsOpened(true)}>Аналитика</Button><Button variant="light" onClick={() => { setToolsMode("chat"); setToolsOpened(true); }}>Чат{selected.registrationChatId ? " ✓" : ""}</Button></SimpleGrid>
+        <Button fullWidth variant="subtle" onClick={() => { setToolsMode("all"); setToolsOpened(true); }}>Ещё действия</Button>
+      </div>
       <AttendeesModal opened={attendeesOpened} onClose={() => setAttendeesOpened(false)} show={selected} demo={isPreview} />
       <AnnouncementModal opened={announcementOpened} onClose={() => setAnnouncementOpened(false)} show={selected} demo={isPreview} />
       <AnalyticsModal opened={analyticsOpened} onClose={() => setAnalyticsOpened(false)} show={selected} demo={isPreview} />
-      <ShowToolsModal opened={toolsOpened} onClose={() => setToolsOpened(false)} show={selected} registrationUrl={registrationUrl} demo={isPreview} onChanged={(next) => { setSelected(next); reloadShows(); }} onDeleted={() => { setToolsOpened(false); setSelected(null); reloadShows(); }} />
+      <ShowToolsModal mode={toolsMode} opened={toolsOpened} onClose={() => setToolsOpened(false)} show={selected} registrationUrl={registrationUrl} demo={isPreview} onChanged={(next) => { setSelected(next); reloadShows(); }} onDeleted={() => { setToolsOpened(false); setSelected(null); reloadShows(); }} />
       <ShowForm opened={formOpened} initial={editing} options={options} me={me} reloadOptions={reloadOptions} onClose={() => setFormOpened(false)} onSaved={() => { setFormOpened(false); setSelected(null); reloadShows(); }} />
     </main>;
   }
@@ -793,32 +865,34 @@ function App() {
   return <main className="shell">
     <header className="app-header">
       <div><div className="brand">T·IMPRO</div><h1>Мои афиши</h1>{isPreview && <Badge mt={8} color="gray" variant="light">Демо-данные · API отключён</Badge>}</div>
-      <button className="avatar" onClick={() => { telegramHaptic("selection"); setManagementOpened(true); }} aria-label="Открыть настройки">
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" />
-          <path d="M19.4 13.5a7.8 7.8 0 0 0 0-3l1.7-1.3-2-3.4-2 .8a8 8 0 0 0-2.6-1.5L14.2 3h-4.4l-.3 2.1a8 8 0 0 0-2.6 1.5l-2-.8-2 3.4 1.7 1.3a7.8 7.8 0 0 0 0 3l-1.7 1.3 2 3.4 2-.8a8 8 0 0 0 2.6 1.5l.3 2.1h4.4l.3-2.1a8 8 0 0 0 2.6-1.5l2 .8 2-3.4-1.7-1.3Z" />
-        </svg>
-      </button>
+      <div className="header-actions">
+        <button
+          className={`header-action${teamFilter || yearFilter ? " is-active" : ""}`}
+          onClick={() => { telegramHaptic("selection"); setFiltersOpened((opened) => !opened); }}
+          aria-label={`Фильтры${[teamFilter, yearFilter].filter(Boolean).length ? `: выбрано ${[teamFilter, yearFilter].filter(Boolean).length}` : ""}`}
+          aria-expanded={filtersOpened}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4" /></svg>
+          {(teamFilter || yearFilter) && <span className="filter-indicator" />}
+        </button>
+        <button className="header-action" onClick={() => { telegramHaptic("selection"); setManagementOpened(true); }} aria-label="Открыть настройки">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" />
+            <path d="M19.4 13.5a7.8 7.8 0 0 0 0-3l1.7-1.3-2-3.4-2 .8a8 8 0 0 0-2.6-1.5L14.2 3h-4.4l-.3 2.1a8 8 0 0 0-2.6 1.5l-2-.8-2 3.4 1.7 1.3a7.8 7.8 0 0 0 0 3l-1.7 1.3 2 3.4 2-.8a8 8 0 0 0 2.6 1.5l.3 2.1h4.4l.3-2.1a8 8 0 0 0 2.6-1.5l2 .8 2-3.4-1.7-1.3Z" />
+          </svg>
+        </button>
+      </div>
     </header>
     <Tabs value={status} onChange={(value) => setStatus(value as "upcoming" | "past")} className="tabs" variant="pills">
       <Tabs.List grow><Tabs.Tab value="upcoming">Будущие</Tabs.Tab><Tabs.Tab value="past">Прошедшие</Tabs.Tab></Tabs.List>
     </Tabs>
-    <Button
-      className="filters-toggle"
-      variant={teamFilter || yearFilter ? "light" : "subtle"}
-      onClick={() => setFiltersOpened((opened) => !opened)}
-      aria-expanded={filtersOpened}
-    >
-      Фильтры{[teamFilter, yearFilter].filter(Boolean).length ? ` · ${[teamFilter, yearFilter].filter(Boolean).length}` : ""}
-      <span aria-hidden="true">{filtersOpened ? "⌃" : "⌄"}</span>
-    </Button>
     <Collapse expanded={filtersOpened}>
       <Group className="filters-panel" gap="xs" grow>
         <Select clearable searchable placeholder="Все команды" aria-label="Фильтр по команде" value={teamFilter} onChange={setTeamFilter} data={options.teams.map((team) => team.name)} />
         <Select clearable placeholder="Все годы" aria-label="Фильтр по году" value={yearFilter} onChange={setYearFilter} data={Array.from({ length: new Date().getFullYear() - 2019 + 3 }, (_, index) => String(new Date().getFullYear() + 3 - index))} />
       </Group>
     </Collapse>
-    {loading && <Stack gap="sm" aria-label="Загружаем афиши"><Skeleton height={184} radius="md" /><Skeleton height={184} radius="md" /><Group justify="center"><Loader color="gray" size="sm" /></Group></Stack>}
+    {loading && <Stack gap="sm" aria-label="Загружаем афиши"><Skeleton height={184} radius="md" /><Skeleton height={184} radius="md" /></Stack>}
     {error && <Alert color="red" title="Не удалось открыть панель">{error}</Alert>}
     {!loading && !error && shows.length === 0 && <Paper className="state"><Title order={3}>Здесь пока пусто</Title><Text>{status === "upcoming" ? "Создай первую афишу прямо здесь или проверь прошедшие события." : "Прошедших афиш пока нет."}</Text></Paper>}
     <section className="show-list">
@@ -839,8 +913,8 @@ function App() {
   </main>;
 }
 
-function ShowToolsModal({ opened, onClose, show, registrationUrl, demo, onChanged, onDeleted }: {
-  opened: boolean; onClose: () => void; show: Show; registrationUrl: string; demo: boolean; onChanged: (show: Show) => void; onDeleted: () => void;
+function ShowToolsModal({ mode, opened, onClose, show, registrationUrl, demo, onChanged, onDeleted }: {
+  mode: "all" | "chat"; opened: boolean; onClose: () => void; show: Show; registrationUrl: string; demo: boolean; onChanged: (show: Show) => void; onDeleted: () => void;
 }) {
   const cloneDefault = React.useMemo(() => {
     const date = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -960,15 +1034,17 @@ function ShowToolsModal({ opened, onClose, show, registrationUrl, demo, onChange
     finally { setBusy(null); }
   }
 
-  return <Modal opened={opened} onClose={onClose} title="Ссылка и действия" fullScreen>
+  return <Modal opened={opened} onClose={onClose} title={mode === "chat" ? "Чат записей" : "Управление афишей"} fullScreen>
     <Stack>
-      <Paper className="resource-form"><Stack><Group justify="space-between"><Title order={3}>Задачи</Title><Badge variant="light">{tasks.length}</Badge></Group>{tasks.length ? tasks.map((task) => <Group key={task.key} justify="space-between"><Text>{task.label}</Text><Badge>{task.count}</Badge></Group>) : <Text c="dimmed">Срочных действий нет</Text>}{tasks.some((item) => item.key === "manual_notifications") && <Button variant="light" loading={busy === "manual-confirm"} onClick={() => void confirmManualNotifications()}>Отметить ручных зрителей уведомлёнными</Button>}</Stack></Paper>
-      <Paper className="resource-form"><Stack><Title order={3}>Ссылка на запись</Title><Text size="sm" style={{ wordBreak: "break-all" }}>{registrationUrl}</Text><Group grow><Button variant="light" onClick={() => void copyLink()}>Копировать</Button><Button loading={busy === "qr"} onClick={() => void downloadQr()}>Скачать QR</Button></Group></Stack></Paper>
+      {mode === "all" && <><Paper className="resource-form"><Stack><Group justify="space-between"><Title order={3}>Задачи</Title><Badge variant="light">{tasks.length}</Badge></Group>{tasks.length ? tasks.map((task) => <Group key={task.key} justify="space-between"><Text>{task.label}</Text><Badge>{task.count}</Badge></Group>) : <Text c="dimmed">Срочных действий нет</Text>}{tasks.some((item) => item.key === "manual_notifications") && <Button variant="light" loading={busy === "manual-confirm"} onClick={() => void confirmManualNotifications()}>Отметить ручных зрителей уведомлёнными</Button>}</Stack></Paper>
+      <Paper className="resource-form"><Stack><div><Title order={3}>Запись зрителей</Title><Text size="sm" c="dimmed">Эта ссылка открывает публичного бота сразу на записи на выбранное шоу. Зритель укажет имя и количество гостей, а его запись появится в списке зрителей.</Text><Text size="sm" c="dimmed" mt={6}>QR-код содержит ту же ссылку. Его можно разместить на картинке, печатной афише или показать со сцены — зритель отсканирует код камерой телефона.</Text></div><Text size="sm" style={{ wordBreak: "break-all" }}>{registrationUrl}</Text><Group grow><Button variant="light" onClick={() => void copyLink()}>Скопировать ссылку</Button><Button loading={busy === "qr"} onClick={() => void downloadQr()}>Скачать QR-код</Button></Group></Stack></Paper></>}
       <Paper className="resource-form"><Stack><Title order={3}>Рабочий чат записей</Title>{show.registrationChatId ? <><Text>Подключён: {show.registrationChatTitle || show.registrationChatId}</Text><Button color="red" variant="light" loading={busy === "chat"} onClick={() => void clearRegistrationChat()}>Отключить чат</Button></> : <><Text size="sm" c="dimmed">Добавь админ-бота в канал с правом публикации и укажи @username или ID −100…</Text><TextInput label="Канал или чат" placeholder="@registrations_chat" value={chatTarget} onChange={(event) => setChatTarget(event.currentTarget.value)} /><Select label="Формат имени" value={chatNameMode} onChange={(value) => setChatNameMode((value as "short" | "full") ?? "short")} data={[{ value: "short", label: "Короткое имя" }, { value: "full", label: "Полное имя" }]} /><Button disabled={!chatTarget.trim()} loading={busy === "chat"} onClick={() => void saveRegistrationChat()}>Проверить и подключить</Button></>}</Stack></Paper>
+      {mode === "all" && <>
       {show.isActive && <Button variant="light" loading={busy === "remind"} onClick={() => setRemindConfirm(true)}>Отправить напоминание зрителям</Button>}
       <Paper className="resource-form"><Stack><Title order={3}>Создать похожую афишу</Title><TextInput type="datetime-local" label="Дата и время новой афиши" value={cloneDate} onChange={(event) => setCloneDate(event.currentTarget.value)} /><Button loading={busy === "clone"} onClick={() => void clone()}>Создать копию</Button></Stack></Paper>
       {show.isActive && <Paper className="resource-form"><Stack><Title order={3}>Опасная зона</Title><Text size="sm" c="dimmed">Запись будет закрыта. Если афиша публиковалась, в канал уйдёт сообщение об отмене, а записавшиеся получат уведомление.</Text><Button color="red" variant="light" onClick={() => setCancelConfirm(true)}>Отменить афишу</Button></Stack></Paper>}
       {!show.isActive && <Paper className="resource-form"><Stack><Title order={3}>Отменённая афиша</Title><Button loading={busy === "restore"} onClick={() => void restoreShow()}>Восстановить афишу</Button><Button color="red" variant="light" onClick={() => setDeleteConfirm(true)}>Удалить навсегда</Button></Stack></Paper>}
+      </>}
     </Stack>
     <Modal opened={cancelConfirm} onClose={() => setCancelConfirm(false)} title="Точно отменить афишу?" centered><Text>Действие закроет новые записи и отправит уведомления зрителям.</Text><Group justify="flex-end" mt="lg"><Button variant="default" onClick={() => setCancelConfirm(false)}>Не отменять</Button><Button color="red" loading={busy === "cancel"} onClick={() => void cancelShow()}>Да, отменить</Button></Group></Modal>
     <Modal opened={deleteConfirm} onClose={() => setDeleteConfirm(false)} title="Удалить афишу навсегда?" centered><Text>Будут удалены записи, отзывы и история анонсов. Это действие нельзя отменить.</Text><Group justify="flex-end" mt="lg"><Button variant="default" onClick={() => setDeleteConfirm(false)}>Не удалять</Button><Button color="red" loading={busy === "delete"} onClick={() => void deleteShow()}>Удалить навсегда</Button></Group></Modal>
@@ -983,15 +1059,16 @@ function MiniAppRoot() {
   React.useEffect(() => {
     const syncTheme = () => {
       const next = telegram?.colorScheme ?? "dark";
+      const background = next === "light" ? "#fafafa" : "#0f0f0f";
       setColorScheme(next);
       document.documentElement.dataset.theme = next;
+      telegram?.setHeaderColor(background);
+      telegram?.setBackgroundColor(background);
+      telegram?.setBottomBarColor?.(background);
     };
     if (telegram?.initData) document.documentElement.dataset.telegram = "true";
     syncTheme();
     telegram?.onEvent("themeChanged", syncTheme);
-    telegram?.setHeaderColor("bg_color");
-    telegram?.setBackgroundColor("bg_color");
-    telegram?.setBottomBarColor?.("bottom_bar_bg_color");
     telegram?.ready();
     telegram?.expand();
     return () => telegram?.offEvent("themeChanged", syncTheme);
