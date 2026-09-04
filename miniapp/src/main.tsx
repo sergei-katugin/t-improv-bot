@@ -77,6 +77,12 @@ const previewShows: Show[] = [
 const theme = createTheme({
   primaryColor: "violet",
   defaultRadius: "md",
+  colors: {
+    dark: [
+      "#eef2ff", "#dbe4ff", "#b8c3da", "#91a0bb", "#64748b",
+      "#334155", "#1c2740", "#151d31", "#0b1020", "#070b14",
+    ],
+  },
   fontFamily: 'Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   headings: { fontFamily: 'Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' },
 });
@@ -264,6 +270,8 @@ function ManagementModal({ opened, onClose, me, options, reload }: {
   const [revokeUser, setRevokeUser] = React.useState<AccessUser | null>(null);
   const [auditItems, setAuditItems] = React.useState<AuditItem[]>([]);
   const [auditLoading, setAuditLoading] = React.useState(false);
+  const [auditOpened, setAuditOpened] = React.useState(false);
+  const [auditError, setAuditError] = React.useState<string | null>(null);
 
   const loadAccess = React.useCallback(async () => {
     if (me?.role !== "admin") return;
@@ -281,17 +289,16 @@ function ManagementModal({ opened, onClose, me, options, reload }: {
   const loadAudit = React.useCallback(async () => {
     if (me?.role !== "admin") return;
     setAuditLoading(true);
+    setAuditError(null);
     try {
       const preview = import.meta.env.DEV && new URLSearchParams(location.search).get("preview") === "1";
       if (preview) setAuditItems([
         { id: 1, action: "show.published", entityType: "show", entityId: 1, details: { messageId: 123 }, createdAt: new Date().toISOString(), actor: { id: 1, username: "sergey", firstName: "Sergey", lastName: null, telegramId: 416607535 } },
         { id: 2, action: "access.invite_created", entityType: "invite", entityId: 5, details: { role: "organizer" }, createdAt: new Date(Date.now() - 3600000).toISOString(), actor: { id: 1, username: "sergey", firstName: "Sergey", lastName: null, telegramId: 416607535 } },
       ]); else setAuditItems((await api<{ items: AuditItem[] }>("/api/miniapp/audit-log")).items);
-    } catch (reason) { notifications.show({ color: "red", title: "Не удалось загрузить журнал", message: (reason as Error).message }); }
+    } catch (reason) { const message = (reason as Error).message; setAuditError(message); notifications.show({ color: "red", title: "Не удалось загрузить журнал", message }); }
     finally { setAuditLoading(false); }
   }, [me?.role]);
-
-  React.useEffect(() => { if (opened) void loadAudit(); }, [opened, loadAudit]);
 
   async function perform(action: () => Promise<unknown>, success: string) {
     setSaving(true);
@@ -337,7 +344,7 @@ function ManagementModal({ opened, onClose, me, options, reload }: {
 
   return <Modal opened={opened} onClose={onClose} title="Настройки и справочники" fullScreen>
     <Tabs defaultValue="teams">
-      <Tabs.List grow><Tabs.Tab value="teams">Команды</Tabs.Tab>{me?.role === "admin" && <Tabs.Tab value="venues">Площадки</Tabs.Tab>}{me?.role === "admin" && <Tabs.Tab value="channels">Каналы</Tabs.Tab>}{me?.role === "admin" && <Tabs.Tab value="access">Доступ</Tabs.Tab>}{me?.role === "admin" && <Tabs.Tab value="audit">Журнал</Tabs.Tab>}</Tabs.List>
+      <Tabs.List grow><Tabs.Tab value="teams">Команды</Tabs.Tab>{me?.role === "admin" && <Tabs.Tab value="venues">Площадки</Tabs.Tab>}{me?.role === "admin" && <Tabs.Tab value="channels">Каналы</Tabs.Tab>}{me?.role === "admin" && <Tabs.Tab value="access">Доступ</Tabs.Tab>}</Tabs.List>
       <Tabs.Panel value="teams" pt="lg"><Stack>
         {options.teams.map((team) => <Paper className="resource-card" key={team.id}><Group justify="space-between" align="flex-start"><div><Text fw={750}>{team.name}</Text><Text size="sm" c="dimmed">{team.members || "Участники не указаны"}</Text></div><Button size="xs" variant="light" onClick={() => editTeam(team)}>Изменить</Button></Group></Paper>)}
         <Paper className="resource-form"><Stack>
@@ -364,9 +371,12 @@ function ManagementModal({ opened, onClose, me, options, reload }: {
         {accessLoading && <Loader size="sm" />}
         {!accessLoading && accessUsers.map((user) => <Paper className="resource-card" key={user.id}><Group justify="space-between" align="flex-start"><div><Group gap="xs"><Text fw={750}>{[user.firstName, user.lastName].filter(Boolean).join(" ") || user.username || user.telegramId}</Text><Badge color={user.role === "admin" ? "yellow" : "violet"}>{user.role === "admin" ? "Администратор" : "Организатор"}</Badge>{user.isCurrent && <Badge color="gray">Вы</Badge>}</Group>{user.username && <Anchor size="sm" href={`https://t.me/${user.username}`} target="_blank">@{user.username}</Anchor>}</div>{!user.isProtected && !user.isCurrent && <Button size="xs" color="red" variant="subtle" onClick={() => setRevokeUser(user)}>Отозвать</Button>}</Group></Paper>)}
         {!accessLoading && !accessUsers.length && <Text c="dimmed">Пользователей с доступом нет.</Text>}
+        <Button variant="default" onClick={() => { setAuditOpened(true); void loadAudit(); }}>Журнал действий</Button>
       </Stack></Tabs.Panel>
-      <Tabs.Panel value="audit" pt="lg"><Stack>
+    </Tabs>
+    <Modal opened={auditOpened} onClose={() => setAuditOpened(false)} title="Журнал действий" fullScreen><Stack>
         <Group justify="space-between"><div><Title order={3}>Журнал действий</Title><Text size="sm" c="dimmed">Последние 100 административных операций Mini App</Text></div><Button size="xs" variant="light" loading={auditLoading} onClick={() => void loadAudit()}>Обновить</Button></Group>
+        {auditError && <Alert color="red" title="Не удалось загрузить журнал">{auditError}<Button mt="sm" size="xs" variant="light" color="red" onClick={() => void loadAudit()}>Повторить</Button></Alert>}
         {auditLoading && !auditItems.length && <Loader size="sm" />}
         {auditItems.map((item) => {
           const labels: Record<string, string> = { "show.published": "Афиша опубликована", "show.republished": "Афиша опубликована повторно", "show.cancelled": "Афиша отменена", "show.cloned": "Создана копия афиши", "access.invite_created": "Создано приглашение", "access.role_changed": "Изменена роль пользователя" };
@@ -374,8 +384,7 @@ function ManagementModal({ opened, onClose, me, options, reload }: {
           return <Paper className="resource-card" key={item.id}><Group justify="space-between" align="flex-start"><div><Text fw={750}>{labels[item.action] ?? item.action}</Text><Text size="sm" c="dimmed">{actorName} · {new Date(item.createdAt).toLocaleString("ru-RU")}</Text></div><Badge variant="light">{item.entityType} #{item.entityId ?? "—"}</Badge></Group>{item.details && <Text size="xs" c="dimmed" mt="sm" style={{ wordBreak: "break-word" }}>{Object.entries(item.details).map(([key, value]) => `${key}: ${String(value)}`).join(" · ")}</Text>}</Paper>;
         })}
         {!auditLoading && !auditItems.length && <Text c="dimmed">Журнал пока пуст.</Text>}
-      </Stack></Tabs.Panel>
-    </Tabs>
+      </Stack></Modal>
     <Modal opened={revokeUser !== null} onClose={() => setRevokeUser(null)} title="Отозвать доступ?" centered><Text>Пользователь {revokeUser?.username ? `@${revokeUser.username}` : revokeUser?.firstName} больше не сможет открывать Mini App и управлять афишами.</Text><Group justify="flex-end" mt="lg"><Button variant="default" onClick={() => setRevokeUser(null)}>Отмена</Button><Button color="red" loading={saving} onClick={() => void confirmRevoke()}>Отозвать</Button></Group></Modal>
   </Modal>;
 }
@@ -563,9 +572,10 @@ function AnnouncementModal({ opened, onClose, show, demo }: { opened: boolean; o
 function AnalyticsModal({ opened, onClose, show, demo }: { opened: boolean; onClose: () => void; show: Show; demo: boolean }) {
   const [data, setData] = React.useState<Analytics | null>(null);
   const [loading, setLoading] = React.useState(false);
-  React.useEffect(() => {
-    if (!opened) return;
+  const [error, setError] = React.useState<string | null>(null);
+  const load = React.useCallback(async () => {
     setLoading(true);
+    setError(null);
     const demoData: Analytics = {
       registered: show.occupiedSeats, capacity: show.maxSeats, cancelledRegistrations: 4,
       confirmed: 27, arrived: 25, checkinEnabled: true, feedbackEnabled: true,
@@ -573,11 +583,15 @@ function AnalyticsModal({ opened, onClose, show, demo }: { opened: boolean; onCl
       sources: [{ source: "direct", count: 20 }, { source: "instagram", count: 9 }, { source: "manual", count: 5 }],
       comments: [{ id: 1, rating: 5, comment: "Очень тёплое и смешное шоу!", username: "viewer", name: "Анна", createdAt: new Date().toISOString() }], commentsLimit: 100,
     };
-    (demo ? Promise.resolve(demoData) : api<Analytics>(`/api/miniapp/shows/${show.id}/analytics`))
-      .then(setData)
-      .catch((reason: Error) => notifications.show({ color: "red", title: "Не удалось загрузить аналитику", message: reason.message }))
-      .finally(() => setLoading(false));
-  }, [opened, show, demo]);
+    try {
+      setData(demo ? demoData : await api<Analytics>(`/api/miniapp/shows/${show.id}/analytics`));
+    } catch (reason) {
+      const message = (reason as Error).message;
+      setData(null); setError(message);
+      notifications.show({ color: "red", title: "Не удалось загрузить аналитику", message });
+    } finally { setLoading(false); }
+  }, [show.id, show.maxSeats, show.occupiedSeats, demo]);
+  React.useEffect(() => { if (opened) void load(); }, [opened, load]);
   const sourceLabels: Record<string, string> = { direct: "Через бота", manual: "Вручную", social: "Другие соцсети", instagram: "Instagram", channel: "Telegram-канал", team: "Команда" };
   const maxRating = data ? Math.max(1, ...Object.values(data.ratingDistribution)) : 1;
   async function downloadCsv() {
@@ -593,6 +607,7 @@ function AnalyticsModal({ opened, onClose, show, demo }: { opened: boolean; onCl
   }
   return <Modal opened={opened} onClose={onClose} title={`Аналитика · ${show.title}`} fullScreen>
     {loading && <Stack><Skeleton height={120} radius="lg" /><Skeleton height={220} radius="lg" /></Stack>}
+    {!loading && error && <Alert color="red" title="Не удалось загрузить аналитику">{error}<Button mt="sm" size="xs" variant="light" color="red" onClick={() => void load()}>Повторить</Button></Alert>}
     {!loading && data && <Stack>
       <Button variant="light" onClick={() => void downloadCsv()}>Скачать зрителей и отзывы · CSV</Button>
       <SimpleGrid cols={2}>
@@ -700,7 +715,12 @@ function App() {
   return <main className="shell">
     <header>
       <div><div className="brand">T·IMPRO</div><h1>Мои афиши</h1>{isPreview && <Badge mt={8} color="gray" variant="light">Демо-данные · API отключён</Badge>}</div>
-      <button className="avatar" onClick={() => setManagementOpened(true)} aria-label="Открыть настройки">⚙</button>
+      <button className="avatar" onClick={() => setManagementOpened(true)} aria-label="Открыть настройки">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" />
+          <path d="M19.4 13.5a7.8 7.8 0 0 0 0-3l1.7-1.3-2-3.4-2 .8a8 8 0 0 0-2.6-1.5L14.2 3h-4.4l-.3 2.1a8 8 0 0 0-2.6 1.5l-2-.8-2 3.4 1.7 1.3a7.8 7.8 0 0 0 0 3l-1.7 1.3 2 3.4 2-.8a8 8 0 0 0 2.6 1.5l.3 2.1h4.4l.3-2.1a8 8 0 0 0 2.6-1.5l2 .8 2-3.4-1.7-1.3Z" />
+        </svg>
+      </button>
     </header>
     <Tabs value={status} onChange={(value) => setStatus(value as "upcoming" | "past")} className="tabs">
       <Tabs.List grow><Tabs.Tab value="upcoming">Будущие</Tabs.Tab><Tabs.Tab value="past">Прошедшие</Tabs.Tab></Tabs.List>

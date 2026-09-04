@@ -272,7 +272,7 @@ async def _record_audit(
     try:
         serialized = json.dumps(details, ensure_ascii=False, separators=(",", ":")) if details else None
         if serialized and len(serialized) > 4000:
-            serialized = serialized[:4000]
+            serialized = json.dumps({"truncated": True}, separators=(",", ":"))
         async with AsyncSessionLocal() as session:
             session.add(AuditLog(
                 actor_user_id=request["miniapp_user_id"], action=action,
@@ -301,7 +301,7 @@ async def miniapp_audit_log(request: web.Request) -> web.Response:
     return web.json_response({
         "items": [{
             "id": item.id, "action": item.action, "entityType": item.entity_type,
-            "entityId": item.entity_id, "details": json.loads(item.details) if item.details else None,
+            "entityId": item.entity_id, "details": _audit_details(item.details),
             "createdAt": item.created_at.isoformat(),
             "actor": None if actor is None else {
                 "id": actor.id, "username": actor.username, "firstName": actor.first_name,
@@ -310,6 +310,17 @@ async def miniapp_audit_log(request: web.Request) -> web.Response:
         } for item, actor in items],
         "hasMore": len(rows) > limit, "nextOffset": offset + len(items),
     })
+
+
+def _audit_details(value: str | None) -> dict[str, object] | None:
+    if not value:
+        return None
+    try:
+        details = json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        logger.warning("Ignoring malformed audit details")
+        return {"unavailable": True}
+    return details if isinstance(details, dict) else {"unavailable": True}
 
 
 def _occupied_expression():
@@ -590,6 +601,8 @@ async def miniapp_cancel_show(request: web.Request) -> web.Response:
 
 async def miniapp_show_analytics(request: web.Request) -> web.Response:
     show_id = _show_id(request)
+    registration_source = func.coalesce(Registration.source, "direct")
+    manual_source = func.coalesce(ManualAttendee.source, "manual")
     async with AsyncSessionLocal() as session:
         show = await _manageable_api_show(session, request, show_id)
         reg_summary = (await session.execute(select(
@@ -614,14 +627,14 @@ async def miniapp_show_analytics(request: web.Request) -> web.Response:
             .group_by(ShowFeedback.rating).order_by(ShowFeedback.rating.desc())
         )).all()
         reg_source_rows = (await session.execute(
-            select(func.coalesce(Registration.source, "direct"), func.sum(1 + Registration.guests))
+            select(registration_source, func.sum(1 + Registration.guests))
             .where(Registration.show_id == show_id, Registration.is_cancelled == False)
-            .group_by(func.coalesce(Registration.source, "direct"))
+            .group_by(registration_source)
         )).all()
         manual_source_rows = (await session.execute(
-            select(func.coalesce(ManualAttendee.source, "manual"), func.count(ManualAttendee.id))
+            select(manual_source, func.count(ManualAttendee.id))
             .where(ManualAttendee.show_id == show_id)
-            .group_by(func.coalesce(ManualAttendee.source, "manual"))
+            .group_by(manual_source)
         )).all()
         comments = (await session.execute(
             select(ShowFeedback, User)
