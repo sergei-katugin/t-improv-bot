@@ -1,7 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import {
-  Alert, Anchor, Autocomplete, Badge, Button, FileInput, Group, Loader, MantineProvider, Modal, NumberInput,
+  Alert, Anchor, Autocomplete, Badge, Button, Collapse, FileInput, Group, Loader, MantineProvider, Modal, NumberInput,
   Paper, Progress, Select, SimpleGrid, Skeleton, Stack, Switch, Tabs, Text,
   Textarea, TextInput, Title, createTheme,
 } from "@mantine/core";
@@ -78,12 +78,12 @@ const previewShows: Show[] = [
 ];
 
 const theme = createTheme({
-  primaryColor: "violet",
+  primaryColor: "gray",
   defaultRadius: "md",
   colors: {
     dark: [
-      "#eef2ff", "#dbe4ff", "#b8c3da", "#91a0bb", "#64748b",
-      "#334155", "#1c2740", "#151d31", "#0b1020", "#070b14",
+      "#fafafa", "#f5f5f5", "#e5e5e5", "#a3a3a3", "#737373",
+      "#525252", "#303030", "#242424", "#171717", "#0f0f0f",
     ],
   },
   fontFamily: 'Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
@@ -229,7 +229,7 @@ function ShowForm({ opened, initial, options, me, reloadOptions, onClose, onSave
         const form = new FormData(); form.append("poster", poster);
         await api(`/api/miniapp/shows/${result.id}/poster`, { method: "POST", body: form });
       }
-      notifications.show({ color: "violet", title: initial ? "Афиша обновлена" : "Афиша создана", message: "Изменения сохранены" });
+      notifications.show({ color: "gray", title: initial ? "Афиша обновлена" : "Афиша создана", message: "Изменения сохранены" });
       onSaved(result.id);
     } catch (reason) {
       notifications.show({ color: "red", title: "Не удалось сохранить", message: (reason as Error).message });
@@ -260,7 +260,7 @@ function ShowForm({ opened, initial, options, me, reloadOptions, onClose, onSave
         <Switch label="Включить check-in" checked={value.checkinEnabled} onChange={(e) => set("checkinEnabled", e.currentTarget.checked)} />
         <Switch label="Запрашивать отзывы после шоу" checked={value.feedbackEnabled} onChange={(e) => set("feedbackEnabled", e.currentTarget.checked)} />
         {initial && <Switch label="Уведомить записавшихся об изменениях" checked={notifyViewers} onChange={(event) => setNotifyViewers(event.currentTarget.checked)} />}
-        <Paper className="telegram-preview"><Text size="xs" fw={800} c="violet.2">ПРЕДПРОСМОТР</Text><Title order={3}>🎭 {value.title || "Название шоу"}</Title><Text>👥 Команда: {value.teamName || "не выбрана"}</Text><Text>📅 {value.showDateLocal ? new Date(value.showDateLocal).toLocaleString("ru-RU", { dateStyle: "long", timeStyle: "short" }) : "дата не выбрана"}</Text><Text>📍 {selectedVenue?.name || value.location || "площадка не выбрана"}, {selectedVenue?.city || value.city}</Text>{value.registrarUsername && <Text>👤 Ответственный: {value.registrarUsername}</Text>}{value.posterText && <Text mt="sm" style={{ whiteSpace: "pre-wrap" }}>{value.posterText}</Text>}</Paper>
+        <Paper className="telegram-preview"><Text size="xs" fw={800} c="dimmed">ПРЕДПРОСМОТР</Text><Title order={3}>🎭 {value.title || "Название шоу"}</Title><Text>👥 Команда: {value.teamName || "не выбрана"}</Text><Text>📅 {value.showDateLocal ? new Date(value.showDateLocal).toLocaleString("ru-RU", { dateStyle: "long", timeStyle: "short" }) : "дата не выбрана"}</Text><Text>📍 {selectedVenue?.name || value.location || "площадка не выбрана"}, {selectedVenue?.city || value.city}</Text>{value.registrarUsername && <Text>👤 Ответственный: {value.registrarUsername}</Text>}{value.posterText && <Text mt="sm" style={{ whiteSpace: "pre-wrap" }}>{value.posterText}</Text>}</Paper>
         <Button variant="light" loading={saving} disabled={!value.title || !value.teamName || !value.showDateLocal || !venueId} onClick={() => void sendPreview()}>Отправить тест в админ-бот</Button>
         <Button type="submit" loading={saving} size="md">{initial ? "Сохранить изменения" : "Создать афишу"}</Button>
       </Stack>
@@ -327,7 +327,7 @@ function ManagementModal({ opened, onClose, me, options, reload }: {
     setSaving(true);
     try {
       await action(); await reload();
-      notifications.show({ color: "violet", title: success, message: "Справочник обновлён" });
+      notifications.show({ color: "gray", title: success, message: "Справочник обновлён" });
       return true;
     } catch (reason) {
       notifications.show({ color: "red", title: "Не удалось сохранить", message: (reason as Error).message });
@@ -399,7 +399,7 @@ function ManagementModal({ opened, onClose, me, options, reload }: {
         <Paper className="resource-form"><Stack><Title order={3}>Пригласить организатора</Title><Text size="sm" c="dimmed">Ссылка одноразовая и автоматически истечёт. Новый пользователь сможет управлять только созданными им афишами.</Text><Button loading={saving} onClick={() => void createInvite()}>Создать ссылку</Button>{inviteUrl && <><Text size="sm" style={{ wordBreak: "break-all" }}>{inviteUrl}</Text><Button variant="light" onClick={() => void copyInvite()}>Копировать приглашение</Button></>}</Stack></Paper>
         <Title order={3}>Пользователи с доступом</Title>
         {accessLoading && <Loader size="sm" />}
-        {!accessLoading && accessUsers.map((user) => <Paper className="resource-card" key={user.id}><Group justify="space-between" align="flex-start"><div><Group gap="xs"><Text fw={750}>{[user.firstName, user.lastName].filter(Boolean).join(" ") || user.username || user.telegramId}</Text><Badge color={user.role === "admin" ? "yellow" : "violet"}>{user.role === "admin" ? "Администратор" : "Организатор"}</Badge>{user.isCurrent && <Badge color="gray">Вы</Badge>}</Group>{user.username && <Anchor size="sm" href={`https://t.me/${user.username}`} target="_blank">@{user.username}</Anchor>}</div>{!user.isProtected && !user.isCurrent && <Button size="xs" color="red" variant="subtle" onClick={() => setRevokeUser(user)}>Отозвать</Button>}</Group></Paper>)}
+        {!accessLoading && accessUsers.map((user) => <Paper className="resource-card" key={user.id}><Group justify="space-between" align="flex-start"><div><Group gap="xs"><Text fw={750}>{[user.firstName, user.lastName].filter(Boolean).join(" ") || user.username || user.telegramId}</Text><Badge color={user.role === "admin" ? "yellow" : "gray"}>{user.role === "admin" ? "Администратор" : "Организатор"}</Badge>{user.isCurrent && <Badge color="gray">Вы</Badge>}</Group>{user.username && <Anchor size="sm" href={`https://t.me/${user.username}`} target="_blank">@{user.username}</Anchor>}</div>{!user.isProtected && !user.isCurrent && <Button size="xs" color="red" variant="subtle" onClick={() => setRevokeUser(user)}>Отозвать</Button>}</Group></Paper>)}
         {!accessLoading && !accessUsers.length && <Text c="dimmed">Пользователей с доступом нет.</Text>}
         <Button variant="default" onClick={() => { setAuditOpened(true); void loadAudit(); }}>Журнал действий</Button>
       </Stack></Tabs.Panel>
@@ -464,7 +464,7 @@ function AttendeesModal({ opened, onClose, show, demo }: { opened: boolean; onCl
     try {
       await api(path, { method, body: body ? JSON.stringify(body) : undefined });
       if (!demo) await load(0);
-      notifications.show({ color: "violet", title: "Список обновлён", message: "Изменения сохранены" });
+      notifications.show({ color: "gray", title: "Список обновлён", message: "Изменения сохранены" });
     } catch (reason) { notifications.show({ color: "red", title: "Не удалось изменить запись", message: (reason as Error).message }); }
     finally { setBusy(null); }
   }
@@ -478,7 +478,7 @@ function AttendeesModal({ opened, onClose, show, demo }: { opened: boolean; onCl
     try {
       await api(`/api/miniapp/shows/${show.id}/attendees/manual`, { method: "POST", body: JSON.stringify({ rows }) });
       setManualRows(""); if (!demo) await load(0);
-      notifications.show({ color: "violet", title: "Зрители добавлены", message: `Добавлено: ${rows.length}` });
+      notifications.show({ color: "gray", title: "Зрители добавлены", message: `Добавлено: ${rows.length}` });
     } catch (reason) { notifications.show({ color: "red", title: "Не удалось добавить", message: (reason as Error).message }); }
     finally { setBusy(null); }
   }
@@ -497,7 +497,7 @@ function AttendeesModal({ opened, onClose, show, demo }: { opened: boolean; onCl
   return <Modal opened={opened} onClose={onClose} title={`Записи · ${show.title}`} fullScreen>
     {loading && <Stack><Skeleton height={100} /><Skeleton height={100} /></Stack>}
     {data && <Stack gap="md">
-      <Paper className="attendance-summary"><Group justify="space-between"><div><Text size="sm" c="dimmed">Записано</Text><Title order={2}>{data.occupied} / {data.maxSeats}</Title></div><div><Text size="sm" c="dimmed">Пришли</Text><Title order={2}>{data.arrived}</Title></div></Group><Progress value={Math.min(100, data.occupied / Math.max(1, data.maxSeats) * 100)} mt="md" color="violet" /></Paper>
+      <Paper className="attendance-summary"><Group justify="space-between"><div><Text size="sm" c="dimmed">Записано</Text><Title order={2}>{data.occupied} / {data.maxSeats}</Title></div><div><Text size="sm" c="dimmed">Пришли</Text><Title order={2}>{data.arrived}</Title></div></Group><Progress value={Math.min(100, data.occupied / Math.max(1, data.maxSeats) * 100)} mt="md" color="gray" /></Paper>
       <Group gap="xs" wrap="nowrap"><TextInput style={{ flex: 1 }} aria-label="Поиск зрителя" placeholder="Имя или @username" value={search} onChange={(event) => setSearch(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === "Enter") void load(0); }} /><Button variant="light" loading={loading} onClick={() => void load(0)}>Найти</Button></Group>
       <Title order={3}>Записались через бот</Title>
       {data.registrations.map((item) => <Paper className="attendee-card" key={item.id}><Stack gap="sm"><Group justify="space-between" align="flex-start"><div><Text fw={750}>{item.name}{item.guests ? ` +${item.guests}` : ""}</Text>{item.username && <Anchor size="sm" href={`https://t.me/${item.username}`} target="_blank">@{item.username}</Anchor>}</div><Badge color={item.checkedInCount ? "green" : "gray"}>{item.checkedInCount} / {item.guests + 1}</Badge></Group><Group justify="space-between"><Group gap="xs"><Button size="xs" variant="light" disabled={item.checkedInCount <= 0 || busy !== null} onClick={() => mutate(`check-${item.id}`, `/api/miniapp/shows/${show.id}/registrations/${item.id}`, "PATCH", { checkedInCount: item.checkedInCount - 1 })}>− Пришли</Button><Button size="xs" variant="light" disabled={item.checkedInCount >= item.guests + 1 || busy !== null} onClick={() => mutate(`check-${item.id}`, `/api/miniapp/shows/${show.id}/registrations/${item.id}`, "PATCH", { checkedInCount: item.checkedInCount + 1 })}>+ Пришли</Button></Group><Button size="xs" color="red" variant="subtle" loading={busy === `cancel-${item.id}`} onClick={() => setConfirmDelete({ kind: "registration", id: item.id, name: item.name })}>Отменить</Button></Group><Group gap="xs"><Text size="sm" c="dimmed">Гостей:</Text><Button size="compact-xs" variant="default" disabled={item.guests <= 0 || busy !== null} onClick={() => mutate(`guest-${item.id}`, `/api/miniapp/shows/${show.id}/registrations/${item.id}`, "PATCH", { guests: item.guests - 1 })}>−</Button><Text>{item.guests}</Text><Button size="compact-xs" variant="default" disabled={item.guests >= 50 || busy !== null} onClick={() => mutate(`guest-${item.id}`, `/api/miniapp/shows/${show.id}/registrations/${item.id}`, "PATCH", { guests: item.guests + 1 })}>+</Button></Group></Stack></Paper>)}
@@ -557,7 +557,7 @@ function AnnouncementModal({ opened, onClose, show, demo }: { opened: boolean; o
       }
       if (imageUrl) URL.revokeObjectURL(imageUrl);
       setImageUrl(URL.createObjectURL(poster)); setPoster(null);
-      notifications.show({ color: "violet", title: "Изображение обновлено", message: "Новая афиша сохранена" });
+      notifications.show({ color: "gray", title: "Изображение обновлено", message: "Новая афиша сохранена" });
     } catch (reason) { notifications.show({ color: "red", title: "Не удалось загрузить", message: (reason as Error).message }); }
     finally { setLoading(false); }
   }
@@ -679,6 +679,7 @@ function App() {
   const [status, setStatus] = React.useState<"upcoming" | "past">("upcoming");
   const [teamFilter, setTeamFilter] = React.useState<string | null>(null);
   const [yearFilter, setYearFilter] = React.useState<string | null>(null);
+  const [filtersOpened, setFiltersOpened] = React.useState(false);
   const [showsHasMore, setShowsHasMore] = React.useState(false);
   const [showsNextOffset, setShowsNextOffset] = React.useState(0);
   const [loading, setLoading] = React.useState(!isPreview);
@@ -775,7 +776,7 @@ function App() {
         <Text className="date">{selected.showDateLabel}</Text>
         <Text className="place">{selected.location} · {selected.city}</Text>
         <div className="capacity-head"><span>Записи</span><strong>{selected.occupiedSeats} / {selected.maxSeats}</strong></div>
-        <Progress value={fill} color="violet" mt={8} />
+        <Progress value={fill} color="gray" mt={8} />
         {selected.registrarUsername && <Anchor className="registrar" href={`https://t.me/${selected.registrarUsername}`} target="_blank">Ответственный · @{selected.registrarUsername} ↗</Anchor>}
         {selected.posterText && <Text className="poster-text">{selected.posterText}</Text>}
       </Paper>
@@ -799,21 +800,35 @@ function App() {
         </svg>
       </button>
     </header>
-    <Tabs value={status} onChange={(value) => setStatus(value as "upcoming" | "past")} className="tabs">
+    <Tabs value={status} onChange={(value) => setStatus(value as "upcoming" | "past")} className="tabs" variant="pills">
       <Tabs.List grow><Tabs.Tab value="upcoming">Будущие</Tabs.Tab><Tabs.Tab value="past">Прошедшие</Tabs.Tab></Tabs.List>
     </Tabs>
-    <Group gap="xs" mb="md" grow><Select clearable searchable placeholder="Все команды" aria-label="Фильтр по команде" value={teamFilter} onChange={setTeamFilter} data={options.teams.map((team) => team.name)} /><Select clearable placeholder="Все годы" aria-label="Фильтр по году" value={yearFilter} onChange={setYearFilter} data={Array.from({ length: new Date().getFullYear() - 2019 + 3 }, (_, index) => String(new Date().getFullYear() + 3 - index))} /></Group>
-    {loading && <Stack gap="sm" aria-label="Загружаем афиши"><Skeleton height={184} radius="lg" /><Skeleton height={184} radius="lg" /><Group justify="center"><Loader color="violet" size="sm" /></Group></Stack>}
+    <Button
+      className="filters-toggle"
+      variant={teamFilter || yearFilter ? "light" : "subtle"}
+      onClick={() => setFiltersOpened((opened) => !opened)}
+      aria-expanded={filtersOpened}
+    >
+      Фильтры{[teamFilter, yearFilter].filter(Boolean).length ? ` · ${[teamFilter, yearFilter].filter(Boolean).length}` : ""}
+      <span aria-hidden="true">{filtersOpened ? "⌃" : "⌄"}</span>
+    </Button>
+    <Collapse expanded={filtersOpened}>
+      <Group className="filters-panel" gap="xs" grow>
+        <Select clearable searchable placeholder="Все команды" aria-label="Фильтр по команде" value={teamFilter} onChange={setTeamFilter} data={options.teams.map((team) => team.name)} />
+        <Select clearable placeholder="Все годы" aria-label="Фильтр по году" value={yearFilter} onChange={setYearFilter} data={Array.from({ length: new Date().getFullYear() - 2019 + 3 }, (_, index) => String(new Date().getFullYear() + 3 - index))} />
+      </Group>
+    </Collapse>
+    {loading && <Stack gap="sm" aria-label="Загружаем афиши"><Skeleton height={184} radius="md" /><Skeleton height={184} radius="md" /><Group justify="center"><Loader color="gray" size="sm" /></Group></Stack>}
     {error && <Alert color="red" title="Не удалось открыть панель">{error}</Alert>}
     {!loading && !error && shows.length === 0 && <Paper className="state"><Title order={3}>Здесь пока пусто</Title><Text>{status === "upcoming" ? "Создай первую афишу прямо здесь или проверь прошедшие события." : "Прошедших афиш пока нет."}</Text></Paper>}
     <section className="show-list">
       {shows.map((show) => {
         const fill = Math.min(100, Math.round(show.occupiedSeats / Math.max(1, show.maxSeats) * 100));
         return <Paper component="button" className="show-card" key={show.id} onClick={() => { telegramHaptic("selection"); void openShow(show); }}>
-          <div className="card-top"><Badge color="violet" variant="light">{show.showDateLabel}</Badge><span className="arrow">→</span></div>
+          <div className="card-top"><Badge color="gray" variant="light">{show.showDateLabel}</Badge><span className="arrow">→</span></div>
           <Title order={2}>{show.title}</Title><Text>{show.teamName}</Text><Text className="muted">{show.location} · {show.city}</Text>
           <div className="capacity-head"><span>Заполнено</span><strong>{show.occupiedSeats} / {show.maxSeats}</strong></div>
-          <Progress value={fill} color="violet" mt={8} />
+          <Progress value={fill} color="gray" mt={8} />
         </Paper>;
       })}
     </section>
