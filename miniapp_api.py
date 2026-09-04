@@ -20,8 +20,9 @@ from urllib.parse import urlparse
 
 from aiohttp import web
 from aiogram import Bot
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.types import BufferedInputFile, LinkPreviewOptions
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import selectinload
 
 from admin_bot.security import can_manage_owned
@@ -242,10 +243,14 @@ def _show_payload(show: Show, occupied: int) -> dict[str, object]:
         "location": show.location,
         "city": show.city,
         "isActive": show.is_active,
+        "checkinEnabled": show.checkin_enabled,
         "maxSeats": show.max_seats,
         "occupiedSeats": occupied,
         "registrarUsername": registrar_username,
         "registrationUrl": _registration_url(show.id),
+        "registrationChatId": show.registration_chat_id,
+        "registrationChatTitle": show.registration_chat_title,
+        "registrationChatNameMode": show.registration_chat_name_mode,
     }
 
 
@@ -334,6 +339,14 @@ async def miniapp_shows(request: web.Request) -> web.Response:
     status = request.query.get("status", "upcoming")
     if status not in {"upcoming", "past", "all"}:
         raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_status"}), content_type="application/json")
+    try:
+        offset = max(0, int(request.query.get("offset", "0")))
+        year = int(request.query["year"]) if request.query.get("year") else None
+    except ValueError:
+        raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_filter"}), content_type="application/json")
+    if year is not None and not 2000 <= year <= 2100:
+        raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_filter"}), content_type="application/json")
+    team = request.query.get("team", "").strip()[:256]
     occupied = _occupied_expression().label("occupied")
     query = (
         select(Show, occupied)
@@ -341,7 +354,7 @@ async def miniapp_shows(request: web.Request) -> web.Response:
         .outerjoin(Registration, Registration.show_id == Show.id)
         .group_by(Show.id)
         .order_by(Show.show_date.desc())
-        .limit(MAX_SHOWS_PER_PAGE)
+        .offset(offset).limit(MAX_SHOWS_PER_PAGE + 1)
     )
     if not request["miniapp_is_admin"]:
         query = query.where(Show.creator_id == request["miniapp_user_id"])
@@ -349,12 +362,22 @@ async def miniapp_shows(request: web.Request) -> web.Response:
         query = query.where(Show.show_date >= utc_now(), Show.is_active == True)
     elif status == "past":
         query = query.where(Show.show_date < utc_now())
+    if team:
+        query = query.where(Show.team_name == team)
+    if year is not None:
+        query = query.where(
+            Show.show_date >= local_naive_to_utc(datetime(year, 1, 1)),
+            Show.show_date < local_naive_to_utc(datetime(year + 1, 1, 1)),
+        )
 
     async with AsyncSessionLocal() as session:
         rows = (await session.execute(query)).all()
+        items = rows[:MAX_SHOWS_PER_PAGE]
         return web.json_response({
-            "items": [_show_payload(show, int(count)) for show, count in rows],
+            "items": [_show_payload(show, int(count)) for show, count in items],
             "limit": MAX_SHOWS_PER_PAGE,
+            "hasMore": len(rows) > MAX_SHOWS_PER_PAGE,
+            "nextOffset": offset + len(items),
         })
 
 
@@ -955,6 +978,21 @@ async def miniapp_update_team(request: web.Request) -> web.Response:
         return web.json_response({"id": team_id})
 
 
+async def miniapp_delete_team(request: web.Request) -> web.Response:
+    try:
+        team_id = int(request.match_info["team_id"])
+    except ValueError:
+        raise web.HTTPNotFound()
+    async with AsyncSessionLocal() as session:
+        team = await crud.get_team(session, team_id)
+        if team is None or not can_manage_owned(
+            team.creator_id, await session.get(User, request["miniapp_user_id"]), request["miniapp_is_admin"],
+        ):
+            raise web.HTTPNotFound()
+        await crud.delete_team(session, team_id)
+    return web.json_response({"id": team_id})
+
+
 async def miniapp_create_venue(request: web.Request) -> web.Response:
     _require_admin(request)
     data = await _json_body(request)
@@ -979,6 +1017,44 @@ async def miniapp_create_venue(request: web.Request) -> web.Response:
     async with AsyncSessionLocal() as session:
         venue = await crud.create_venue(session, name, city, maps_url, seats)
         return web.json_response({"id": venue.id}, status=201)
+
+
+async def miniapp_update_venue(request: web.Request) -> web.Response:
+    _require_admin(request)
+    try:
+        venue_id = int(request.match_info["venue_id"])
+    except ValueError:
+        raise web.HTTPNotFound()
+    data = await _json_body(request)
+    if not data or any(key not in {"name", "city", "mapsUrl", "defaultSeats"} for key in data):
+        raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_payload"}), content_type="application/json")
+    fields: dict[str, object] = {}
+    if "name" in data: fields["name"] = _required_text(data, "name", 256)
+    if "city" in data: fields["city"] = _required_text(data, "city", 128)
+    if "mapsUrl" in data:
+        maps_url = _optional_text(data, "mapsUrl", 512)
+        if maps_url and (urlparse(maps_url).scheme not in {"http", "https"} or not urlparse(maps_url).netloc):
+            raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_field", "field": "mapsUrl"}), content_type="application/json")
+        fields["maps_url"] = maps_url
+    if "defaultSeats" in data:
+        seats = data["defaultSeats"]
+        if isinstance(seats, bool) or not isinstance(seats, int) or not 1 <= seats <= 10_000:
+            raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_field", "field": "defaultSeats"}), content_type="application/json")
+        fields["default_seats"] = seats
+    async with AsyncSessionLocal() as session:
+        venue = await crud.update_venue(session, venue_id, **fields)
+        if venue is None: raise web.HTTPNotFound()
+    return web.json_response({"id": venue_id})
+
+
+async def miniapp_delete_venue(request: web.Request) -> web.Response:
+    _require_admin(request)
+    try: venue_id = int(request.match_info["venue_id"])
+    except ValueError: raise web.HTTPNotFound()
+    async with AsyncSessionLocal() as session:
+        if await crud.get_venue(session, venue_id) is None: raise web.HTTPNotFound()
+        await crud.delete_venue(session, venue_id)
+    return web.json_response({"id": venue_id})
 
 
 async def miniapp_create_ad_channel(request: web.Request) -> web.Response:
@@ -1012,6 +1088,15 @@ async def miniapp_toggle_ad_channel(request: web.Request) -> web.Response:
         if channel is None:
             raise web.HTTPNotFound()
         return web.json_response({"id": channel.id, "isActive": channel.is_active})
+
+
+async def miniapp_delete_ad_channel(request: web.Request) -> web.Response:
+    _require_admin(request)
+    try: channel_id = int(request.match_info["channel_id"])
+    except ValueError: raise web.HTTPNotFound()
+    async with AsyncSessionLocal() as session:
+        if not await crud.delete_ad_channel(session, channel_id): raise web.HTTPNotFound()
+    return web.json_response({"id": channel_id})
 
 
 def _required_text(data: dict, key: str, max_length: int) -> str:
@@ -1164,7 +1249,11 @@ async def miniapp_update_show(request: web.Request) -> web.Response:
         show_id = int(request.match_info["show_id"])
     except ValueError:
         raise web.HTTPNotFound()
-    fields = _show_fields(await _json_body(request), require_all=False)
+    data = await _json_body(request)
+    notify = data.pop("notify", False)
+    if not isinstance(notify, bool):
+        raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_field", "field": "notify"}), content_type="application/json")
+    fields = _show_fields(data, require_all=False)
     if not fields:
         raise web.HTTPBadRequest(text=json.dumps({"error": "empty_update"}), content_type="application/json")
     async with AsyncSessionLocal() as session:
@@ -1176,8 +1265,120 @@ async def miniapp_update_show(request: web.Request) -> web.Response:
             username = fields["registrar_username"]
             registrar = await crud.get_user_by_username(session, str(username)) if username else None
             fields["registrar_id"] = registrar.id if registrar else None
-        await crud.update_show(session, show_id, **fields)
-        return web.json_response({"id": show_id})
+        updated = await crud.update_show(session, show_id, **fields)
+        users = await crud.get_registered_users_for_show(session, show_id) if notify else []
+    sent = failed = 0
+    if notify and updated:
+        text = f"✏️ Обновилась афиша <b>{h(updated.title)}</b>\n📅 {format_local(updated.show_date)}\n📍 {h(updated.location)}, {h(updated.city)}"
+        bot = request.app[PUBLIC_BOT_KEY]
+        for user in users:
+            try:
+                await send_with_retry(bot.send_message, user.telegram_id, text)
+                sent += 1
+            except Exception:
+                failed += 1
+    return web.json_response({"id": show_id, "notified": sent, "failed": failed})
+
+
+async def miniapp_show_tasks(request: web.Request) -> web.Response:
+    show_id = _show_id(request)
+    async with AsyncSessionLocal() as session:
+        show = await _manageable_api_show(session, request, show_id)
+        registrations = await crud.get_registered_users_for_show(session, show_id)
+        pending_manual = await crud.get_pending_manual_attendees_for_reminder(session, show_id, limit=100)
+        announced = await crud.has_any_announcement_been_sent(session, show_id)
+        tasks = []
+        if not announced: tasks.append({"key": "announcement", "label": "Опубликовать анонс", "count": 1})
+        if not show.registration_chat_id: tasks.append({"key": "registration_chat", "label": "Подключить рабочий чат", "count": 1})
+        if pending_manual: tasks.append({"key": "manual_notifications", "label": "Уведомить добавленных вручную", "count": len(pending_manual)})
+        return web.json_response({"items": tasks, "registeredUsers": len(registrations)})
+
+
+async def miniapp_remind_viewers(request: web.Request) -> web.Response:
+    show_id = _show_id(request)
+    async with AsyncSessionLocal() as session:
+        show = await _manageable_api_show(session, request, show_id)
+        if not show.is_active:
+            raise web.HTTPConflict(text=json.dumps({"error": "show_cancelled"}), content_type="application/json")
+        users = await crud.get_registered_users_for_show(session, show_id)
+        title, date_label, location, city = show.title, format_local(show.show_date), show.location, show.city
+    text = f"🔔 Напоминание!\n\nТы записан(а) на шоу <b>{h(title)}</b>\n📅 {date_label}\n📍 {h(location)}, {h(city)}"
+    bot = request.app[PUBLIC_BOT_KEY]
+    sent = failed = 0
+    for user in users:
+        try:
+            await send_with_retry(bot.send_message, user.telegram_id, text)
+            sent += 1
+        except Exception:
+            failed += 1
+    await _record_audit(request, "show.reminders_sent", "show", show_id, {"sent": sent, "failed": failed})
+    return web.json_response({"sent": sent, "failed": failed})
+
+
+async def miniapp_registration_chat(request: web.Request) -> web.Response:
+    show_id = _show_id(request)
+    data = await _json_body(request)
+    if any(key not in {"target", "nameMode"} for key in data):
+        raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_payload"}), content_type="application/json")
+    target_raw = _required_text(data, "target", 128)
+    name_mode = data.get("nameMode", "short")
+    if name_mode not in {"short", "full"}:
+        raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_field", "field": "nameMode"}), content_type="application/json")
+    target: str | int = target_raw
+    if not target_raw.startswith("@"):
+        try: target = int(target_raw)
+        except ValueError: raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_field", "field": "target"}), content_type="application/json")
+    async with AsyncSessionLocal() as session:
+        show = await _manageable_api_show(session, request, show_id)
+        title = show.title
+    bot = request.app[ADMIN_BOT_KEY]
+    try:
+        chat = await bot.get_chat(target)
+        await send_with_retry(bot.send_message, chat.id, f"✅ Чат подключён к шоу «{h(title)}». Здесь будут появляться новые записи.")
+    except (TelegramBadRequest, TelegramForbiddenError):
+        raise web.HTTPConflict(text=json.dumps({"error": "chat_unavailable"}), content_type="application/json")
+    display_name = getattr(chat, "title", None) or getattr(chat, "username", None) or target_raw
+    async with AsyncSessionLocal() as session:
+        await _manageable_api_show(session, request, show_id)
+        await crud.update_show(session, show_id, registration_chat_id=chat.id, registration_chat_title=display_name, registration_chat_name_mode=name_mode)
+    return web.json_response({"id": chat.id, "title": display_name, "nameMode": name_mode})
+
+
+async def miniapp_clear_registration_chat(request: web.Request) -> web.Response:
+    show_id = _show_id(request)
+    async with AsyncSessionLocal() as session:
+        await _manageable_api_show(session, request, show_id)
+        await crud.update_show(session, show_id, registration_chat_id=None, registration_chat_title=None)
+    return web.json_response({"id": show_id})
+
+
+async def miniapp_confirm_manual_notifications(request: web.Request) -> web.Response:
+    show_id = _show_id(request)
+    async with AsyncSessionLocal() as session:
+        await _manageable_api_show(session, request, show_id)
+        count = await crud.confirm_manual_attendees_notified(session, show_id)
+    return web.json_response({"confirmed": count})
+
+
+async def miniapp_restore_show(request: web.Request) -> web.Response:
+    show_id = _show_id(request)
+    async with AsyncSessionLocal() as session:
+        show = await _manageable_api_show(session, request, show_id)
+        if show.is_active:
+            raise web.HTTPConflict(text=json.dumps({"error": "already_active"}), content_type="application/json")
+        await crud.update_show(session, show_id, is_active=True)
+    await _record_audit(request, "show.restored", "show", show_id)
+    return web.json_response({"id": show_id, "isActive": True})
+
+
+async def miniapp_delete_show(request: web.Request) -> web.Response:
+    show_id = _show_id(request)
+    async with AsyncSessionLocal() as session:
+        await _manageable_api_show(session, request, show_id)
+        if not await crud.delete_show(session, show_id):
+            raise web.HTTPConflict(text=json.dumps({"error": "delete_rejected"}), content_type="application/json")
+    await _record_audit(request, "show.deleted", "show", show_id)
+    return web.json_response({"id": show_id})
 
 
 async def _manageable_api_show(session, request: web.Request, show_id: int) -> Show:
@@ -1202,21 +1403,33 @@ async def miniapp_attendees(request: web.Request) -> web.Response:
     except ValueError:
         raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_offset"}), content_type="application/json")
     limit = 100
+    search = request.query.get("search", "").strip()[:100]
     async with AsyncSessionLocal() as session:
         show = await _manageable_api_show(session, request, show_id)
-        registrations = list((await session.execute(
+        registrations_query = (
             select(Registration)
+            .join(User, User.id == Registration.user_id)
             .options(selectinload(Registration.user))
             .where(Registration.show_id == show_id, Registration.is_cancelled == False)
             .order_by(Registration.registered_at, Registration.id)
             .offset(offset).limit(limit + 1)
-        )).scalars().all())
-        manual = list((await session.execute(
+        )
+        manual_query = (
             select(ManualAttendee)
             .where(ManualAttendee.show_id == show_id)
             .order_by(ManualAttendee.added_at, ManualAttendee.id)
             .offset(offset).limit(limit + 1)
-        )).scalars().all())
+        )
+        if search:
+            pattern = f"%{search}%"
+            registrations_query = registrations_query.where(or_(
+                Registration.attendee_name.ilike(pattern), User.username.ilike(pattern),
+            ))
+            manual_query = manual_query.where(or_(
+                ManualAttendee.name.ilike(pattern), ManualAttendee.contact.ilike(pattern),
+            ))
+        registrations = list((await session.execute(registrations_query)).scalars().all())
+        manual = list((await session.execute(manual_query)).scalars().all())
         occupied = await crud.count_active_registrations(session, show_id)
         arrived = int(await session.scalar(
             select(func.coalesce(func.sum(Registration.checked_in_count), 0))
@@ -1371,6 +1584,8 @@ def register_miniapp_routes(app: web.Application) -> None:
     app.router.add_post("/api/miniapp/shows/preview", miniapp_send_show_preview)
     app.router.add_get("/api/miniapp/shows/{show_id}", miniapp_show_detail)
     app.router.add_patch("/api/miniapp/shows/{show_id}", miniapp_update_show)
+    app.router.add_delete("/api/miniapp/shows/{show_id}", miniapp_delete_show)
+    app.router.add_post("/api/miniapp/shows/{show_id}/restore", miniapp_restore_show)
     app.router.add_get("/api/miniapp/options", miniapp_options)
     app.router.add_get("/api/miniapp/access/users", miniapp_access_users)
     app.router.add_get("/api/miniapp/audit-log", miniapp_audit_log)
@@ -1378,10 +1593,19 @@ def register_miniapp_routes(app: web.Application) -> None:
     app.router.add_patch("/api/miniapp/access/users/{user_id}", miniapp_update_access_user)
     app.router.add_post("/api/miniapp/teams", miniapp_create_team)
     app.router.add_patch("/api/miniapp/teams/{team_id}", miniapp_update_team)
+    app.router.add_delete("/api/miniapp/teams/{team_id}", miniapp_delete_team)
     app.router.add_post("/api/miniapp/venues", miniapp_create_venue)
+    app.router.add_patch("/api/miniapp/venues/{venue_id}", miniapp_update_venue)
+    app.router.add_delete("/api/miniapp/venues/{venue_id}", miniapp_delete_venue)
     app.router.add_post("/api/miniapp/ad-channels", miniapp_create_ad_channel)
     app.router.add_patch("/api/miniapp/ad-channels/{channel_id}/toggle", miniapp_toggle_ad_channel)
+    app.router.add_delete("/api/miniapp/ad-channels/{channel_id}", miniapp_delete_ad_channel)
     app.router.add_get("/api/miniapp/shows/{show_id}/attendees", miniapp_attendees)
+    app.router.add_get("/api/miniapp/shows/{show_id}/tasks", miniapp_show_tasks)
+    app.router.add_post("/api/miniapp/shows/{show_id}/remind", miniapp_remind_viewers)
+    app.router.add_put("/api/miniapp/shows/{show_id}/registration-chat", miniapp_registration_chat)
+    app.router.add_delete("/api/miniapp/shows/{show_id}/registration-chat", miniapp_clear_registration_chat)
+    app.router.add_post("/api/miniapp/shows/{show_id}/manual-notifications/confirm", miniapp_confirm_manual_notifications)
     app.router.add_post("/api/miniapp/shows/{show_id}/attendees/manual", miniapp_add_manual_attendees)
     app.router.add_patch("/api/miniapp/shows/{show_id}/registrations/{registration_id}", miniapp_update_registration)
     app.router.add_delete("/api/miniapp/shows/{show_id}/registrations/{registration_id}", miniapp_cancel_registration)

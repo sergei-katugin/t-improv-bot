@@ -37,7 +37,10 @@ def main_menu_kb() -> ReplyKeyboardMarkup:
     ]
     miniapp_url = _miniapp_url()
     if miniapp_url:
-        rows.insert(0, [KeyboardButton(text="🌐 Панель управления", web_app=WebAppInfo(url=miniapp_url))])
+        # Keep this label distinct from the former text-only button. Telegram
+        # clients may cache reply keyboards by their visible layout and retain
+        # the old action when only the button type changes.
+        rows.insert(0, [KeyboardButton(text="🚀 Открыть Mini App", web_app=WebAppInfo(url=miniapp_url))])
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, persistent=True)
 
 
