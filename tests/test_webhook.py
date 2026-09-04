@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from unittest.mock import AsyncMock
 
 import pytest
@@ -8,6 +9,22 @@ from aiohttp import web
 
 from main import build_webhook_app, get_webhook_secret
 from config import settings
+
+
+def test_webhook_secret_hashes_values_unsupported_by_telegram(monkeypatch):
+    invalid = "generated secret with spaces/+"
+    monkeypatch.setattr(settings, "WEBHOOK_SECRET", invalid)
+
+    secret = get_webhook_secret("123456:TOKEN")
+
+    assert secret == hashlib.sha256(invalid.encode()).hexdigest()
+    assert len(secret) == 64
+
+
+def test_webhook_secret_keeps_valid_configured_value(monkeypatch):
+    monkeypatch.setattr(settings, "WEBHOOK_SECRET", "Valid_secret-123")
+
+    assert get_webhook_secret("123456:TOKEN") == "Valid_secret-123"
 
 
 def _payload(update_id: int) -> dict:

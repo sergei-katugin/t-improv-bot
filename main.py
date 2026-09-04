@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import logging
 import os
+import re
 import secrets
 import signal
 import sys
@@ -97,7 +98,13 @@ def get_webhook_secret(bot_token: str) -> str:
     token keeps those deployments authenticated during that transition.
     """
     if settings.WEBHOOK_SECRET:
-        return settings.WEBHOOK_SECRET
+        configured = settings.WEBHOOK_SECRET.strip()
+        if configured and len(configured) <= 256 and re.fullmatch(r"[A-Za-z0-9_-]+", configured):
+            return configured
+        logger.warning(
+            "WEBHOOK_SECRET contains characters unsupported by Telegram; using its SHA-256 digest"
+        )
+        return hashlib.sha256(settings.WEBHOOK_SECRET.encode()).hexdigest()
     return hashlib.sha256(bot_token.encode()).hexdigest()
 
 

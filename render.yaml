@@ -15,7 +15,7 @@ services:
       - key: WEBHOOK_BASE_URL
         sync: false  # set to the public HTTPS URL, or leave blank to use RENDER_EXTERNAL_URL
       - key: WEBHOOK_SECRET
-        generateValue: true
+        sync: false  # set to 32+ characters using only A-Z, a-z, 0-9, _ or -
       - key: ANNOUNCEMENT_CHANNEL_ID
         sync: false  # set in the Render dashboard
       - key: ADMIN_IDS
