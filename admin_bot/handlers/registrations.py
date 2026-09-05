@@ -6,15 +6,19 @@ import io
 from app_logging import get_project_logger
 
 from aiogram import Router, F
+from aiogram.enums import ChatMemberStatus, ChatType
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import BufferedInputFile, CallbackQuery, Message
+from aiogram.types import BufferedInputFile, CallbackQuery, ChatMemberUpdated, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db import crud
+from db.base import AsyncSessionLocal
 from db.models import UserRole
+from config import settings
 from admin_bot.keyboards.inline import (
     checkin_counter_kb, checkin_kb, checkin_mode_kb, party_count_kb,
     registration_chat_kb, registrations_kb,
@@ -34,6 +38,62 @@ def _can_manage(is_super_admin: bool, db_user, show_creator_id: int | None = Non
 
 logger = get_project_logger(__name__)
 router = Router()
+
+
+@router.my_chat_member()
+async def registration_chat_membership_updated(event: ChatMemberUpdated, bot) -> None:
+    """Remember a chat when an organizer adds the admin bot and explain the next step."""
+    active_statuses = {ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR}
+    if event.new_chat_member.status not in active_statuses or event.old_chat_member.status in active_statuses:
+        return
+    if event.chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP, ChatType.CHANNEL}:
+        return
+    try:
+        actor_member = await bot.get_chat_member(event.chat.id, event.from_user.id)
+    except (TelegramBadRequest, TelegramForbiddenError):
+        return
+    if actor_member.status not in {ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.CREATOR}:
+        return
+    async with AsyncSessionLocal() as session:
+        owner = await crud.get_user_by_telegram_id(session, event.from_user.id)
+        if owner is None or owner.role not in {UserRole.organizer, UserRole.admin}:
+            logger.info("registration chat not remembered: inviter has no organizer access telegram_id=%s chat_id=%s", event.from_user.id, event.chat.id)
+            return
+        await crud.remember_registration_chat(session, owner.id, event.chat)
+    bot_url = f"https://t.me/{settings.ADMIN_BOT_USERNAME.lstrip('@')}?start=connected_chat"
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="Открыть управление афишами", url=bot_url),
+    ]])
+    try:
+        await bot.send_message(
+            event.chat.id,
+            "✅ <b>Чат подключён</b>\n\nТеперь его можно выбрать в поле «Чат записей» при создании или редактировании афиши.",
+            reply_markup=keyboard,
+        )
+    except (TelegramBadRequest, TelegramForbiddenError):
+        logger.warning("connected registration chat saved but welcome could not be sent chat_id=%s", event.chat.id)
+
+
+@router.message(Command("connect_chat"))
+async def remember_current_registration_chat(message: Message, session: AsyncSession, bot, db_user=None):
+    if message.chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP}:
+        await message.answer("Добавь меня в нужную группу и вызови там /connect_chat.")
+        return
+    try:
+        member = await bot.get_chat_member(message.chat.id, message.from_user.id)
+    except (TelegramBadRequest, TelegramForbiddenError):
+        await message.answer("Не удалось проверить твои права в этом чате.")
+        return
+    if member.status not in {ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.CREATOR}:
+        await message.answer("Подключить чат может только его администратор.")
+        return
+    try:
+        test = await bot.send_message(message.chat.id, "✅ Чат сохранён. Теперь его можно выбрать в Mini App в разделе «Чат записей».")
+    except (TelegramBadRequest, TelegramForbiddenError):
+        await message.answer("Я не могу отправлять сообщения в этот чат. Проверь мои права.")
+        return
+    await crud.remember_registration_chat(session, db_user.id, message.chat)
+    logger.info("registration chat remembered owner_user_id=%s chat_id=%s test_message_id=%s", db_user.id, message.chat.id, test.message_id)
 
 
 def _csv_cell(value) -> str:
@@ -235,6 +295,12 @@ async def save_shared_registration_chat(message: Message, state: FSMContext, ses
         await state.clear()
         await message.answer("⛔ Нет доступа к этому шоу.")
         return
+    try:
+        shared_chat = await bot.get_chat(shared.chat_id)
+        await crud.remember_registration_chat(session, db_user.id, shared_chat)
+    except (TelegramBadRequest, TelegramForbiddenError):
+        await message.answer("Не удалось получить выбранный канал. Попробуй выбрать его ещё раз.")
+        return
     await _save_registration_chat(
         message, state, session, bot, show, shared.chat_id,
         shared.title or (f"@{shared.username}" if shared.username else str(shared.chat_id)),
@@ -243,21 +309,7 @@ async def save_shared_registration_chat(message: Message, state: FSMContext, ses
 
 @router.message(RegistrationChatFSM.chat, F.text)
 async def save_registration_chat(message: Message, state: FSMContext, session: AsyncSession, bot, is_super_admin: bool = False, db_user=None):
-    show_id = (await state.get_data()).get("show_id")
-    show = await manageable_show(session, show_id, db_user, is_super_admin)
-    if show is None:
-        await state.clear()
-        await message.answer("⛔ Нет доступа к этому шоу.")
-        return
-    raw = message.text.strip()
-    target = raw if raw.startswith("@") else None
-    if target is None:
-        try:
-            target = int(raw)
-        except ValueError:
-            await message.answer("Введи @username либо числовой ID вида -100…")
-            return
-    await _save_registration_chat(message, state, session, bot, show, target, raw)
+    await message.answer("Выбери канал системной кнопкой Telegram — искать username или ID не нужно.", reply_markup=registration_channel_picker_kb())
 
 
 @router.callback_query(AdminShowActionCb.filter(F.action == "reg_chat_clear"))

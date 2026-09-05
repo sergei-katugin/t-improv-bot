@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db import crud
 from admin_bot.callbacks import AdminVenueActionCb, AdminVenueFieldCb
 from admin_bot.keyboards.inline import venues_list_kb, venue_detail_kb, confirm_kb, fsm_cancel_kb
+from admin_bot.keyboards.reply import miniapp_launch_kb
 from admin_bot.security import deny, is_admin
 from html_utils import h
 
@@ -53,12 +54,11 @@ async def venues_list(event, state: FSMContext, session: AsyncSession, db_user=N
     msg = event if isinstance(event, Message) else event.message
     if isinstance(event, CallbackQuery):
         await event.answer()
-    venues = await crud.list_venues(session, active_only=False)
-    text = "🏛 <b>Площадки</b>\n\nВыбери площадку для редактирования или добавь новую:"
+    text = "Площадки создаются и редактируются в Mini App."
     if isinstance(event, Message):
-        await msg.answer(text, reply_markup=venues_list_kb(venues))
+        await msg.answer(text, reply_markup=miniapp_launch_kb())
     else:
-        await msg.edit_text(text, reply_markup=venues_list_kb(venues))
+        await msg.edit_text(text, reply_markup=miniapp_launch_kb())
 
 
 @router.callback_query(F.data == "admin_back_main")

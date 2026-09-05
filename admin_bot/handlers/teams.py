@@ -13,6 +13,7 @@ from admin_bot.keyboards.inline import (
     teams_list_kb, team_detail_kb, team_kb, team_select_kb, confirm_kb,
     fsm_cancel_kb, team_create_fsm_skip_kb,
 )
+from admin_bot.keyboards.reply import miniapp_launch_kb
 from admin_bot.telegram_usernames import (
     normalize_telegram_username_list,
     render_telegram_username_list,
@@ -71,7 +72,11 @@ async def teams_list_entry(event, state: FSMContext, db_user=None, is_super_admi
     msg = event if isinstance(event, Message) else event.message
     if isinstance(event, CallbackQuery):
         await event.answer()
-    await _render_teams_list(msg, db_user, is_super_admin, session, edit=isinstance(event, CallbackQuery))
+    text = "Команды создаются и редактируются в Mini App."
+    if isinstance(event, Message):
+        await msg.answer(text, reply_markup=miniapp_launch_kb())
+    else:
+        await msg.edit_text(text, reply_markup=miniapp_launch_kb())
 
 
 # ── Team detail ───────────────────────────────────────────────────────────────

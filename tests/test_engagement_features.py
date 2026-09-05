@@ -95,7 +95,7 @@ def test_admin_context_keyboards_never_exceed_four_actions():
         buttons = [button for row in keyboard.keyboard for button in row]
         assert len(buttons) <= 4
     show_labels = {button.text for row in show_context_kb().keyboard for button in row}
-    assert show_labels == {"👥 Записи", "✏️ Редактировать", "📣 Продвижение", "◀️ К списку шоу"}
+    assert show_labels == {"👥 Записи", "🔔 Чат записей", "◀️ К списку шоу"}
 
 
 def test_calendar_keyboard_has_google_ics_and_route():

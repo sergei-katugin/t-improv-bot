@@ -1352,6 +1352,20 @@ async def miniapp_verify_registration_chat(request: web.Request) -> web.Response
     return web.json_response({"id": chat.id, "title": display_name})
 
 
+async def miniapp_registration_chats(request: web.Request) -> web.Response:
+    async with AsyncSessionLocal() as session:
+        chats = await crud.get_registration_chats(session, request["miniapp_user_id"])
+    return web.json_response({"items": [
+        {
+            "id": item.chat_id,
+            "title": item.title,
+            "username": item.username,
+            "type": item.chat_type,
+        }
+        for item in chats
+    ]})
+
+
 async def miniapp_registration_chat(request: web.Request) -> web.Response:
     show_id = _show_id(request)
     data = await _json_body(request)
@@ -1637,6 +1651,7 @@ def register_miniapp_routes(app: web.Application) -> None:
     app.router.add_post("/api/miniapp/shows/{show_id}/remind", miniapp_remind_viewers)
     app.router.add_put("/api/miniapp/shows/{show_id}/registration-chat", miniapp_registration_chat)
     app.router.add_delete("/api/miniapp/shows/{show_id}/registration-chat", miniapp_clear_registration_chat)
+    app.router.add_get("/api/miniapp/registration-chats", miniapp_registration_chats)
     app.router.add_post("/api/miniapp/registration-chat/verify", miniapp_verify_registration_chat)
     app.router.add_post("/api/miniapp/shows/{show_id}/manual-notifications/confirm", miniapp_confirm_manual_notifications)
     app.router.add_post("/api/miniapp/shows/{show_id}/attendees/manual", miniapp_add_manual_attendees)
