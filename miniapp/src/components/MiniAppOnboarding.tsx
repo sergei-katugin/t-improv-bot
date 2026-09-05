@@ -61,14 +61,14 @@ function OnboardingIllustration({ step }: { step: number }) {
 
 export function MiniAppOnboarding({ opened, onFinish }: { opened: boolean; onFinish: () => void }) {
   const [step, setStep] = React.useState(0);
-  const touchStart = React.useRef<{ x: number; y: number } | null>(null);
+  const pointerStart = React.useRef<{ id: number; x: number; y: number } | null>(null);
   React.useEffect(() => { if (opened) setStep(0); }, [opened]);
   const current = steps[step];
 
-  function finishSwipe(x: number, y: number) {
-    const start = touchStart.current;
-    touchStart.current = null;
-    if (!start) return;
+  function finishSwipe(pointerId: number, x: number, y: number) {
+    const start = pointerStart.current;
+    pointerStart.current = null;
+    if (!start || start.id !== pointerId) return;
     const deltaX = x - start.x;
     const deltaY = y - start.y;
     if (Math.abs(deltaX) < 44 || Math.abs(deltaX) <= Math.abs(deltaY) * 1.2) return;
@@ -79,31 +79,32 @@ export function MiniAppOnboarding({ opened, onFinish }: { opened: boolean; onFin
   return <Modal opened={opened} onClose={onFinish} fullScreen withCloseButton={false}>
     <div
       className="onboarding-screen"
-      onTouchStart={(event) => {
-        const touch = event.changedTouches[0];
-        if (touch) touchStart.current = { x: touch.clientX, y: touch.clientY };
+      onPointerDown={(event) => {
+        if (!event.isPrimary) return;
+        pointerStart.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
+        event.currentTarget.setPointerCapture(event.pointerId);
       }}
-      onTouchEnd={(event) => {
-        const touch = event.changedTouches[0];
-        if (touch) finishSwipe(touch.clientX, touch.clientY);
+      onPointerUp={(event) => {
+        finishSwipe(event.pointerId, event.clientX, event.clientY);
       }}
-      onTouchCancel={() => { touchStart.current = null; }}
+      onPointerCancel={() => { pointerStart.current = null; }}
     >
-      <div className="onboarding-content">
+      {step < steps.length - 1 && <Button className="onboarding-skip" variant="subtle" onClick={onFinish}>Пропустить</Button>}
+      <div className="onboarding-content" key={step}>
         <OnboardingIllustration step={step} />
         <Text className="onboarding-eyebrow">{current.eyebrow}</Text>
         <Title order={1}>{current.title}</Title>
         <Text className="onboarding-copy">{current.text}</Text>
       </div>
-      <div className="onboarding-progress" aria-label={`Шаг ${step + 1} из ${steps.length}`}>
-        {steps.map((item, index) => <span key={item.eyebrow} data-active={index === step} data-complete={index < step} />)}
-      </div>
       <BottomActionBar>
         <Stack gap="xs">
-          <Button className="primary" fullWidth onClick={() => step === steps.length - 1 ? onFinish() : setStep((value) => value + 1)}>{step === steps.length - 1 ? "Начать" : "Дальше"}</Button>
-          <div className="onboarding-secondary-actions">
-            {step < steps.length - 1 && <Button variant="subtle" onClick={onFinish}>Пропустить знакомство</Button>}
+          <div className="onboarding-progress-wrap">
+            <Text className="onboarding-step-label">{step + 1} из {steps.length}</Text>
+            <div className="onboarding-progress" aria-label={`Шаг ${step + 1} из ${steps.length}`}>
+              {steps.map((item, index) => <button type="button" key={item.eyebrow} aria-label={`Перейти к шагу ${index + 1}`} aria-current={index === step ? "step" : undefined} data-active={index === step} data-complete={index < step} onClick={() => setStep(index)} />)}
+            </div>
           </div>
+          <Button className="primary" fullWidth onClick={() => step === steps.length - 1 ? onFinish() : setStep((value) => value + 1)}>{step === steps.length - 1 ? "Начать" : "Дальше"}</Button>
         </Stack>
       </BottomActionBar>
     </div>
