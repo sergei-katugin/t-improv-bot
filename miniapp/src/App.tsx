@@ -16,7 +16,7 @@ import { ShowsHeader } from "./components/ShowsHeader";
 import { ShowStepper } from "./components/ShowStepper";
 import { MiniAppOnboarding } from "./components/MiniAppOnboarding";
 import { api, authenticatedBlob } from "./lib/api";
-import { telegramHaptic } from "./lib/telegram";
+import { telegramConfirm, telegramHaptic } from "./lib/telegram";
 import { useAppTheme } from "./hooks/useAppTheme";
 import { useAppResume } from "./hooks/useAppResume";
 import { theme } from "./theme";
@@ -42,6 +42,14 @@ function formFromShow(show: Show): ShowFormValue {
     registrarUsername: show.registrarUsername ? `@${show.registrarUsername}` : "",
     checkinEnabled: show.checkinEnabled ?? false, feedbackEnabled: show.feedbackEnabled ?? false,
   };
+}
+
+function invalidTelegramUsername(raw: string): string | null {
+  const usernames = raw.split(/[,;\n]+/).map((item) => item.trim()).filter(Boolean);
+  return usernames.find((item) => {
+    const username = item.replace(/^https?:\/\/t\.me\//i, "").replace(/^@/, "").replace(/[/?#].*$/, "");
+    return !/^[A-Za-z0-9_]{5,32}$/.test(username);
+  }) ?? null;
 }
 
 function ShowForm({ opened, initial, options, me, reloadOptions, onClose, onSaved }: {
@@ -305,8 +313,15 @@ function ManagementModal({ opened, onClose, me, options, reload, themePreference
   const [auditLoading, setAuditLoading] = React.useState(false);
   const [auditOpened, setAuditOpened] = React.useState(false);
   const [auditError, setAuditError] = React.useState<string | null>(null);
-  const [deleteTarget, setDeleteTarget] = React.useState<{ kind: "team" | "venue" | "channel"; id: number; name: string } | null>(null);
   const [settingsTab, setSettingsTab] = React.useState<"appearance" | "teams" | "venues" | "channels" | "access" | null>(null);
+  const invalidTeamMember = invalidTelegramUsername(members);
+  const settingsTitle = settingsTab ? {
+    appearance: "Оформление",
+    teams: "Команды",
+    venues: "Площадки",
+    channels: "Каналы для анонсов",
+    access: "Доступ и журнал",
+  }[settingsTab] : "";
 
   const loadAccess = React.useCallback(async () => {
     if (me?.role !== "admin") return;
@@ -356,12 +371,41 @@ function ManagementModal({ opened, onClose, me, options, reload, themePreference
     setVenueUrl(venue.mapsUrl ?? ""); setVenueSeats(venue.defaultSeats); setVenueEditorOpened(true);
   }
 
-  async function confirmResourceDelete() {
-    if (!deleteTarget) return;
-    const target = deleteTarget;
+  async function saveTeam() {
+    if (!teamName.trim() || invalidTeamMember) return;
+    const saved = await perform(
+      () => api(teamId ? `/api/miniapp/teams/${teamId}` : "/api/miniapp/teams", {
+        method: teamId ? "PATCH" : "POST",
+        body: JSON.stringify({ name: teamName.trim(), members }),
+      }),
+      teamId ? "Команда обновлена" : "Команда создана",
+    );
+    if (saved) {
+      setTeamEditorOpened(false); setTeamId(null); setTeamName(""); setMembers("");
+    }
+  }
+
+  async function saveVenue() {
+    if (!venueName.trim() || !venueCity.trim()) return;
+    const saved = await perform(
+      () => api(venueId ? `/api/miniapp/venues/${venueId}` : "/api/miniapp/venues", {
+        method: venueId ? "PATCH" : "POST",
+        body: JSON.stringify({
+          name: venueName.trim(), city: venueCity.trim(), mapsUrl: venueUrl.trim(), defaultSeats: venueSeats,
+        }),
+      }),
+      venueId ? "Площадка обновлена" : "Площадка добавлена",
+    );
+    if (saved) {
+      setVenueEditorOpened(false); setVenueId(null); setVenueName(""); setVenueCity("Лимасол"); setVenueUrl(""); setVenueSeats(50);
+    }
+  }
+
+  async function requestResourceDelete(target: { kind: "team" | "venue" | "channel"; id: number; name: string }) {
+    const confirmed = await telegramConfirm(`Удалить «${target.name}»? Это действие нельзя отменить.`);
+    if (!confirmed) return;
     const paths = { team: "teams", venue: "venues", channel: "ad-channels" };
-    const saved = await perform(() => api(`/api/miniapp/${paths[target.kind]}/${target.id}`, { method: "DELETE" }), "Удалено");
-    if (saved) setDeleteTarget(null);
+    await perform(() => api(`/api/miniapp/${paths[target.kind]}/${target.id}`, { method: "DELETE" }), "Удалено");
   }
 
   async function createInvite() {
@@ -411,14 +455,39 @@ function ManagementModal({ opened, onClose, me, options, reload, themePreference
       if (venueEditorOpened) { setVenueEditorOpened(false); return true; }
       if (channelEditorOpened) { setChannelEditorOpened(false); return true; }
       if (revokeUser) { setRevokeUser(null); return true; }
-      if (deleteTarget) { setDeleteTarget(null); return true; }
       if (settingsTab) { setSettingsTab(null); return true; }
       return false;
     };
     return () => { backHandlerRef.current = null; };
-  }, [auditOpened, backHandlerRef, channelEditorOpened, deleteTarget, opened, revokeUser, settingsTab, teamEditorOpened, venueEditorOpened]);
+  }, [auditOpened, backHandlerRef, channelEditorOpened, opened, revokeUser, settingsTab, teamEditorOpened, venueEditorOpened]);
 
   return <Modal opened={opened} onClose={onClose} fullScreen withCloseButton={false}>
+    {teamEditorOpened ? <div className="settings-editor-screen">
+      <Stack gap="lg">
+        <div><Text className="settings-menu-caption">Команды</Text><Title order={2}>{teamId ? "Редактировать команду" : "Новая команда"}</Title></div>
+        <TextInput label="Название" value={teamName} onChange={(event) => setTeamName(event.currentTarget.value)} autoFocus />
+        <Textarea
+          label="Telegram-ники участников"
+          description="Через запятую или с новой строки. Ник содержит 5–32 латинских символа, цифры или _."
+          placeholder="@sergey, @anna_impro"
+          value={members}
+          error={invalidTeamMember ? `Проверь ник: ${invalidTeamMember}` : undefined}
+          onChange={(event) => setMembers(event.currentTarget.value)}
+          autosize
+          minRows={4}
+        />
+      </Stack>
+      <BottomActionBar><Button className="primary" fullWidth disabled={!teamName.trim() || Boolean(invalidTeamMember)} loading={saving} onClick={() => void saveTeam()}>{teamId ? "Сохранить" : "Добавить команду"}</Button></BottomActionBar>
+    </div> : venueEditorOpened ? <div className="settings-editor-screen">
+      <Stack gap="lg">
+        <div><Text className="settings-menu-caption">Площадки</Text><Title order={2}>{venueId ? "Редактировать площадку" : "Новая площадка"}</Title></div>
+        <TextInput label="Название" value={venueName} onChange={(event) => setVenueName(event.currentTarget.value)} autoFocus />
+        <Autocomplete label="Город" data={["Лимасол", "Никосия", "Пафос"]} value={venueCity} onChange={setVenueCity} />
+        <NumberInput min={1} label="Количество мест" value={venueSeats} onChange={(next) => setVenueSeats(typeof next === "number" ? next : 1)} />
+        <TextInput type="url" label="Ссылка на карту" description="Необязательно" placeholder="https://maps.google.com/…" value={venueUrl} onChange={(event) => setVenueUrl(event.currentTarget.value)} />
+      </Stack>
+      <BottomActionBar><Button className="primary" fullWidth disabled={!venueName.trim() || !venueCity.trim()} loading={saving} onClick={() => void saveVenue()}>{venueId ? "Сохранить" : "Добавить площадку"}</Button></BottomActionBar>
+    </div> : <>
     {settingsTab === null && <div className="settings-menu">
       <Text className="settings-menu-caption">Настройки</Text>
       <div className="settings-list">
@@ -431,18 +500,19 @@ function ManagementModal({ opened, onClose, me, options, reload, themePreference
     </div>}
     {settingsTab !== null && <>
       <button type="button" className="settings-section-back" onClick={() => setSettingsTab(null)}>‹ Все настройки</button>
+      <div className="settings-section-heading"><Text className="settings-menu-caption">Настройки</Text><Title order={2}>{settingsTitle}</Title></div>
       <Tabs value={settingsTab} className="settings-tabs" variant="pills">
       <Tabs.Panel value="appearance" pt="lg"><Stack>
         <AppearanceSettings value={themePreference} onChange={onThemePreferenceChange} onReset={onResetLocalData} />
       </Stack></Tabs.Panel>
       <Tabs.Panel value="teams" pt="lg"><Stack>
-        {options.teams.map((team) => <Paper className="resource-card" key={team.id}><Group justify="space-between" align="flex-start"><div><Text fw={750}>{team.name}</Text><Text size="sm" c="dimmed">{team.members || "Участники не указаны"}</Text></div><Group gap="xs"><Button size="xs" variant="light" onClick={() => editTeam(team)}>Изменить</Button><Button size="xs" color="red" variant="subtle" onClick={() => setDeleteTarget({ kind: "team", id: team.id, name: team.name })}>Удалить</Button></Group></Group></Paper>)}
+        {options.teams.map((team) => <Paper className="resource-card" key={team.id}><Group justify="space-between" align="flex-start"><div><Text fw={750}>{team.name}</Text><Text size="sm" c="dimmed">{team.members || "Участники не указаны"}</Text></div><Group gap="xs"><Button size="xs" variant="light" onClick={() => editTeam(team)}>Изменить</Button><Button size="xs" color="red" variant="subtle" onClick={() => void requestResourceDelete({ kind: "team", id: team.id, name: team.name })}>Удалить</Button></Group></Group></Paper>)}
       </Stack></Tabs.Panel>
       <Tabs.Panel value="venues" pt="lg"><Stack>
-        {options.venues.map((venue) => <Paper className="resource-card" key={venue.id}><Group justify="space-between" align="flex-start"><div><Text fw={750}>{venue.name}</Text><Text size="sm" c="dimmed">{venue.city} · {venue.defaultSeats} мест</Text></div><Group gap="xs"><Button size="xs" variant="light" onClick={() => editVenue(venue)}>Изменить</Button><Button size="xs" color="red" variant="subtle" onClick={() => setDeleteTarget({ kind: "venue", id: venue.id, name: venue.name })}>Удалить</Button></Group></Group></Paper>)}
+        {options.venues.map((venue) => <Paper className="resource-card" key={venue.id}><Group justify="space-between" align="flex-start"><div><Text fw={750}>{venue.name}</Text><Text size="sm" c="dimmed">{venue.city} · {venue.defaultSeats} мест</Text></div><Group gap="xs"><Button size="xs" variant="light" onClick={() => editVenue(venue)}>Изменить</Button><Button size="xs" color="red" variant="subtle" onClick={() => void requestResourceDelete({ kind: "venue", id: venue.id, name: venue.name })}>Удалить</Button></Group></Group></Paper>)}
       </Stack></Tabs.Panel>
       <Tabs.Panel value="channels" pt="lg"><Stack>
-        {options.adChannels.map((item) => <Paper className="resource-card" key={item.id}><Group justify="space-between"><div><Text fw={750}>{item.username}</Text><Text size="sm" c="dimmed">{item.isActive ? "Активен" : "Отключён"}</Text></div><Group gap="xs"><Switch checked={item.isActive} onChange={() => perform(() => api(`/api/miniapp/ad-channels/${item.id}/toggle`, { method: "PATCH" }), "Канал обновлён")} /><Button size="xs" color="red" variant="subtle" onClick={() => setDeleteTarget({ kind: "channel", id: item.id, name: item.username })}>Удалить</Button></Group></Group></Paper>)}
+        {options.adChannels.map((item) => <Paper className="resource-card" key={item.id}><Group justify="space-between"><div><Text fw={750}>{item.username}</Text><Text size="sm" c="dimmed">{item.isActive ? "Активен" : "Отключён"}</Text></div><Group gap="xs"><Switch checked={item.isActive} onChange={() => perform(() => api(`/api/miniapp/ad-channels/${item.id}/toggle`, { method: "PATCH" }), "Канал обновлён")} /><Button size="xs" color="red" variant="subtle" onClick={() => void requestResourceDelete({ kind: "channel", id: item.id, name: item.username })}>Удалить</Button></Group></Group></Paper>)}
       </Stack></Tabs.Panel>
       <Tabs.Panel value="access" pt="lg"><Stack>
         <Paper className="resource-form"><Stack><Title order={3}>Пригласить организатора</Title><Text size="sm" c="dimmed">Ссылка одноразовая и автоматически истечёт. Новый пользователь сможет управлять только созданными им афишами.</Text>{inviteUrl && <Text size="sm" style={{ wordBreak: "break-all" }}>{inviteUrl}</Text>}</Stack></Paper>
@@ -454,12 +524,11 @@ function ManagementModal({ opened, onClose, me, options, reload, themePreference
       </Stack></Tabs.Panel>
       </Tabs>
     </>}
-    {settingsTab && settingsTab !== "appearance" && <BottomActionBar>{settingsTab === "teams" ? <Button className="primary" fullWidth onClick={() => { setTeamId(null); setTeamName(""); setMembers(""); setTeamEditorOpened(true); }}>＋ Добавить команду</Button> : settingsTab === "venues" ? <Button className="primary" fullWidth onClick={() => { setVenueId(null); setVenueName(""); setVenueUrl(""); setVenueEditorOpened(true); }}>＋ Добавить площадку</Button> : settingsTab === "channels" ? <Button className="primary" fullWidth onClick={() => setChannelEditorOpened(true)}>＋ Добавить канал</Button> : inviteUrl ? <Button className="primary" fullWidth onClick={() => void copyInvite()}>Копировать приглашение</Button> : <Button className="primary" fullWidth loading={saving} onClick={() => void createInvite()}>＋ Пригласить организатора</Button>}</BottomActionBar>}
-    <Modal opened={teamEditorOpened} onClose={() => setTeamEditorOpened(false)} title={teamId ? "Редактировать команду" : "Новая команда"} centered><Stack><TextInput label="Название" value={teamName} onChange={(e) => setTeamName(e.currentTarget.value)} /><Textarea label="Telegram-ники участников" description="Через запятую или с новой строки" placeholder="@sergey, @anna_impro" value={members} onChange={(e) => setMembers(e.currentTarget.value)} /><Button disabled={!teamName.trim()} loading={saving} onClick={() => perform(() => api(teamId ? `/api/miniapp/teams/${teamId}` : "/api/miniapp/teams", { method: teamId ? "PATCH" : "POST", body: JSON.stringify({ name: teamName, members }) }), teamId ? "Команда обновлена" : "Команда создана").then((saved) => { if (saved) { setTeamEditorOpened(false); setTeamId(null); setTeamName(""); setMembers(""); } })}>{teamId ? "Сохранить" : "Добавить"}</Button></Stack></Modal>
-    <Modal opened={venueEditorOpened} onClose={() => setVenueEditorOpened(false)} title={venueId ? "Редактировать площадку" : "Новая площадка"} centered><Stack><TextInput label="Название" value={venueName} onChange={(e) => setVenueName(e.currentTarget.value)} /><SimpleGrid cols={2}><Autocomplete label="Город" data={["Лимасол", "Никосия", "Пафос"]} value={venueCity} onChange={setVenueCity} /><NumberInput min={1} label="Мест" value={venueSeats} onChange={(next) => setVenueSeats(typeof next === "number" ? next : 1)} /></SimpleGrid><TextInput type="url" label="Ссылка на карту" value={venueUrl} onChange={(e) => setVenueUrl(e.currentTarget.value)} /><Button disabled={!venueName.trim() || !venueCity.trim()} loading={saving} onClick={() => perform(() => api(venueId ? `/api/miniapp/venues/${venueId}` : "/api/miniapp/venues", { method: venueId ? "PATCH" : "POST", body: JSON.stringify({ name: venueName, city: venueCity, mapsUrl: venueUrl, defaultSeats: venueSeats }) }), venueId ? "Площадка обновлена" : "Площадка добавлена").then((saved) => { if (saved) { setVenueEditorOpened(false); setVenueId(null); setVenueName(""); setVenueUrl(""); } })}>{venueId ? "Сохранить" : "Добавить площадку"}</Button></Stack></Modal>
+    {settingsTab && settingsTab !== "appearance" && <BottomActionBar>{settingsTab === "teams" ? <Button className="primary" fullWidth onClick={() => { setTeamId(null); setTeamName(""); setMembers(""); setTeamEditorOpened(true); }}>＋ Добавить команду</Button> : settingsTab === "venues" ? <Button className="primary" fullWidth onClick={() => { setVenueId(null); setVenueName(""); setVenueCity("Лимасол"); setVenueUrl(""); setVenueSeats(50); setVenueEditorOpened(true); }}>＋ Добавить площадку</Button> : settingsTab === "channels" ? <Button className="primary" fullWidth onClick={() => setChannelEditorOpened(true)}>＋ Добавить канал</Button> : inviteUrl ? <Button className="primary" fullWidth onClick={() => void copyInvite()}>Копировать приглашение</Button> : <Button className="primary" fullWidth loading={saving} onClick={() => void createInvite()}>＋ Пригласить организатора</Button>}</BottomActionBar>}
+    </>}
     <Modal opened={channelEditorOpened} onClose={() => setChannelEditorOpened(false)} title="Новый рекламный канал" centered><Stack><TextInput label="Telegram-ник канала" placeholder="@afisha_cyprus" value={channel} onChange={(e) => setChannel(e.currentTarget.value)} /><Button disabled={!channel.trim()} loading={saving} onClick={() => perform(() => api("/api/miniapp/ad-channels", { method: "POST", body: JSON.stringify({ username: channel }) }), "Канал добавлен").then((saved) => { if (saved) { setChannelEditorOpened(false); setChannel(""); } })}>Добавить канал</Button></Stack></Modal>
     <Modal opened={auditOpened} onClose={() => setAuditOpened(false)} title="Журнал действий" fullScreen classNames={{ close: "fullscreen-modal-close" }}><Stack>
-        <Group justify="space-between"><div><Title order={3}>Журнал действий</Title><Text size="sm" c="dimmed">Последние 100 административных операций Mini App</Text></div><Button size="xs" variant="light" loading={auditLoading} onClick={() => void loadAudit()}>Обновить</Button></Group>
+        <Group justify="space-between" align="center"><Text size="sm" c="dimmed">Последние 100 административных операций Mini App</Text><Button size="xs" variant="light" loading={auditLoading} onClick={() => void loadAudit()}>Обновить</Button></Group>
         {auditError && <Alert color="red" title="Не удалось загрузить журнал">{auditError}<Button mt="sm" size="xs" variant="light" color="red" onClick={() => void loadAudit()}>Повторить</Button></Alert>}
         {auditLoading && !auditItems.length && <Loader size="sm" />}
         {auditItems.map((item) => {
@@ -470,7 +539,6 @@ function ManagementModal({ opened, onClose, me, options, reload, themePreference
         {!auditLoading && !auditItems.length && <Text c="dimmed">Журнал пока пуст.</Text>}
       </Stack></Modal>
     <Modal opened={revokeUser !== null} onClose={() => setRevokeUser(null)} title="Отозвать доступ?" centered><Text>Пользователь {revokeUser?.username ? `@${revokeUser.username}` : revokeUser?.firstName} больше не сможет открывать Mini App и управлять афишами.</Text><Group justify="flex-end" mt="lg"><Button variant="default" onClick={() => setRevokeUser(null)}>Отмена</Button><Button color="red" loading={saving} onClick={() => void confirmRevoke()}>Отозвать</Button></Group></Modal>
-    <Modal opened={deleteTarget !== null} onClose={() => setDeleteTarget(null)} title="Удалить безвозвратно?" centered><Text>«{deleteTarget?.name}» будет удалено из справочника.</Text><Group justify="flex-end" mt="lg"><Button variant="default" onClick={() => setDeleteTarget(null)}>Отмена</Button><Button color="red" loading={saving} onClick={() => void confirmResourceDelete()}>Удалить</Button></Group></Modal>
   </Modal>;
 }
 
@@ -483,13 +551,14 @@ const previewAttendees: Attendees = {
   manual: [{ id: 11, name: "Елена", contact: "@elena_cy", checkedInCount: 1, source: "manual" }],
 };
 
-function AttendeesModal({ opened, onClose, show, demo }: { opened: boolean; onClose: () => void; show: Show; demo: boolean }) {
+function AttendeesModal({ opened, onClose, show, demo, backHandlerRef }: { opened: boolean; onClose: () => void; show: Show; demo: boolean; backHandlerRef: React.MutableRefObject<(() => boolean) | null> }) {
   const [data, setData] = React.useState<Attendees | null>(demo ? previewAttendees : null);
   const [loading, setLoading] = React.useState(!demo);
   const [manualRows, setManualRows] = React.useState("");
   const [search, setSearch] = React.useState("");
   const [busy, setBusy] = React.useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = React.useState<{ kind: "registration" | "manual"; id: number; name: string } | null>(null);
+  const [listOpened, setListOpened] = React.useState(false);
 
   const load = React.useCallback(async (offset = 0, append = false) => {
     if (demo) { setData(previewAttendees); return; }
@@ -509,6 +578,14 @@ function AttendeesModal({ opened, onClose, show, demo }: { opened: boolean; onCl
   }, [demo, search, show.id]);
 
   React.useEffect(() => { if (opened) void load(); }, [opened, load]);
+  React.useEffect(() => {
+    if (!opened) { setListOpened(false); backHandlerRef.current = null; return; }
+    backHandlerRef.current = () => {
+      if (!listOpened) return false;
+      setListOpened(false); setSearch(""); return true;
+    };
+    return () => { backHandlerRef.current = null; };
+  }, [backHandlerRef, listOpened, opened]);
   useAppResume(() => { void load(0); }, opened);
 
   async function mutate(key: string, path: string, method: string, body?: object) {
@@ -546,19 +623,22 @@ function AttendeesModal({ opened, onClose, show, demo }: { opened: boolean; onCl
     }
   }
 
-  return <Modal opened={opened} onClose={onClose} title={`Записи · ${show.title}`} fullScreen classNames={{ close: "fullscreen-modal-close" }}>
+  return <Modal opened={opened} onClose={onClose} title={listOpened ? "Список зрителей" : `Записи · ${show.title}`} fullScreen classNames={{ close: "fullscreen-modal-close" }}>
     {loading && <Stack><Skeleton height={100} /><Skeleton height={100} /></Stack>}
-    {data && <Stack gap="md">
+    {data && !listOpened && <Stack gap="md">
       <Paper className="attendance-summary"><Group justify="space-between"><div><Text size="sm" c="dimmed">Записано</Text><Title order={2}>{data.occupied} / {data.maxSeats}</Title></div><div><Text size="sm" c="dimmed">Пришли</Text><Title order={2}>{data.arrived}</Title></div></Group><Progress value={Math.min(100, data.occupied / Math.max(1, data.maxSeats) * 100)} mt="md" color="gray" /></Paper>
-      <Group gap="xs" wrap="nowrap"><TextInput style={{ flex: 1 }} aria-label="Поиск зрителя" placeholder="Имя или @username" value={search} onChange={(event) => setSearch(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === "Enter") void load(0); }} /><Button variant="light" loading={loading} onClick={() => void load(0)}>Найти</Button></Group>
+      <Button variant="default" fullWidth onClick={() => setListOpened(true)}>Список зрителей · {data.registrations.length + data.manual.length}</Button>
+      <Paper className="resource-form"><Stack><Title order={3}>Добавить вручную</Title><Textarea autosize minRows={4} description="Один зритель на строку, контакт через |" placeholder={"Иван Иванов | @ivan\nМария Петрова"} value={manualRows} onChange={(event) => setManualRows(event.currentTarget.value)} /></Stack></Paper>
+    </Stack>}
+    {data && listOpened && <Stack gap="md">
+      <TextInput aria-label="Фильтр зрителей" placeholder="Имя или @username" value={search} onChange={(event) => setSearch(event.currentTarget.value)} autoFocus />
       <Title order={3}>Записались через бот</Title>
       {data.registrations.map((item) => <Paper className="attendee-card" key={item.id}><Stack gap="sm"><Group justify="space-between" align="flex-start"><div><Text fw={750}>{item.name}{item.guests ? ` +${item.guests}` : ""}</Text>{item.username && <Anchor size="sm" href={`https://t.me/${item.username}`} target="_blank">@{item.username}</Anchor>}</div><Badge color={item.checkedInCount ? "green" : "gray"}>{item.checkedInCount} / {item.guests + 1}</Badge></Group><Group justify="space-between"><Group gap="xs"><Button size="xs" variant="light" disabled={item.checkedInCount <= 0 || busy !== null} onClick={() => mutate(`check-${item.id}`, `/api/miniapp/shows/${show.id}/registrations/${item.id}`, "PATCH", { checkedInCount: item.checkedInCount - 1 })}>− Пришли</Button><Button size="xs" variant="light" disabled={item.checkedInCount >= item.guests + 1 || busy !== null} onClick={() => mutate(`check-${item.id}`, `/api/miniapp/shows/${show.id}/registrations/${item.id}`, "PATCH", { checkedInCount: item.checkedInCount + 1 })}>+ Пришли</Button></Group><Button size="xs" color="red" variant="subtle" loading={busy === `cancel-${item.id}`} onClick={() => setConfirmDelete({ kind: "registration", id: item.id, name: item.name })}>Отменить</Button></Group><Group gap="xs"><Text size="sm" c="dimmed">Гостей:</Text><Button size="compact-xs" variant="default" disabled={item.guests <= 0 || busy !== null} onClick={() => mutate(`guest-${item.id}`, `/api/miniapp/shows/${show.id}/registrations/${item.id}`, "PATCH", { guests: item.guests - 1 })}>−</Button><Text>{item.guests}</Text><Button size="compact-xs" variant="default" disabled={item.guests >= 50 || busy !== null} onClick={() => mutate(`guest-${item.id}`, `/api/miniapp/shows/${show.id}/registrations/${item.id}`, "PATCH", { guests: item.guests + 1 })}>+</Button></Group></Stack></Paper>)}
       <Title order={3}>Добавлены вручную</Title>
       {data.manual.map((item) => <Paper className="attendee-card" key={item.id}><Group justify="space-between"><div><Text fw={750}>{item.name}</Text>{item.contact && <Text size="sm" c="dimmed">{item.contact}</Text>}</div><Group gap="xs"><Button size="xs" color={item.checkedInCount ? "green" : "gray"} variant="light" loading={busy === `manual-${item.id}`} onClick={() => mutate(`manual-${item.id}`, `/api/miniapp/shows/${show.id}/manual-attendees/${item.id}`, "PATCH", { checkedInCount: item.checkedInCount ? 0 : 1 })}>{item.checkedInCount ? "Пришёл ✓" : "Отметить"}</Button><Button size="xs" color="red" variant="subtle" loading={busy === `delete-${item.id}`} onClick={() => setConfirmDelete({ kind: "manual", id: item.id, name: item.name })}>Удалить</Button></Group></Group></Paper>)}
-      <Paper className="resource-form"><Stack><Title order={3}>Добавить вручную</Title><Textarea autosize minRows={4} description="Один зритель на строку, контакт через |" placeholder={"Иван Иванов | @ivan\nМария Петрова"} value={manualRows} onChange={(event) => setManualRows(event.currentTarget.value)} /></Stack></Paper>
       {data.hasMore && <Button variant="default" loading={loading} onClick={() => void load(data.nextOffset, true)}>Показать ещё</Button>}
     </Stack>}
-    {data && <BottomActionBar><Button className="primary" fullWidth disabled={!manualRows.trim()} loading={busy === "add"} onClick={addManual}>＋ Добавить зрителей</Button></BottomActionBar>}
+    {data && !listOpened && <BottomActionBar><Button className="primary" fullWidth disabled={!manualRows.trim()} loading={busy === "add"} onClick={addManual}>＋ Добавить зрителей</Button></BottomActionBar>}
     <Modal opened={confirmDelete !== null} onClose={() => setConfirmDelete(null)} title="Подтвердить действие" centered>
       <Text>Удалить запись «{confirmDelete?.name}»? Это освободит место в афише.</Text>
       <Group justify="flex-end" mt="lg"><Button variant="default" onClick={() => setConfirmDelete(null)}>Не удалять</Button><Button color="red" onClick={removeConfirmed}>Удалить</Button></Group>
@@ -695,6 +775,7 @@ function App({ themePreference, onThemePreferenceChange, onResetLocalData }: { t
   const [descriptionOpened, setDescriptionOpened] = React.useState(false);
   const [editing, setEditing] = React.useState<Show | null>(null);
   const managementBackRef = React.useRef<(() => boolean) | null>(null);
+  const attendeesBackRef = React.useRef<(() => boolean) | null>(null);
 
   const hasBackTarget = Boolean(selected || formOpened || managementOpened || attendeesOpened || announcementOpened || analyticsOpened || toolsOpened);
 
@@ -717,7 +798,9 @@ function App({ themePreference, onThemePreferenceChange, onResetLocalData }: { t
       if (toolsOpened) setToolsOpened(false);
       else if (analyticsOpened) setAnalyticsOpened(false);
       else if (announcementOpened) setAnnouncementOpened(false);
-      else if (attendeesOpened) setAttendeesOpened(false);
+      else if (attendeesOpened) {
+        if (!attendeesBackRef.current?.()) setAttendeesOpened(false);
+      }
       else if (formOpened) { setFormOpened(false); setEditing(null); }
       else if (managementOpened) {
         if (!managementBackRef.current?.()) setManagementOpened(false);
@@ -790,7 +873,7 @@ function App({ themePreference, onThemePreferenceChange, onResetLocalData }: { t
     return <main className="shell">
       <Button className="back" variant="subtle" onClick={() => { telegramHaptic("light"); setSelected(null); }}>← Все афиши</Button>
       <ShowDetails show={selected} descriptionOpened={descriptionOpened} onToggleDescription={() => setDescriptionOpened((opened) => !opened)} onAttendees={() => setAttendeesOpened(true)} onEdit={() => { setEditing(selected); setFormOpened(true); }} onAnnouncement={() => setAnnouncementOpened(true)} onMore={() => { setToolsMode("all"); setToolsOpened(true); }} />
-      <AttendeesModal opened={attendeesOpened} onClose={() => setAttendeesOpened(false)} show={selected} demo={isPreview} />
+      <AttendeesModal opened={attendeesOpened} onClose={() => setAttendeesOpened(false)} show={selected} demo={isPreview} backHandlerRef={attendeesBackRef} />
       <AnnouncementModal opened={announcementOpened} onClose={() => setAnnouncementOpened(false)} show={selected} demo={isPreview} />
       <AnalyticsModal opened={analyticsOpened} onClose={() => setAnalyticsOpened(false)} show={selected} demo={isPreview} />
       <ShowToolsModal mode={toolsMode} opened={toolsOpened} onClose={() => setToolsOpened(false)} show={selected} registrationUrl={registrationUrl} demo={isPreview} onAnalytics={() => { setToolsOpened(false); setAnalyticsOpened(true); }} onChanged={(next) => { setSelected(next); reloadShows(); }} onDeleted={() => { setToolsOpened(false); setSelected(null); reloadShows(); }} />

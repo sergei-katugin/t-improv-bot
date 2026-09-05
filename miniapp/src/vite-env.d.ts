@@ -17,6 +17,7 @@ interface TelegramWebApp {
   setHeaderColor(color: string): void;
   setBackgroundColor(color: string): void;
   setBottomBarColor?(color: string): void;
+  showConfirm?(message: string, callback: (confirmed: boolean) => void): void;
 }
 
 interface TelegramWebAppButton {
