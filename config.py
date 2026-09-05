@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     ADMIN_IDS: str = ""
     PUBLIC_BOT_USERNAME: str = "ImprovCypEventBot"
     ADMIN_BOT_USERNAME: str = "ImprovCypBot"
+    ADMIN_BOT_DISPLAY_NAME: str = "T·IMPRO"
     WEBHOOK_BASE_URL: str = ""
     WEBHOOK_SECRET: str = ""
     INVITE_TTL_HOURS: int = 24

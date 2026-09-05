@@ -109,6 +109,9 @@ def get_webhook_secret(bot_token: str) -> str:
 
 
 async def register_commands(admin_bot: Bot, public_bot: Bot) -> None:
+    # Telegram uses the bot's display name as the native Mini App header title.
+    # The Mini App JavaScript API cannot change that title per route.
+    await admin_bot.set_my_name(name=settings.ADMIN_BOT_DISPLAY_NAME)
     await admin_bot.set_my_commands([
         BotCommand(command="start",       description="Начать работу"),
         BotCommand(command="home",        description="Главное меню"),
