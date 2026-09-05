@@ -114,11 +114,7 @@ async def register_commands(admin_bot: Bot, public_bot: Bot) -> None:
         BotCommand(command="home",        description="Главное меню"),
         BotCommand(command="shows",       description="Список шоу"),
         BotCommand(command="my",          description="Мои шоу"),
-        BotCommand(command="create_show", description="Создать шоу"),
-        BotCommand(command="settings",    description="Настройки"),
-        BotCommand(command="teams",       description="Команды"),
-        BotCommand(command="venues",      description="Площадки"),
-        BotCommand(command="roles",       description="Управление доступом"),
+        BotCommand(command="app",         description="Открыть Mini App"),
         BotCommand(command="help",        description="Справка"),
         BotCommand(command="privacy",     description="Конфиденциальность"),
     ])
@@ -296,7 +292,7 @@ async def main():
             try:
                 await admin_bot.set_webhook(
                     url=admin_url,
-                    allowed_updates=["message", "callback_query"],
+                    allowed_updates=["message", "callback_query", "my_chat_member"],
                     secret_token=get_webhook_secret(settings.ADMIN_BOT_TOKEN),
                 )
                 await public_bot.set_webhook(

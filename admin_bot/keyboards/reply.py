@@ -32,23 +32,15 @@ def miniapp_launch_kb() -> InlineKeyboardMarkup | None:
 
 def main_menu_kb() -> ReplyKeyboardMarkup:
     rows = [
-        [KeyboardButton(text="📋 Афиша"),  KeyboardButton(text="🆕 Создать")],
-        [KeyboardButton(text="🎭 Моё"),    KeyboardButton(text="⚙️ Настройки")],
+        [KeyboardButton(text="📋 Афиша"), KeyboardButton(text="🎭 Моё")],
     ]
-    miniapp_url = _miniapp_url()
-    if miniapp_url:
-        # Keep this label distinct from the former text-only button. Telegram
-        # clients may cache reply keyboards by their visible layout and retain
-        # the old action when only the button type changes.
-        rows.insert(0, [KeyboardButton(text="🚀 Открыть Mini App", web_app=WebAppInfo(url=miniapp_url))])
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, persistent=True)
 
 
 def shows_context_kb() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🆕 Создать"), KeyboardButton(text="🎭 Моё")],
-            [KeyboardButton(text="⚙️ Настройки"), KeyboardButton(text="🏠 Главное меню")],
+            [KeyboardButton(text="🎭 Моё"), KeyboardButton(text="🏠 Главное меню")],
         ], resize_keyboard=True, persistent=True,
     )
 
@@ -56,8 +48,8 @@ def shows_context_kb() -> ReplyKeyboardMarkup:
 def show_context_kb() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="👥 Записи"), KeyboardButton(text="✏️ Редактировать")],
-            [KeyboardButton(text="📣 Продвижение"), KeyboardButton(text="◀️ К списку шоу")],
+            [KeyboardButton(text="👥 Записи"), KeyboardButton(text="🔔 Чат записей")],
+            [KeyboardButton(text="◀️ К списку шоу")],
         ], resize_keyboard=True, persistent=True,
     )
 
@@ -75,7 +67,7 @@ def registrations_context_kb() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="➕ Добавить зрителя"), KeyboardButton(text="🔔 Чат записей")],
-            [KeyboardButton(text="🎟 Режим входа"), KeyboardButton(text="◀️ К шоу")],
+            [KeyboardButton(text="◀️ К шоу")],
         ], resize_keyboard=True, persistent=True,
     )
 

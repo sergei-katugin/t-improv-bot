@@ -6,7 +6,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from admin_bot.callbacks import OnboardingCb
-from admin_bot.keyboards.reply import main_menu_kb
+from admin_bot.keyboards.reply import main_menu_kb, miniapp_launch_kb
 from db import crud
 
 router = Router()
@@ -14,35 +14,18 @@ router = Router()
 _STEPS = {
     1: (
         "👋 <b>Добро пожаловать!</b>\n\n"
-        "Этот бот помогает управлять импровизационными шоу: "
-        "создавать события, принимать записи зрителей и публиковать анонсы.\n\n"
-        "<i>1 / 5</i>"
+        "Основное управление шоу находится в Mini App: там создаются афиши, публикации и настройки.\n\n"
+        "<i>1 / 3</i>"
     ),
     2: (
-        "📢 <b>Анонсы в канале</b>\n\n"
-        "Когда шоу создано, ты сам выбираешь когда опубликовать анонс "
-        "в специальный Telegram-канал. Зрители увидят дату и место, "
-        "а кнопка «Записаться» откроет бота — регистрация проходит прямо в нём.\n\n"
-        "<i>2 / 5</i>"
+        "⚡ <b>Что осталось в боте</b>\n\n"
+        "Быстрый просмотр афиш и записей, добавление зрителя вручную и подключение рабочего чата.\n\n"
+        "<i>2 / 3</i>"
     ),
     3: (
         "🔔 <b>Напоминания</b>\n\n"
-        "Бот автоматически напомнит каждому записавшемуся о шоу. "
-        "Также можно отправить напоминание вручную в любой момент — "
-        "например, если добавилась важная информация.\n\n"
-        "<i>3 / 5</i>"
-    ),
-    4: (
-        "✏️ <b>Редактирование и отмена</b>\n\n"
-        "Любое шоу можно отредактировать после создания — изменить дату, место, текст афиши и другие поля. "
-        "Если шоу отменяется, бот автоматически уведомит всех записавшихся зрителей.\n\n"
-        "<i>4 / 5</i>"
-    ),
-    5: (
-        "👥 <b>Список зрителей</b>\n\n"
-        "В карточке каждого шоу можно посмотреть кто записался, сколько мест осталось "
-        "и добавить или удалить зрителя вручную — удобно для брони по телефону или личной просьбе.\n\n"
-        "<i>5 / 5</i>"
+        "Автоматические напоминания продолжат работать. Дополнительное управление ими доступно в Mini App.\n\n"
+        "<i>3 / 3</i>"
     ),
 }
 
@@ -98,14 +81,9 @@ async def onboarding_cb(
     if step == 0:
         await crud.mark_onboarding_done(session, callback.from_user.id)
         get_project_logger(__name__).info("onboarding completed for user=%s", callback.from_user.id)
-        next_kb = InlineKeyboardBuilder()
-        next_kb.button(text="🆕 Создать шоу",     callback_data="admin_create_show")
-        next_kb.button(text="👥 Создать команду", callback_data="admin_team_add_from_onboarding")
-        next_kb.button(text="📋 Афиша",           callback_data="admin_shows_list")
-        next_kb.adjust(1)
         await callback.message.edit_text(
-            "✅ Готово! С чего начнём?",
-            reply_markup=next_kb.as_markup(),
+            "✅ Готово! Создание и управление афишами доступно в Mini App.",
+            reply_markup=miniapp_launch_kb(),
         )
         await callback.message.answer("Главное меню:", reply_markup=main_menu_kb())
     else:

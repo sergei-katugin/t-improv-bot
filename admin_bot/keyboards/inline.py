@@ -41,8 +41,6 @@ def shows_list_kb(
         builder.button(text="◀️", callback_data=f"admin_shows_page:{page - 1}")
     if has_next:
         builder.button(text="▶️", callback_data=f"admin_shows_page:{page + 1}")
-    builder.button(text="🆕 Создать", callback_data="admin_create_show")
-    builder.button(text="🔍 Фильтр", callback_data="admin_shows_filter")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -74,12 +72,7 @@ def show_detail_kb(show: Show, is_creator_or_admin: bool, can_delete: bool = Fal
     builder = InlineKeyboardBuilder()
     builder.button(text="👥 Записи", callback_data=AdminShowActionCb(action="regs", show_id=show.id).pack())
     if is_creator_or_admin:
-        builder.button(text="🧭 Задачи", callback_data=AdminShowActionCb(action="tasks", show_id=show.id).pack())
-        builder.button(text="📄 Создать похожее", callback_data=AdminShowActionCb(action="clone", show_id=show.id).pack())
-        builder.button(text="✏️ Редактировать", callback_data=AdminShowActionCb(action="edit", show_id=show.id).pack())
-        builder.button(text="📣 Продвижение", callback_data=AdminShowActionCb(action="promotion", show_id=show.id).pack())
-        builder.button(text="📊 Аналитика", callback_data=AdminShowActionCb(action="audience", show_id=show.id).pack())
-        builder.button(text="⚙️ Настройки шоу", callback_data=AdminShowActionCb(action="show_settings", show_id=show.id).pack())
+        builder.button(text="🔔 Чат записей", callback_data=AdminShowActionCb(action="reg_chat", show_id=show.id).pack())
     builder.button(text="◀️ К списку шоу", callback_data="admin_shows_list")
     builder.adjust(2, 1, 1, 1)
     return builder.as_markup()

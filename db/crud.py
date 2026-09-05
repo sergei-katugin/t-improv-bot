@@ -8,10 +8,39 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from db.models import User, Show, Registration, ShowFeedback, AnnouncementLog, InviteToken, ManualAttendee, UserRole, Venue, Team, FreeAdChannel, ShowCheckinStaff, CheckinInviteToken, _utcnow
+from db.models import User, Show, Registration, ShowFeedback, AnnouncementLog, InviteToken, ManualAttendee, UserRole, Venue, Team, FreeAdChannel, ConnectedRegistrationChat, ShowCheckinStaff, CheckinInviteToken, _utcnow
 from app_logging import get_project_logger
 
 logger = get_project_logger(__name__)
+
+
+async def remember_registration_chat(session: AsyncSession, owner_user_id: int, chat) -> ConnectedRegistrationChat:
+    result = await session.execute(select(ConnectedRegistrationChat).where(
+        ConnectedRegistrationChat.owner_user_id == owner_user_id,
+        ConnectedRegistrationChat.chat_id == chat.id,
+    ))
+    item = result.scalar_one_or_none()
+    title = getattr(chat, "title", None) or getattr(chat, "username", None) or str(chat.id)
+    if item is None:
+        item = ConnectedRegistrationChat(owner_user_id=owner_user_id, chat_id=chat.id)
+        session.add(item)
+    item.title = title
+    item.username = getattr(chat, "username", None)
+    item.chat_type = getattr(getattr(chat, "type", None), "value", None) or str(chat.type)
+    item.updated_at = _utcnow()
+    await session.commit()
+    await session.refresh(item)
+    return item
+
+
+async def get_registration_chats(session: AsyncSession, owner_user_id: int) -> list[ConnectedRegistrationChat]:
+    result = await session.execute(
+        select(ConnectedRegistrationChat)
+        .where(ConnectedRegistrationChat.owner_user_id == owner_user_id)
+        .order_by(ConnectedRegistrationChat.updated_at.desc())
+        .limit(100)
+    )
+    return list(result.scalars())
 
 
 async def create_checkin_invite(session: AsyncSession, show_id: int, ttl_hours: int = 24) -> CheckinInviteToken:

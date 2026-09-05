@@ -250,13 +250,8 @@ async def quick_show_registrations(
 async def quick_show_promotion(
     message: Message, state: FSMContext, session: AsyncSession, db_user=None, is_super_admin: bool = False,
 ):
-    show = await _quick_show(message, state, session, db_user, is_super_admin)
-    if show:
-        await state.update_data(reply_context="promotion")
-        await message.answer(
-            f"📣 <b>Продвижение</b>\n\n🎭 {h(show.title)}",
-            reply_markup=promotion_context_kb(),
-        )
+    await state.clear()
+    await message.answer("Публикация и продвижение афиш находятся в Mini App.", reply_markup=miniapp_launch_kb())
 
 
 @router.message(F.text == "◀️ К шоу")
@@ -316,19 +311,8 @@ async def quick_promotion_link(message: Message, state: FSMContext, session: Asy
 async def quick_show_edit(
     message: Message, state: FSMContext, session: AsyncSession, db_user=None, is_super_admin: bool = False,
 ):
-    show = await _quick_show(message, state, session, db_user, is_super_admin)
-    if show is None:
-        return
-    await state.set_state(EditShowFSM.field)
-    await state.update_data(editing_show_id=show.id, reply_context="flow")
-    await message.answer("✏️ Режим редактирования", reply_markup=flow_context_kb())
-    if await crud.has_any_announcement_been_sent(session, show.id):
-        await message.answer(
-            "Выбери режим обновления:", reply_markup=edit_notification_mode_kb(show.id),
-        )
-    else:
-        await state.update_data(edit_notify=False)
-        await message.answer("Выбери раздел для редактирования:", reply_markup=edit_show_fields_kb(show))
+    await state.clear()
+    await message.answer("Редактирование афиши находится в Mini App.", reply_markup=miniapp_launch_kb())
 
 
 @router.message(F.text == "◀️ К списку шоу")
@@ -348,22 +332,9 @@ async def cmd_create_show(event, state: FSMContext):
     if isinstance(event, CallbackQuery):
         await event.answer()
     await state.clear()
-    await state.set_state(CreateShowFSM.team_name)
     await msg.answer(
-        "🎭 <b>Создание нового шоу</b>\n\n"
-        "Я задам несколько вопросов — это займёт около минуты.\n"
-        "Понадобится:\n"
-        "• команда и название шоу\n"
-        "• дата и время\n"
-        "• площадка — если выбрать из списка, город и количество мест подставятся автоматически\n"
-        "• текст и изображение для афиши (можно пропустить)\n\n"
-        "💡 Шоу не будет опубликовано автоматически — анонс отправляется вручную, когда ты будешь готов.\n\n"
-        "На любом шаге можно нажать ◀️ Назад или ❌ Отмена.",
-        reply_markup=flow_context_kb(),
-    )
-    await msg.answer(
-        f"{_progress(1)}Выбери команду из списка или введи своё название:",
-        reply_markup=team_kb(),
+        "Создание афиши перенесено в Mini App — там быстрее заполнять поля и сразу видно предпросмотр.",
+        reply_markup=miniapp_launch_kb(),
     )
 
 
@@ -405,23 +376,17 @@ async def cmd_my_shows(event, state: FSMContext, session: AsyncSession, is_super
 @router.message(Command("settings"))
 async def cmd_settings(message: Message, state: FSMContext, db_user=None, is_super_admin: bool = False):
     await state.clear()
-    is_admin = is_super_admin or (db_user is not None and db_user.role == UserRole.admin)
-    await message.answer("⚙️ <b>Настройки</b>", reply_markup=settings_kb(is_admin=is_admin))
-    await state.update_data(reply_context="settings", current_show_id=None)
-    await message.answer("⌨️ Быстрые действия для настроек", reply_markup=settings_context_kb(is_admin))
+    await message.answer("Настройки команд, площадок и доступа находятся в Mini App.", reply_markup=miniapp_launch_kb())
 
 
 @router.callback_query(F.data == "admin_settings")
 async def back_to_settings(callback: CallbackQuery, state: FSMContext, db_user=None, is_super_admin: bool = False):
     await callback.answer()
     await state.clear()
-    is_admin = is_super_admin or (db_user is not None and db_user.role == UserRole.admin)
     await callback.message.edit_text(
-        "⚙️ <b>Настройки</b>",
-        reply_markup=settings_kb(is_admin=is_admin),
+        "Настройки команд, площадок и доступа находятся в Mini App.",
+        reply_markup=miniapp_launch_kb(),
     )
-    await state.update_data(reply_context="settings", current_show_id=None)
-    await callback.message.answer("⌨️ Быстрые действия для настроек", reply_markup=settings_context_kb(is_admin))
 
 
 @router.callback_query(CreateShowFSM.team_name, F.data == "team_show_existing")

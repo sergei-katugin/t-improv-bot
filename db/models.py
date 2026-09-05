@@ -249,6 +249,26 @@ class FreeAdChannel(Base):
         return f"https://t.me/{self.username.lstrip('@')}"
 
 
+class ConnectedRegistrationChat(Base):
+    __tablename__ = "connected_registration_chats"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    owner_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    chat_id = Column(BigInteger, nullable=False)
+    title = Column(String(256), nullable=False)
+    username = Column(String(64), nullable=True)
+    chat_type = Column(String(32), nullable=False)
+    created_at = Column(DateTime, default=_utcnow, nullable=False)
+    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow, nullable=False)
+
+    owner = relationship("User")
+
+    __table_args__ = (
+        UniqueConstraint("owner_user_id", "chat_id", name="uq_connected_registration_chat_owner"),
+        Index("ix_connected_registration_chats_owner", "owner_user_id"),
+    )
+
+
 class AnnouncementLog(Base):
     __tablename__ = "announcement_logs"
 

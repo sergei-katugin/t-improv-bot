@@ -11,6 +11,7 @@ from config import settings
 from db import crud
 from db.models import UserRole
 from admin_bot.keyboards.inline import organizers_list_kb, roles_menu_kb
+from admin_bot.keyboards.reply import miniapp_launch_kb
 from admin_bot.callbacks import AdminRevokeCb
 from admin_bot.security import deny, is_admin
 from html_utils import h
@@ -33,11 +34,11 @@ async def cmd_roles(event, state: FSMContext, is_super_admin: bool = False):
     msg = event if isinstance(event, Message) else event.message
     if isinstance(event, CallbackQuery):
         await event.answer()
-    text = "👥 <b>Управление доступом</b>\n\nВыдай доступ на просмотр записей другим пользователям:"
+    text = "Доступ пользователей настраивается в Mini App."
     if isinstance(event, Message):
-        await msg.answer(text, reply_markup=roles_menu_kb())
+        await msg.answer(text, reply_markup=miniapp_launch_kb())
     else:
-        await msg.edit_text(text, reply_markup=roles_menu_kb())
+        await msg.edit_text(text, reply_markup=miniapp_launch_kb())
 
 
 @router.callback_query(F.data == "admin_grant_organizer")
