@@ -26,11 +26,11 @@ export function ShowDetails({ show, descriptionOpened, onToggleDescription, onAt
     </section>
     {!show.isActive && <Alert color="red" mt="md">Эта афиша отменена. Новые записи недоступны.</Alert>}
     <BottomActionBar navigation>
-      <BottomNavAction icon="◎" label="Зрители" meta={show.occupiedSeats} onClick={onAttendees} />
-      <BottomNavAction icon="✎" label="Изменить" onClick={onEdit} />
-      <BottomNavAction icon="↗" label="Анонс" onClick={onAnnouncement} />
-      <BottomNavAction icon="⌁" label="Аналитика" onClick={onAnalytics} />
-      <BottomNavAction icon="•••" label="Ещё" onClick={onMore} />
+      <BottomNavAction icon="attendees" label="Зрители" meta={show.occupiedSeats} onClick={onAttendees} />
+      <BottomNavAction icon="edit" label="Изменить" onClick={onEdit} />
+      <BottomNavAction icon="announce" label="Анонс" onClick={onAnnouncement} />
+      <BottomNavAction icon="analytics" label="Аналитика" onClick={onAnalytics} />
+      <BottomNavAction icon="more" label="Ещё" onClick={onMore} />
     </BottomActionBar>
   </>;
 }
