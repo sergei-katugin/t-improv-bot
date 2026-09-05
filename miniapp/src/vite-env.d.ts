@@ -12,8 +12,8 @@ interface TelegramWebApp {
     impactOccurred(style: "light" | "medium" | "heavy" | "rigid" | "soft"): void;
     selectionChanged(): void;
   };
-  onEvent(event: "themeChanged", callback: () => void): void;
-  offEvent(event: "themeChanged", callback: () => void): void;
+  onEvent(event: "themeChanged" | "activated", callback: () => void): void;
+  offEvent(event: "themeChanged" | "activated", callback: () => void): void;
   setHeaderColor(color: string): void;
   setBackgroundColor(color: string): void;
   setBottomBarColor?(color: string): void;

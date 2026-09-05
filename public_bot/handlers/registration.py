@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from db import crud
 from db.models import User
+from admin_bot.callbacks import AdminShowActionCb
 from public_bot.keyboards.inline import (
     confirm_registration_kb, show_detail_kb,
     registration_success_kb, guests_kb, attendance_kb, calendar_kb,
@@ -56,7 +57,14 @@ def _registration_privacy_note(data: dict) -> str:
     return f"\n\n🔐 Имя будет видно уполномоченным организаторам {visibility}."
 
 
-async def _notify_registration_chat(admin_bot: Bot, show, attendee_name: str, guests: int, source: str | None) -> None:
+async def _notify_registration_chat(
+    admin_bot: Bot,
+    show,
+    attendee_name: str,
+    guests: int,
+    source: str | None,
+    occupied_seats: int,
+) -> None:
     if not getattr(show, "registration_chat_id", None):
         return
     party = 1 + guests
@@ -67,18 +75,19 @@ async def _notify_registration_chat(admin_bot: Bot, show, attendee_name: str, gu
     source_line = f"\nИсточник: {h(source)}" if source else ""
     builder = InlineKeyboardBuilder()
     try:
-        admin_me = await admin_bot.get_me()
-        if admin_me.username:
-            builder.button(
-                text="➕ Добавить запись из другой соцсети",
-                url=f"https://t.me/{admin_me.username}?start=manual_{show.id}",
-            )
+        builder.button(
+            text="➕ Добавить запись вручную",
+            callback_data=AdminShowActionCb(
+                action="chat_add_manual", show_id=show.id
+            ).pack(),
+        )
         await admin_bot.send_message(
             show.registration_chat_id,
             f"👤 <b>Новая запись</b>\n"
             f"🎭 {h(show.title)}\n"
             f"Имя: <b>{h(display_name)}</b>\n"
-            f"Мест: {party}{source_line}",
+            f"Мест в записи: {party}\n"
+            f"Заполнено: <b>{occupied_seats} / {show.max_seats}</b>{source_line}",
             reply_markup=builder.as_markup() if builder.buttons else None,
         )
     except Exception:
@@ -338,7 +347,10 @@ async def confirm_registration(callback: CallbackQuery, callback_data: ConfirmRe
         f"{support}",
         reply_markup=registration_success_kb(show, False, False, True),
     )
-    await _notify_registration_chat(admin_bot, show, attendee_name, guests, source)
+    occupied_seats = await crud.count_active_registrations(session, show_id)
+    await _notify_registration_chat(
+        admin_bot, show, attendee_name, guests, source, occupied_seats
+    )
     logger.info("user %s registered id=%s show_id=%s attendee=%s guests=%s", db_user.id, reg.id, show_id, attendee_name, guests)
 
 

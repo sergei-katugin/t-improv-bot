@@ -730,6 +730,39 @@ async def start_add_manual(callback: CallbackQuery, callback_data: AdminShowActi
     )
 
 
+@router.callback_query(AdminShowActionCb.filter(F.action == "chat_add_manual"))
+async def start_add_manual_from_registration_chat(
+    callback: CallbackQuery,
+    callback_data: AdminShowActionCb,
+    state: FSMContext,
+    session: AsyncSession,
+    is_super_admin: bool = False,
+    db_user=None,
+):
+    """Start manual entry without replacing the notification in the working chat."""
+    show = await crud.get_show(session, callback_data.show_id)
+    if not _can_manage(is_super_admin, db_user, show.creator_id if show else None):
+        await callback.answer("⛔ Нет доступа к этому шоу.", show_alert=True)
+        return
+    if callback.message.chat.id != show.registration_chat_id:
+        await callback.answer("Эта кнопка работает только в чате записей.", show_alert=True)
+        return
+
+    await callback.answer()
+    await state.set_state(AddManualFSM.names)
+    await state.update_data(
+        show_id=show.id,
+        manual_source="social",
+        current_show_id=show.id,
+    )
+    await callback.message.answer(
+        f"➕ <b>Добавить запись на «{h(show.title)}»</b>\n\n"
+        "Отправь имена ответом на это сообщение — один зритель на строку. "
+        "Контакт можно указать через <code>|</code>:\n\n"
+        "<i>Иван Иванов | @ivan\nМария Петрова</i>"
+    )
+
+
 @router.message(AddManualFSM.names, F.text)
 async def process_manual_names(message: Message, state: FSMContext, session: AsyncSession, is_super_admin: bool = False, db_user=None):
     data = await state.get_data()

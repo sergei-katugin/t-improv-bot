@@ -1,7 +1,7 @@
 import React from "react";
 import {
   Alert, Anchor, Autocomplete, Badge, Button, Collapse, FileInput, Group, Loader, MantineProvider, Modal, NumberInput,
-  Paper, Progress, Select, SimpleGrid, Skeleton, Stack, Stepper, Switch, Tabs, Text,
+  Paper, Progress, Select, SimpleGrid, Skeleton, Stack, Switch, Tabs, Text,
   Textarea, TextInput, Title,
 } from "@mantine/core";
 import { DateTimePicker, DatesProvider } from "@mantine/dates";
@@ -13,9 +13,12 @@ import { AnalyticsModal } from "./components/AnalyticsModal";
 import { ShowCard } from "./components/ShowCard";
 import { ShowDetails } from "./components/ShowDetails";
 import { ShowsHeader } from "./components/ShowsHeader";
+import { ShowStepper } from "./components/ShowStepper";
+import { MiniAppOnboarding } from "./components/MiniAppOnboarding";
 import { api, authenticatedBlob } from "./lib/api";
 import { telegramHaptic } from "./lib/telegram";
 import { useAppTheme } from "./hooks/useAppTheme";
+import { useAppResume } from "./hooks/useAppResume";
 import { theme } from "./theme";
 import type { AccessUser, Attendees, AuditItem, Me, Options, Promotion, RegistrationChatOption, Show, ShowFormValue, ThemePreference } from "./types";
 
@@ -66,8 +69,19 @@ function ShowForm({ opened, initial, options, me, reloadOptions, onClose, onSave
   const [chatSetupOpened, setChatSetupOpened] = React.useState(false);
   const [previewOpened, setPreviewOpened] = React.useState(false);
   const [activeStep, setActiveStep] = React.useState(0);
+  const initializedFormRef = React.useRef<string | null>(null);
+  const loadRegistrationChats = React.useCallback(async () => {
+    if (initial) return;
+    try {
+      const result = await api<{ items: RegistrationChatOption[] }>("/api/miniapp/registration-chats");
+      setSavedChats(result.items);
+    } catch { /* The empty state remains actionable; the next resume retries. */ }
+  }, [initial]);
   React.useEffect(() => {
-    if (!opened) return;
+    if (!opened) { initializedFormRef.current = null; return; }
+    const formKey = initial ? `edit:${initial.id}` : "create";
+    if (initializedFormRef.current === formKey) return;
+    initializedFormRef.current = formKey;
     const nextValue = initial ? formFromShow(initial) : emptyForm();
     const venue = initial
       ? options.venues.find((item) => item.name === initial.location && item.city === initial.city)
@@ -76,8 +90,9 @@ function ShowForm({ opened, initial, options, me, reloadOptions, onClose, onSave
     setValue(nextValue);
     setVenueId(venue ? String(venue.id) : initial ? "__custom__" : null);
     setPoster(null); setNotifyConfirmOpened(false); setChatTarget(""); setChatNameMode("short"); setVerifiedChat(null); setChatSetupOpened(false); setPreviewOpened(false); setActiveStep(0);
-    if (!initial) api<{ items: RegistrationChatOption[] }>("/api/miniapp/registration-chats").then(({ items }) => setSavedChats(items)).catch(() => setSavedChats([]));
-  }, [opened, initial, options.venues]);
+    if (!initial) void loadRegistrationChats();
+  }, [opened, initial, options.venues, loadRegistrationChats]);
+  useAppResume(() => { void loadRegistrationChats(); }, opened && !initial);
   const set = <K extends keyof ShowFormValue>(key: K, next: ShowFormValue[K]) => setValue((current) => ({ ...current, [key]: next }));
   const selectedVenue = options.venues.find((item) => String(item.id) === venueId);
   const registrarOptions = React.useMemo(() => {
@@ -214,12 +229,7 @@ function ShowForm({ opened, initial, options, me, reloadOptions, onClose, onSave
     <form onSubmit={submit} className="show-form">
       <Stack gap="md">
         <Text size="sm" fw={700}>Шаг {activeStep + 1} из 4 · {stepLabels[activeStep]}</Text>
-        <Stepper active={activeStep} className="show-stepper" size="sm" allowNextStepsSelect={false}>
-          <Stepper.Step label="Основное" />
-          <Stepper.Step label="Место" />
-          <Stepper.Step label="Запись" />
-          <Stepper.Step label="Афиша" />
-        </Stepper>
+        <ShowStepper active={activeStep} labels={stepLabels} allowAllSteps={Boolean(initial)} onStepChange={setActiveStep} />
         {activeStep === 0 && <>
         <TextInput required label="Название" value={value.title} onChange={(e) => set("title", e.currentTarget.value)} maxLength={256} />
         <Select required searchable allowDeselect={false} label="Команда" data={[...options.teams.map((team) => ({ value: team.name, label: team.name })), { value: "__new__", label: "＋ Добавить новую команду" }]} value={value.teamName || null} onChange={(next) => next === "__new__" ? setTeamModal(true) : set("teamName", next ?? "")} />
@@ -253,7 +263,7 @@ function ShowForm({ opened, initial, options, me, reloadOptions, onClose, onSave
         <Button variant="light" loading={saving} disabled={!value.title || !value.teamName || !value.showDateLocal || !venueId} onClick={() => void sendPreview()}>Отправить тест в админ-бот</Button>
         </>}
       </Stack>
-      <BottomActionBar sticky><Group grow wrap="nowrap">{activeStep > 0 && <Button type="button" variant="default" onClick={() => setActiveStep((step) => step - 1)}>Назад</Button>}<Button type="submit" className="primary" fullWidth loading={saving} size="md" disabled={!stepValid[activeStep]}>{activeStep < 3 ? "Далее" : initial ? "Сохранить изменения" : "Создать афишу"}</Button></Group></BottomActionBar>
+      <BottomActionBar><Group grow wrap="nowrap">{activeStep > 0 && <Button type="button" variant="default" onClick={() => setActiveStep((step) => step - 1)}>Назад</Button>}<Button type="submit" className="primary" fullWidth loading={saving} size="md" disabled={!stepValid[activeStep]}>{activeStep < 3 ? "Далее" : initial ? "Сохранить изменения" : "Создать афишу"}</Button></Group></BottomActionBar>
     </form>
     <Modal opened={notifyConfirmOpened} onClose={() => setNotifyConfirmOpened(false)} title="Уведомить зрителей?" centered>
       <Text>Отправить записавшимся сообщение об изменениях в афише?</Text>
@@ -268,9 +278,11 @@ function ShowForm({ opened, initial, options, me, reloadOptions, onClose, onSave
   </Modal>;
 }
 
-function ManagementModal({ opened, onClose, me, options, reload, themePreference, onThemePreferenceChange }: {
+function ManagementModal({ opened, onClose, me, options, reload, themePreference, onThemePreferenceChange, onResetLocalData, backHandlerRef }: {
   opened: boolean; onClose: () => void; me: Me | null; options: Options; reload: () => Promise<void>;
   themePreference: ThemePreference; onThemePreferenceChange: (preference: ThemePreference) => void;
+  onResetLocalData: () => void;
+  backHandlerRef?: React.MutableRefObject<(() => boolean) | null>;
 }) {
   const [teamId, setTeamId] = React.useState<number | null>(null);
   const [teamName, setTeamName] = React.useState("");
@@ -294,7 +306,7 @@ function ManagementModal({ opened, onClose, me, options, reload, themePreference
   const [auditOpened, setAuditOpened] = React.useState(false);
   const [auditError, setAuditError] = React.useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = React.useState<{ kind: "team" | "venue" | "channel"; id: number; name: string } | null>(null);
-  const [settingsTab, setSettingsTab] = React.useState<string | null>("appearance");
+  const [settingsTab, setSettingsTab] = React.useState<"appearance" | "teams" | "venues" | "channels" | "access" | null>(null);
 
   const loadAccess = React.useCallback(async () => {
     if (me?.role !== "admin") return;
@@ -379,12 +391,49 @@ function ManagementModal({ opened, onClose, me, options, reload, themePreference
     } catch (reason) { notifications.show({ color: "red", title: "Не удалось изменить доступ", message: (reason as Error).message }); }
     finally { setSaving(false); }
   }
+  useAppResume(() => {
+    void reload();
+    if (settingsTab === "access") void loadAccess();
+    if (auditOpened) void loadAudit();
+  }, opened);
 
-  return <Modal opened={opened} onClose={onClose} title="Настройки" fullScreen classNames={{ close: "fullscreen-modal-close" }}>
-    <Tabs value={settingsTab} onChange={setSettingsTab} className="settings-tabs" variant="pills">
-      <Tabs.List grow><Tabs.Tab value="appearance">Вид</Tabs.Tab><Tabs.Tab value="teams">Команды</Tabs.Tab>{me?.role === "admin" && <Tabs.Tab value="venues">Площадки</Tabs.Tab>}{me?.role === "admin" && <Tabs.Tab value="channels">Каналы</Tabs.Tab>}{me?.role === "admin" && <Tabs.Tab value="access">Доступ</Tabs.Tab>}</Tabs.List>
+  React.useEffect(() => {
+    if (!opened) {
+      setSettingsTab(null);
+      setAuditOpened(false);
+      if (backHandlerRef) backHandlerRef.current = null;
+      return;
+    }
+    if (!backHandlerRef) return;
+    backHandlerRef.current = () => {
+      if (auditOpened) { setAuditOpened(false); return true; }
+      if (teamEditorOpened) { setTeamEditorOpened(false); return true; }
+      if (venueEditorOpened) { setVenueEditorOpened(false); return true; }
+      if (channelEditorOpened) { setChannelEditorOpened(false); return true; }
+      if (revokeUser) { setRevokeUser(null); return true; }
+      if (deleteTarget) { setDeleteTarget(null); return true; }
+      if (settingsTab) { setSettingsTab(null); return true; }
+      return false;
+    };
+    return () => { backHandlerRef.current = null; };
+  }, [auditOpened, backHandlerRef, channelEditorOpened, deleteTarget, opened, revokeUser, settingsTab, teamEditorOpened, venueEditorOpened]);
+
+  return <Modal opened={opened} onClose={onClose} fullScreen withCloseButton={false}>
+    {settingsTab === null && <div className="settings-menu">
+      <Text className="settings-menu-caption">Настройки</Text>
+      <div className="settings-list">
+        <button type="button" onClick={() => setSettingsTab("appearance")}><span><b>Оформление</b><small>{themePreference === "system" ? "Как в Telegram" : themePreference === "light" ? "Светлая тема" : "Тёмная тема"}</small></span><span>›</span></button>
+        <button type="button" onClick={() => setSettingsTab("teams")}><span><b>Команды</b><small>{options.teams.length} в справочнике</small></span><span>›</span></button>
+        {me?.role === "admin" && <button type="button" onClick={() => setSettingsTab("venues")}><span><b>Площадки</b><small>{options.venues.length} в справочнике</small></span><span>›</span></button>}
+        {me?.role === "admin" && <button type="button" onClick={() => setSettingsTab("channels")}><span><b>Каналы для анонсов</b><small>{options.adChannels.length} подключено</small></span><span>›</span></button>}
+        {me?.role === "admin" && <button type="button" onClick={() => setSettingsTab("access")}><span><b>Доступ и журнал</b><small>Организаторы и история действий</small></span><span>›</span></button>}
+      </div>
+    </div>}
+    {settingsTab !== null && <>
+      <button type="button" className="settings-section-back" onClick={() => setSettingsTab(null)}>‹ Все настройки</button>
+      <Tabs value={settingsTab} className="settings-tabs" variant="pills">
       <Tabs.Panel value="appearance" pt="lg"><Stack>
-        <AppearanceSettings value={themePreference} onChange={onThemePreferenceChange} />
+        <AppearanceSettings value={themePreference} onChange={onThemePreferenceChange} onReset={onResetLocalData} />
       </Stack></Tabs.Panel>
       <Tabs.Panel value="teams" pt="lg"><Stack>
         {options.teams.map((team) => <Paper className="resource-card" key={team.id}><Group justify="space-between" align="flex-start"><div><Text fw={750}>{team.name}</Text><Text size="sm" c="dimmed">{team.members || "Участники не указаны"}</Text></div><Group gap="xs"><Button size="xs" variant="light" onClick={() => editTeam(team)}>Изменить</Button><Button size="xs" color="red" variant="subtle" onClick={() => setDeleteTarget({ kind: "team", id: team.id, name: team.name })}>Удалить</Button></Group></Group></Paper>)}
@@ -403,8 +452,9 @@ function ManagementModal({ opened, onClose, me, options, reload, themePreference
         {!accessLoading && !accessUsers.length && <Text c="dimmed">Пользователей с доступом нет.</Text>}
         <Button variant="default" onClick={() => { setAuditOpened(true); void loadAudit(); }}>Журнал действий</Button>
       </Stack></Tabs.Panel>
-    </Tabs>
-    {settingsTab !== "appearance" && <BottomActionBar>{settingsTab === "teams" ? <Button className="primary" fullWidth onClick={() => { setTeamId(null); setTeamName(""); setMembers(""); setTeamEditorOpened(true); }}>＋ Добавить команду</Button> : settingsTab === "venues" ? <Button className="primary" fullWidth onClick={() => { setVenueId(null); setVenueName(""); setVenueUrl(""); setVenueEditorOpened(true); }}>＋ Добавить площадку</Button> : settingsTab === "channels" ? <Button className="primary" fullWidth onClick={() => setChannelEditorOpened(true)}>＋ Добавить канал</Button> : inviteUrl ? <Button className="primary" fullWidth onClick={() => void copyInvite()}>Копировать приглашение</Button> : <Button className="primary" fullWidth loading={saving} onClick={() => void createInvite()}>＋ Пригласить организатора</Button>}</BottomActionBar>}
+      </Tabs>
+    </>}
+    {settingsTab && settingsTab !== "appearance" && <BottomActionBar>{settingsTab === "teams" ? <Button className="primary" fullWidth onClick={() => { setTeamId(null); setTeamName(""); setMembers(""); setTeamEditorOpened(true); }}>＋ Добавить команду</Button> : settingsTab === "venues" ? <Button className="primary" fullWidth onClick={() => { setVenueId(null); setVenueName(""); setVenueUrl(""); setVenueEditorOpened(true); }}>＋ Добавить площадку</Button> : settingsTab === "channels" ? <Button className="primary" fullWidth onClick={() => setChannelEditorOpened(true)}>＋ Добавить канал</Button> : inviteUrl ? <Button className="primary" fullWidth onClick={() => void copyInvite()}>Копировать приглашение</Button> : <Button className="primary" fullWidth loading={saving} onClick={() => void createInvite()}>＋ Пригласить организатора</Button>}</BottomActionBar>}
     <Modal opened={teamEditorOpened} onClose={() => setTeamEditorOpened(false)} title={teamId ? "Редактировать команду" : "Новая команда"} centered><Stack><TextInput label="Название" value={teamName} onChange={(e) => setTeamName(e.currentTarget.value)} /><Textarea label="Telegram-ники участников" description="Через запятую или с новой строки" placeholder="@sergey, @anna_impro" value={members} onChange={(e) => setMembers(e.currentTarget.value)} /><Button disabled={!teamName.trim()} loading={saving} onClick={() => perform(() => api(teamId ? `/api/miniapp/teams/${teamId}` : "/api/miniapp/teams", { method: teamId ? "PATCH" : "POST", body: JSON.stringify({ name: teamName, members }) }), teamId ? "Команда обновлена" : "Команда создана").then((saved) => { if (saved) { setTeamEditorOpened(false); setTeamId(null); setTeamName(""); setMembers(""); } })}>{teamId ? "Сохранить" : "Добавить"}</Button></Stack></Modal>
     <Modal opened={venueEditorOpened} onClose={() => setVenueEditorOpened(false)} title={venueId ? "Редактировать площадку" : "Новая площадка"} centered><Stack><TextInput label="Название" value={venueName} onChange={(e) => setVenueName(e.currentTarget.value)} /><SimpleGrid cols={2}><Autocomplete label="Город" data={["Лимасол", "Никосия", "Пафос"]} value={venueCity} onChange={setVenueCity} /><NumberInput min={1} label="Мест" value={venueSeats} onChange={(next) => setVenueSeats(typeof next === "number" ? next : 1)} /></SimpleGrid><TextInput type="url" label="Ссылка на карту" value={venueUrl} onChange={(e) => setVenueUrl(e.currentTarget.value)} /><Button disabled={!venueName.trim() || !venueCity.trim()} loading={saving} onClick={() => perform(() => api(venueId ? `/api/miniapp/venues/${venueId}` : "/api/miniapp/venues", { method: venueId ? "PATCH" : "POST", body: JSON.stringify({ name: venueName, city: venueCity, mapsUrl: venueUrl, defaultSeats: venueSeats }) }), venueId ? "Площадка обновлена" : "Площадка добавлена").then((saved) => { if (saved) { setVenueEditorOpened(false); setVenueId(null); setVenueName(""); setVenueUrl(""); } })}>{venueId ? "Сохранить" : "Добавить площадку"}</Button></Stack></Modal>
     <Modal opened={channelEditorOpened} onClose={() => setChannelEditorOpened(false)} title="Новый рекламный канал" centered><Stack><TextInput label="Telegram-ник канала" placeholder="@afisha_cyprus" value={channel} onChange={(e) => setChannel(e.currentTarget.value)} /><Button disabled={!channel.trim()} loading={saving} onClick={() => perform(() => api("/api/miniapp/ad-channels", { method: "POST", body: JSON.stringify({ username: channel }) }), "Канал добавлен").then((saved) => { if (saved) { setChannelEditorOpened(false); setChannel(""); } })}>Добавить канал</Button></Stack></Modal>
@@ -459,6 +509,7 @@ function AttendeesModal({ opened, onClose, show, demo }: { opened: boolean; onCl
   }, [demo, search, show.id]);
 
   React.useEffect(() => { if (opened) void load(); }, [opened, load]);
+  useAppResume(() => { void load(0); }, opened);
 
   async function mutate(key: string, path: string, method: string, body?: object) {
     setBusy(key);
@@ -537,7 +588,10 @@ function AnnouncementModal({ opened, onClose, show, demo }: { opened: boolean; o
         setHtml(preview.html.split("\n").join("<br>"));
         if (preview.hasPoster) {
           const blob = await authenticatedBlob(`/api/miniapp/shows/${show.id}/poster`);
-          setImageUrl(URL.createObjectURL(blob));
+          setImageUrl((current) => {
+            if (current) URL.revokeObjectURL(current);
+            return URL.createObjectURL(blob);
+          });
         }
       }
     } catch (reason) { notifications.show({ color: "red", title: "Не удалось открыть предпросмотр", message: (reason as Error).message }); }
@@ -548,6 +602,7 @@ function AnnouncementModal({ opened, onClose, show, demo }: { opened: boolean; o
     if (opened) void load();
     return () => { if (imageUrl) URL.revokeObjectURL(imageUrl); };
   }, [opened]); // eslint-disable-line react-hooks/exhaustive-deps
+  useAppResume(() => { void load(); }, opened);
 
   async function upload() {
     if (!poster) return;
@@ -616,7 +671,7 @@ function AnnouncementModal({ opened, onClose, show, demo }: { opened: boolean; o
   </Modal>;
 }
 
-function App({ themePreference, onThemePreferenceChange }: { themePreference: ThemePreference; onThemePreferenceChange: (preference: ThemePreference) => void }) {
+function App({ themePreference, onThemePreferenceChange, onResetLocalData }: { themePreference: ThemePreference; onThemePreferenceChange: (preference: ThemePreference) => void; onResetLocalData: () => void }) {
   const isPreview = import.meta.env.DEV && new URLSearchParams(location.search).get("preview") === "1";
   const [shows, setShows] = React.useState<Show[]>(isPreview ? previewShows : []);
   const [selected, setSelected] = React.useState<Show | null>(null);
@@ -639,6 +694,7 @@ function App({ themePreference, onThemePreferenceChange }: { themePreference: Th
   const [toolsMode, setToolsMode] = React.useState<"all" | "chat">("all");
   const [descriptionOpened, setDescriptionOpened] = React.useState(false);
   const [editing, setEditing] = React.useState<Show | null>(null);
+  const managementBackRef = React.useRef<(() => boolean) | null>(null);
 
   const hasBackTarget = Boolean(selected || formOpened || managementOpened || attendeesOpened || announcementOpened || analyticsOpened || toolsOpened);
 
@@ -663,7 +719,9 @@ function App({ themePreference, onThemePreferenceChange }: { themePreference: Th
       else if (announcementOpened) setAnnouncementOpened(false);
       else if (attendeesOpened) setAttendeesOpened(false);
       else if (formOpened) { setFormOpened(false); setEditing(null); }
-      else if (managementOpened) setManagementOpened(false);
+      else if (managementOpened) {
+        if (!managementBackRef.current?.()) setManagementOpened(false);
+      }
       else if (selected) setSelected(null);
     };
     backButton.onClick(goBack);
@@ -709,6 +767,13 @@ function App({ themePreference, onThemePreferenceChange }: { themePreference: Th
     reloadShows();
   }, [status, teamFilter, yearFilter, isPreview]);
 
+  useAppResume(() => {
+    if (isPreview) return;
+    void reloadOptions();
+    reloadShows();
+    if (selected) api<Show>(`/api/miniapp/shows/${selected.id}`).then(setSelected).catch(() => undefined);
+  });
+
   async function openShow(show: Show) {
     setDescriptionOpened(false);
     setSelected(show);
@@ -724,11 +789,11 @@ function App({ themePreference, onThemePreferenceChange }: { themePreference: Th
     const registrationUrl = selected.registrationUrl ?? `https://t.me/ImprovCypEventBot?start=show_${selected.id}`;
     return <main className="shell">
       <Button className="back" variant="subtle" onClick={() => { telegramHaptic("light"); setSelected(null); }}>← Все афиши</Button>
-      <ShowDetails show={selected} descriptionOpened={descriptionOpened} onToggleDescription={() => setDescriptionOpened((opened) => !opened)} onAttendees={() => setAttendeesOpened(true)} onEdit={() => { setEditing(selected); setFormOpened(true); }} onAnnouncement={() => setAnnouncementOpened(true)} onAnalytics={() => setAnalyticsOpened(true)} onMore={() => { setToolsMode("all"); setToolsOpened(true); }} />
+      <ShowDetails show={selected} descriptionOpened={descriptionOpened} onToggleDescription={() => setDescriptionOpened((opened) => !opened)} onAttendees={() => setAttendeesOpened(true)} onEdit={() => { setEditing(selected); setFormOpened(true); }} onAnnouncement={() => setAnnouncementOpened(true)} onMore={() => { setToolsMode("all"); setToolsOpened(true); }} />
       <AttendeesModal opened={attendeesOpened} onClose={() => setAttendeesOpened(false)} show={selected} demo={isPreview} />
       <AnnouncementModal opened={announcementOpened} onClose={() => setAnnouncementOpened(false)} show={selected} demo={isPreview} />
       <AnalyticsModal opened={analyticsOpened} onClose={() => setAnalyticsOpened(false)} show={selected} demo={isPreview} />
-      <ShowToolsModal mode={toolsMode} opened={toolsOpened} onClose={() => setToolsOpened(false)} show={selected} registrationUrl={registrationUrl} demo={isPreview} onChanged={(next) => { setSelected(next); reloadShows(); }} onDeleted={() => { setToolsOpened(false); setSelected(null); reloadShows(); }} />
+      <ShowToolsModal mode={toolsMode} opened={toolsOpened} onClose={() => setToolsOpened(false)} show={selected} registrationUrl={registrationUrl} demo={isPreview} onAnalytics={() => { setToolsOpened(false); setAnalyticsOpened(true); }} onChanged={(next) => { setSelected(next); reloadShows(); }} onDeleted={() => { setToolsOpened(false); setSelected(null); reloadShows(); }} />
       <ShowForm opened={formOpened} initial={editing} options={options} me={me} reloadOptions={reloadOptions} onClose={() => setFormOpened(false)} onSaved={() => { setFormOpened(false); setSelected(null); reloadShows(); }} />
     </main>;
   }
@@ -750,12 +815,12 @@ function App({ themePreference, onThemePreferenceChange }: { themePreference: Th
     {showsHasMore && <Button fullWidth mt="md" variant="default" loading={loading} onClick={() => reloadShows(showsNextOffset, true)}>Показать ещё</Button>}
     <RootNavigation onShows={() => setSelected(null)} onCreate={() => { telegramHaptic("light"); setEditing(null); setFormOpened(true); }} onSettings={() => { telegramHaptic("selection"); setManagementOpened(true); }} />
     <ShowForm opened={formOpened} initial={editing} options={options} me={me} reloadOptions={reloadOptions} onClose={() => setFormOpened(false)} onSaved={() => { setFormOpened(false); reloadShows(); }} />
-    <ManagementModal opened={managementOpened} onClose={() => setManagementOpened(false)} me={me} options={options} reload={reloadOptions} themePreference={themePreference} onThemePreferenceChange={onThemePreferenceChange} />
+    <ManagementModal opened={managementOpened} onClose={() => setManagementOpened(false)} me={me} options={options} reload={reloadOptions} themePreference={themePreference} onThemePreferenceChange={onThemePreferenceChange} onResetLocalData={onResetLocalData} backHandlerRef={managementBackRef} />
   </main>;
 }
 
-function ShowToolsModal({ mode, opened, onClose, show, registrationUrl, demo, onChanged, onDeleted }: {
-  mode: "all" | "chat"; opened: boolean; onClose: () => void; show: Show; registrationUrl: string; demo: boolean; onChanged: (show: Show) => void; onDeleted: () => void;
+function ShowToolsModal({ mode, opened, onClose, show, registrationUrl, demo, onAnalytics, onChanged, onDeleted }: {
+  mode: "all" | "chat"; opened: boolean; onClose: () => void; show: Show; registrationUrl: string; demo: boolean; onAnalytics: () => void; onChanged: (show: Show) => void; onDeleted: () => void;
 }) {
   const cloneDefault = React.useMemo(() => {
     const date = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -779,6 +844,11 @@ function ShowToolsModal({ mode, opened, onClose, show, registrationUrl, demo, on
     api<{ items: { key: string; label: string; count: number }[] }>(`/api/miniapp/shows/${show.id}/tasks`).then(({ items }) => setTasks(items)).catch(() => setTasks([]));
     api<{ items: RegistrationChatOption[] }>("/api/miniapp/registration-chats").then(({ items }) => setSavedChats(items)).catch(() => setSavedChats([]));
   }, [demo, opened, show.id]);
+  useAppResume(() => {
+    if (demo) return;
+    api<{ items: { key: string; label: string; count: number }[] }>(`/api/miniapp/shows/${show.id}/tasks`).then(({ items }) => setTasks(items)).catch(() => undefined);
+    api<{ items: RegistrationChatOption[] }>("/api/miniapp/registration-chats").then(({ items }) => setSavedChats(items)).catch(() => undefined);
+  }, opened);
 
   async function copyLink() {
     try {
@@ -886,6 +956,7 @@ function ShowToolsModal({ mode, opened, onClose, show, registrationUrl, demo, on
     {section === "menu" && <Stack gap="xs" className="tools-menu">
       {tasks.length > 0 && <Paper className="tasks-summary"><Group justify="space-between"><div><Text fw={750}>Требуют внимания</Text><Text size="sm" c="dimmed">{tasks.map((task) => task.label).join(" · ")}</Text></div><Badge>{tasks.length}</Badge></Group>{tasks.some((item) => item.key === "manual_notifications") && <Button mt="sm" variant="light" loading={busy === "manual-confirm"} onClick={() => void confirmManualNotifications()}>Отметить уведомлёнными</Button>}</Paper>}
       <button className="tools-menu-action" onClick={() => setSection("chat")}><span><b>Чат записей</b><small>{show.registrationChatId ? show.registrationChatTitle || "Подключён" : "Не подключён"}</small></span><span>→</span></button>
+      <button className="tools-menu-action" onClick={onAnalytics}><span><b>Аналитика</b><small>Записи, посещаемость и отзывы</small></span><span>→</span></button>
       <button className="tools-menu-action" onClick={() => setSection("registration")}><span><b>Ссылка и QR</b><small>Для самостоятельной записи зрителей</small></span><span>→</span></button>
       {show.isActive && <button className="tools-menu-action" onClick={() => setRemindConfirm(true)}><span><b>Напомнить зрителям</b><small>Отправить сообщение всем записавшимся</small></span><span>→</span></button>}
       <button className="tools-menu-action" onClick={() => setSection("clone")}><span><b>Создать копию</b><small>Новая афиша с теми же данными</small></span><span>→</span></button>
@@ -905,5 +976,21 @@ function ShowToolsModal({ mode, opened, onClose, show, registrationUrl, demo, on
 
 export function AppRoot() {
   const { colorScheme, preference, changePreference } = useAppTheme();
-  return <MantineProvider theme={theme} forceColorScheme={colorScheme}><DatesProvider settings={{ locale: "ru", firstDayOfWeek: 1, weekendDays: [0, 6] }}><Notifications /><App themePreference={preference} onThemePreferenceChange={changePreference} /></DatesProvider></MantineProvider>;
+  const onboardingKey = "miniapp-onboarding-v1";
+  const [onboardingOpened, setOnboardingOpened] = React.useState(() => localStorage.getItem(onboardingKey) !== "done");
+  const finishOnboarding = React.useCallback(() => {
+    localStorage.setItem(onboardingKey, "done");
+    setOnboardingOpened(false);
+  }, []);
+  const resetLocalData = React.useCallback(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+    document.cookie.split(";").forEach((cookie) => {
+      const name = cookie.split("=", 1)[0]?.trim();
+      if (name) document.cookie = `${name}=; Max-Age=0; path=/; SameSite=Lax`;
+    });
+    changePreference("system");
+    setOnboardingOpened(true);
+  }, [changePreference]);
+  return <MantineProvider theme={theme} forceColorScheme={colorScheme}><DatesProvider settings={{ locale: "ru", firstDayOfWeek: 1, weekendDays: [0, 6] }}><Notifications /><App themePreference={preference} onThemePreferenceChange={changePreference} onResetLocalData={resetLocalData} /><MiniAppOnboarding opened={onboardingOpened} onFinish={finishOnboarding} /></DatesProvider></MantineProvider>;
 }

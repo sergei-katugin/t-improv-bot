@@ -1,8 +1,10 @@
-import { Paper, SegmentedControl, Stack, Text, Title } from "@mantine/core";
+import React from "react";
+import { Button, Modal, Paper, SegmentedControl, Stack, Text, Title } from "@mantine/core";
 import type { ThemePreference } from "../types";
 
-export function AppearanceSettings({ value, onChange }: { value: ThemePreference; onChange: (value: ThemePreference) => void }) {
-  return <Paper className="resource-form">
+export function AppearanceSettings({ value, onChange, onReset }: { value: ThemePreference; onChange: (value: ThemePreference) => void; onReset: () => void }) {
+  const [confirmOpened, setConfirmOpened] = React.useState(false);
+  return <Stack gap="md"><Paper className="resource-form">
     <Stack gap="sm">
       <div>
         <Title order={3}>Тема оформления</Title>
@@ -19,5 +21,14 @@ export function AppearanceSettings({ value, onChange }: { value: ThemePreference
         ]}
       />
     </Stack>
-  </Paper>;
+  </Paper>
+    <Paper className="resource-form"><Stack gap="sm">
+      <div><Title order={3}>Сбросить Mini App</Title><Text size="sm" c="dimmed">Очистит тему, локальные данные и снова покажет онбординг. Афиши и записи не удаляются.</Text></div>
+      <Button color="red" variant="light" onClick={() => setConfirmOpened(true)}>Сбросить локальные данные</Button>
+    </Stack></Paper>
+    <Modal opened={confirmOpened} onClose={() => setConfirmOpened(false)} title="Сбросить Mini App?" centered>
+      <Text>Тема вернётся к системной, а приложение снова покажет знакомство. Серверные данные останутся без изменений.</Text>
+      <Stack mt="lg" gap="xs"><Button color="red" onClick={() => { setConfirmOpened(false); onReset(); }}>Сбросить</Button><Button variant="subtle" onClick={() => setConfirmOpened(false)}>Отмена</Button></Stack>
+    </Modal>
+  </Stack>;
 }

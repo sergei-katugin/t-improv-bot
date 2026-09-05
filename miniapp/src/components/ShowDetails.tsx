@@ -2,14 +2,13 @@ import { Alert, Anchor, Button, Collapse, Progress, Text, Title } from "@mantine
 import type { Show } from "../types";
 import { BottomActionBar, BottomNavAction } from "./BottomActionBar";
 
-export function ShowDetails({ show, descriptionOpened, onToggleDescription, onAttendees, onEdit, onAnnouncement, onAnalytics, onMore }: {
+export function ShowDetails({ show, descriptionOpened, onToggleDescription, onAttendees, onEdit, onAnnouncement, onMore }: {
   show: Show;
   descriptionOpened: boolean;
   onToggleDescription: () => void;
   onAttendees: () => void;
   onEdit: () => void;
   onAnnouncement: () => void;
-  onAnalytics: () => void;
   onMore: () => void;
 }) {
   const fill = Math.min(100, Math.round(show.occupiedSeats / Math.max(1, show.maxSeats) * 100));
@@ -26,10 +25,10 @@ export function ShowDetails({ show, descriptionOpened, onToggleDescription, onAt
     </section>
     {!show.isActive && <Alert color="red" mt="md">Эта афиша отменена. Новые записи недоступны.</Alert>}
     <BottomActionBar navigation>
+      <BottomNavAction icon="shows" label="Шоу" active onClick={() => undefined} />
       <BottomNavAction icon="attendees" label="Зрители" meta={show.occupiedSeats} onClick={onAttendees} />
       <BottomNavAction icon="edit" label="Изменить" onClick={onEdit} />
       <BottomNavAction icon="announce" label="Анонс" onClick={onAnnouncement} />
-      <BottomNavAction icon="analytics" label="Аналитика" onClick={onAnalytics} />
       <BottomNavAction icon="more" label="Ещё" onClick={onMore} />
     </BottomActionBar>
   </>;

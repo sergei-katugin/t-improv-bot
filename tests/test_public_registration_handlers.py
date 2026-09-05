@@ -147,6 +147,27 @@ async def test_confirm_registration_handles_stale_capacity_and_success(monkeypat
     )
     assert "Ты записан" in callback.message.answer.await_args.args[0]
     notify.assert_awaited_once()
+    assert notify.await_args.args[-1] == 9
+
+
+@pytest.mark.asyncio
+async def test_registration_chat_notification_includes_total_occupancy():
+    admin_bot = AsyncMock()
+    show = _show(registration_chat_id=-100123, max_seats=80)
+
+    await registration._notify_registration_chat(
+        admin_bot, show, "Sergey Katugin", 1, None, 17
+    )
+
+    message = admin_bot.send_message.await_args.args[1]
+    assert "Мест в записи: 2" in message
+    assert "Заполнено: <b>17 / 80</b>" in message
+    markup = admin_bot.send_message.await_args.kwargs["reply_markup"]
+    button = markup.inline_keyboard[0][0]
+    assert button.text == "➕ Добавить запись вручную"
+    assert button.callback_data == registration.AdminShowActionCb(
+        action="chat_add_manual", show_id=show.id
+    ).pack()
 
 
 @pytest.mark.asyncio
