@@ -1,13 +1,13 @@
 import React from "react";
 import {
   Alert, Anchor, Autocomplete, Badge, Button, Collapse, FileInput, Group, Loader, MantineProvider, Modal, NumberInput,
-  Paper, Progress, Select, SimpleGrid, Skeleton, Stack, Switch, Tabs, Text,
+  Paper, Progress, Select, SimpleGrid, Skeleton, Stack, Stepper, Switch, Tabs, Text,
   Textarea, TextInput, Title,
 } from "@mantine/core";
 import { DateTimePicker, DatesProvider } from "@mantine/dates";
 import { Notifications, notifications } from "@mantine/notifications";
 import "dayjs/locale/ru";
-import { BottomActionBar, BottomNavAction } from "./components/BottomActionBar";
+import { BottomActionBar, RootNavigation } from "./components/BottomActionBar";
 import { AppearanceSettings } from "./components/AppearanceSettings";
 import { AnalyticsModal } from "./components/AnalyticsModal";
 import { ShowCard } from "./components/ShowCard";
@@ -57,7 +57,7 @@ function ShowForm({ opened, initial, options, me, reloadOptions, onClose, onSave
   const [newVenueUrl, setNewVenueUrl] = React.useState("");
   const [newVenueSeats, setNewVenueSeats] = React.useState(50);
   const [poster, setPoster] = React.useState<File | null>(null);
-  const [notifyViewers, setNotifyViewers] = React.useState(false);
+  const [notifyConfirmOpened, setNotifyConfirmOpened] = React.useState(false);
   const [chatTarget, setChatTarget] = React.useState("");
   const [savedChats, setSavedChats] = React.useState<RegistrationChatOption[]>([]);
   const [chatNameMode, setChatNameMode] = React.useState<"short" | "full">("short");
@@ -65,6 +65,7 @@ function ShowForm({ opened, initial, options, me, reloadOptions, onClose, onSave
   const [checkingChat, setCheckingChat] = React.useState(false);
   const [chatSetupOpened, setChatSetupOpened] = React.useState(false);
   const [previewOpened, setPreviewOpened] = React.useState(false);
+  const [activeStep, setActiveStep] = React.useState(0);
   React.useEffect(() => {
     if (!opened) return;
     const nextValue = initial ? formFromShow(initial) : emptyForm();
@@ -74,7 +75,7 @@ function ShowForm({ opened, initial, options, me, reloadOptions, onClose, onSave
     if (venue) nextValue.locationUrl = venue.mapsUrl ?? "";
     setValue(nextValue);
     setVenueId(venue ? String(venue.id) : initial ? "__custom__" : null);
-    setPoster(null); setNotifyViewers(false); setChatTarget(""); setChatNameMode("short"); setVerifiedChat(null); setChatSetupOpened(false); setPreviewOpened(false);
+    setPoster(null); setNotifyConfirmOpened(false); setChatTarget(""); setChatNameMode("short"); setVerifiedChat(null); setChatSetupOpened(false); setPreviewOpened(false); setActiveStep(0);
     if (!initial) api<{ items: RegistrationChatOption[] }>("/api/miniapp/registration-chats").then(({ items }) => setSavedChats(items)).catch(() => setSavedChats([]));
   }, [opened, initial, options.venues]);
   const set = <K extends keyof ShowFormValue>(key: K, next: ShowFormValue[K]) => setValue((current) => ({ ...current, [key]: next }));
@@ -94,6 +95,13 @@ function ShowForm({ opened, initial, options, me, reloadOptions, onClose, onSave
   }, [me?.username, options.teams, value.teamName]);
   const normalizedRegistrar = value.registrarUsername.trim().replace(/^@?/, "@");
   const registrarIsValid = /^@[A-Za-z][A-Za-z0-9_]{4,31}$/.test(normalizedRegistrar);
+  const stepValid = [
+    Boolean(value.title.trim() && value.teamName && value.showDateLocal),
+    Boolean(venueId && (venueId !== "__custom__" || (value.location.trim() && value.city.trim() && value.maxSeats > 0))),
+    Boolean((!value.registrarUsername.trim() || registrarIsValid) && (initial || !chatTarget.trim() || verifiedChat?.target === chatTarget.trim())),
+    true,
+  ];
+  const stepLabels = ["Основное", "Место", "Запись", "Афиша"];
 
   function showPayload(): ShowFormValue {
     return selectedVenue
@@ -146,8 +154,7 @@ function ShowForm({ opened, initial, options, me, reloadOptions, onClose, onSave
     } finally { setCheckingChat(false); }
   }
 
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
+  async function save(notifyViewers: boolean) {
     if (!initial && chatTarget.trim() && verifiedChat?.target !== chatTarget.trim()) {
       notifications.show({ color: "red", title: "Сначала проверь чат записей", message: "Бот должен быть добавлен в выбранный чат" });
       return;
@@ -184,6 +191,16 @@ function ShowForm({ opened, initial, options, me, reloadOptions, onClose, onSave
     } finally { setSaving(false); }
   }
 
+  function submit(event: React.FormEvent) {
+    event.preventDefault();
+    if (activeStep < 3) {
+      if (stepValid[activeStep]) setActiveStep((step) => step + 1);
+      return;
+    }
+    if (initial) setNotifyConfirmOpened(true);
+    else void save(false);
+  }
+
   async function sendPreview() {
     setSaving(true);
     try {
@@ -196,12 +213,24 @@ function ShowForm({ opened, initial, options, me, reloadOptions, onClose, onSave
   return <Modal opened={opened} onClose={onClose} title={initial ? "Редактировать афишу" : "Новая афиша"} fullScreen classNames={{ close: "fullscreen-modal-close" }}>
     <form onSubmit={submit} className="show-form">
       <Stack gap="md">
+        <Text size="sm" fw={700}>Шаг {activeStep + 1} из 4 · {stepLabels[activeStep]}</Text>
+        <Stepper active={activeStep} className="show-stepper" size="sm" allowNextStepsSelect={false}>
+          <Stepper.Step label="Основное" />
+          <Stepper.Step label="Место" />
+          <Stepper.Step label="Запись" />
+          <Stepper.Step label="Афиша" />
+        </Stepper>
+        {activeStep === 0 && <>
         <TextInput required label="Название" value={value.title} onChange={(e) => set("title", e.currentTarget.value)} maxLength={256} />
         <Select required searchable allowDeselect={false} label="Команда" data={[...options.teams.map((team) => ({ value: team.name, label: team.name })), { value: "__new__", label: "＋ Добавить новую команду" }]} value={value.teamName || null} onChange={(next) => next === "__new__" ? setTeamModal(true) : set("teamName", next ?? "")} />
         <DateTimePicker required size="lg" dropdownType="modal" label="Дата и время" valueFormat="D MMMM YYYY, HH:mm" locale="ru" minDate={new Date().toISOString().slice(0, 10)} value={value.showDateLocal.replace("T", " ")} onChange={(next) => set("showDateLocal", next?.replace(" ", "T") ?? "")} timePickerProps={{ minutesStep: 5 }} clearable={false} className="large-date-picker" />
+        </>}
+        {activeStep === 1 && <>
         <Select required searchable allowDeselect={false} label="Площадка" placeholder="Выбери площадку" data={[...options.venues.map((venue) => ({ value: String(venue.id), label: `${venue.name} · ${venue.city}` })), { value: "__custom__", label: "Другая площадка" }, ...(me?.role === "admin" ? [{ value: "__new__", label: "＋ Добавить новую площадку" }] : [])]} value={venueId} onChange={selectVenue} />
         {selectedVenue && <Paper className="venue-summary"><Text fw={700}>{selectedVenue.name}</Text><Text size="sm">{selectedVenue.city} · {selectedVenue.defaultSeats} мест</Text>{selectedVenue.mapsUrl && <Anchor href={selectedVenue.mapsUrl} target="_blank" size="sm">Открыть на карте ↗</Anchor>}</Paper>}
         {venueId === "__custom__" && <><TextInput required label="Название площадки" value={value.location} onChange={(e) => set("location", e.currentTarget.value)} maxLength={512} /><SimpleGrid cols={2}><Autocomplete required label="Город" data={["Лимасол", "Никосия", "Пафос"]} value={value.city} onChange={(next) => set("city", next)} /><NumberInput required min={1} max={10000} label="Количество мест" value={value.maxSeats} onChange={(next) => set("maxSeats", typeof next === "number" ? next : 1)} /></SimpleGrid><TextInput type="url" label="Ссылка на карту" value={value.locationUrl} onChange={(e) => set("locationUrl", e.currentTarget.value)} /></>}
+        </>}
+        {activeStep === 2 && <>
         <Autocomplete
           label="Ответственный в Telegram"
           placeholder="@username"
@@ -214,16 +243,26 @@ function ShowForm({ opened, initial, options, me, reloadOptions, onClose, onSave
           description={registrarIsValid ? <Anchor href={`https://t.me/${normalizedRegistrar.slice(1)}`} target="_blank" size="xs">Проверить профиль в Telegram ↗</Anchor> : "Можно выбрать участника любой команды или ввести другой ник"}
         />
         {!initial && <div className="optional-section"><Button type="button" fullWidth variant="light" onClick={() => setChatSetupOpened((opened) => !opened)} aria-expanded={chatSetupOpened}>{chatSetupOpened ? "Скрыть настройку чата" : "＋ Настроить чат записей"}</Button><Collapse expanded={chatSetupOpened}><Paper className="venue-summary"><Stack gap="sm"><div><Text fw={700}>Чат записей <Text component="span" c="dimmed" fw={400}>(необязательно)</Text></Text><Text size="sm" c="dimmed">Добавь админ-бота в группу или канал. Он подтвердит подключение сообщением, а чат автоматически появится здесь. Если Telegram не прислал событие, отправь в группе <b>/connect_chat</b>.</Text></div><Select searchable clearable label="Мои чаты" placeholder={savedChats.length ? "Выбери чат" : "Сначала добавь админ-бота в чат"} value={chatTarget || null} onChange={(next) => { setChatTarget(next ?? ""); setVerifiedChat(null); }} data={savedChats.map((chat) => ({ value: String(chat.id), label: chat.title }))} /><Select label="Как показывать имя" value={chatNameMode} onChange={(next) => setChatNameMode((next as "short" | "full") ?? "short")} data={[{ value: "short", label: "Сокращённо" }, { value: "full", label: "Полностью" }]} /><Button type="button" variant="light" disabled={!chatTarget.trim()} loading={checkingChat} onClick={() => void verifyRegistrationChat()}>{verifiedChat ? `Проверено: ${verifiedChat.title} ✓` : "Проверить выбранный чат"}</Button></Stack></Paper></Collapse></div>}
+        </>}
+        {activeStep === 3 && <>
         <Textarea label="Текст афиши" autosize minRows={5} maxLength={1800} value={value.posterText} onChange={(e) => set("posterText", e.currentTarget.value)} />
         <FileInput accept="image/jpeg,image/png,image/webp" label="Изображение афиши" description={initial?.hasPoster ? "Выбери файл, чтобы заменить текущее изображение" : "JPEG, PNG или WebP, до 8 МБ"} value={poster} onChange={setPoster} clearable />
         <Switch label="Включить check-in" checked={value.checkinEnabled} onChange={(e) => set("checkinEnabled", e.currentTarget.checked)} />
         <Switch label="Запрашивать отзывы после шоу" checked={value.feedbackEnabled} onChange={(e) => set("feedbackEnabled", e.currentTarget.checked)} />
-        {initial && <Switch label="Уведомить записавшихся об изменениях" checked={notifyViewers} onChange={(event) => setNotifyViewers(event.currentTarget.checked)} />}
         <div className="optional-section"><Button type="button" fullWidth variant="light" onClick={() => setPreviewOpened((opened) => !opened)} aria-expanded={previewOpened}>{previewOpened ? "Скрыть предпросмотр" : "Показать предпросмотр"}</Button><Collapse expanded={previewOpened}><Paper className="telegram-preview"><Text size="xs" fw={800} c="dimmed">ПРЕДПРОСМОТР</Text><Title order={3}>🎭 {value.title || "Название шоу"}</Title><Text>👥 Команда: {value.teamName || "не выбрана"}</Text><Text>📅 {value.showDateLocal ? new Date(value.showDateLocal).toLocaleString("ru-RU", { dateStyle: "long", timeStyle: "short" }) : "дата не выбрана"}</Text><Text>📍 {selectedVenue?.name || value.location || "площадка не выбрана"}, {selectedVenue?.city || value.city}</Text>{value.registrarUsername && <Text>👤 Ответственный: {value.registrarUsername}</Text>}{value.posterText && <Text mt="sm" style={{ whiteSpace: "pre-wrap" }}>{value.posterText}</Text>}</Paper></Collapse></div>
         <Button variant="light" loading={saving} disabled={!value.title || !value.teamName || !value.showDateLocal || !venueId} onClick={() => void sendPreview()}>Отправить тест в админ-бот</Button>
+        </>}
       </Stack>
-      <BottomActionBar><Button type="submit" className="primary" fullWidth loading={saving} size="md" disabled={!initial && Boolean(chatTarget.trim()) && !verifiedChat}>{initial ? "Сохранить изменения" : "Создать афишу"}</Button></BottomActionBar>
+      <BottomActionBar sticky><Group grow wrap="nowrap">{activeStep > 0 && <Button type="button" variant="default" onClick={() => setActiveStep((step) => step - 1)}>Назад</Button>}<Button type="submit" className="primary" fullWidth loading={saving} size="md" disabled={!stepValid[activeStep]}>{activeStep < 3 ? "Далее" : initial ? "Сохранить изменения" : "Создать афишу"}</Button></Group></BottomActionBar>
     </form>
+    <Modal opened={notifyConfirmOpened} onClose={() => setNotifyConfirmOpened(false)} title="Уведомить зрителей?" centered>
+      <Text>Отправить записавшимся сообщение об изменениях в афише?</Text>
+      <Stack mt="lg" gap="xs">
+        <Button className="primary" loading={saving} onClick={() => void save(true)}>Сохранить и уведомить</Button>
+        <Button variant="default" disabled={saving} onClick={() => void save(false)}>Сохранить без уведомления</Button>
+        <Button variant="subtle" disabled={saving} onClick={() => setNotifyConfirmOpened(false)}>Вернуться к редактированию</Button>
+      </Stack>
+    </Modal>
     <Modal opened={teamModal} onClose={() => setTeamModal(false)} title="Новая команда" centered><Stack><TextInput required label="Название" value={newTeamName} onChange={(e) => setNewTeamName(e.currentTarget.value)} /><Textarea label="Telegram-ники участников" value={newTeamMembers} onChange={(e) => setNewTeamMembers(e.currentTarget.value)} /><Button disabled={!newTeamName.trim()} loading={saving} onClick={() => void createTeam()}>Создать и выбрать</Button></Stack></Modal>
     <Modal opened={venueModal} onClose={() => setVenueModal(false)} title="Новая площадка" centered><Stack><TextInput required label="Название" value={newVenueName} onChange={(e) => setNewVenueName(e.currentTarget.value)} /><Autocomplete required label="Город" data={["Лимасол", "Никосия", "Пафос"]} value={newVenueCity} onChange={setNewVenueCity} /><NumberInput required min={1} max={10000} label="Количество мест" value={newVenueSeats} onChange={(next) => setNewVenueSeats(typeof next === "number" ? next : 1)} /><TextInput type="url" label="Ссылка на карту" value={newVenueUrl} onChange={(e) => setNewVenueUrl(e.currentTarget.value)} /><Button disabled={!newVenueName.trim() || !newVenueCity.trim()} loading={saving} onClick={() => void createVenue()}>Сохранить для всех и выбрать</Button></Stack></Modal>
   </Modal>;
@@ -604,6 +643,17 @@ function App({ themePreference, onThemePreferenceChange }: { themePreference: Th
   const hasBackTarget = Boolean(selected || formOpened || managementOpened || attendeesOpened || announcementOpened || analyticsOpened || toolsOpened);
 
   React.useEffect(() => {
+    const title = formOpened ? (editing ? "Редактирование афиши" : "Новая афиша")
+      : managementOpened ? "Настройки"
+      : attendeesOpened ? "Зрители"
+      : announcementOpened ? "Анонс"
+      : analyticsOpened ? "Аналитика"
+      : toolsOpened ? "Действия с афишей"
+      : selected?.title ?? "Мои афиши";
+    document.title = title;
+  }, [analyticsOpened, announcementOpened, attendeesOpened, editing, formOpened, managementOpened, selected, toolsOpened]);
+
+  React.useEffect(() => {
     const backButton = window.Telegram?.WebApp.BackButton;
     if (!backButton) return;
     const goBack = () => {
@@ -624,10 +674,7 @@ function App({ themePreference, onThemePreferenceChange }: { themePreference: Th
   React.useEffect(() => {
     const settingsButton = window.Telegram?.WebApp.SettingsButton;
     if (!settingsButton) return;
-    const openSettings = () => { telegramHaptic("selection"); setManagementOpened(true); };
-    settingsButton.onClick(openSettings);
-    settingsButton.show();
-    return () => { settingsButton.offClick(openSettings); settingsButton.hide(); };
+    settingsButton.hide();
   }, []);
 
   React.useEffect(() => {
@@ -687,10 +734,7 @@ function App({ themePreference, onThemePreferenceChange }: { themePreference: Th
   }
 
   return <main className="shell">
-    <ShowsHeader demo={isPreview} filtersOpened={filtersOpened} activeFilters={[teamFilter, yearFilter].filter(Boolean).length} onToggleFilters={() => { telegramHaptic("selection"); setFiltersOpened((opened) => !opened); }} onOpenSettings={() => { telegramHaptic("selection"); setManagementOpened(true); }} />
-    <Tabs value={status} onChange={(value) => setStatus(value as "upcoming" | "past")} className="tabs" variant="pills">
-      <Tabs.List grow><Tabs.Tab value="upcoming">Будущие</Tabs.Tab><Tabs.Tab value="past">Прошедшие</Tabs.Tab></Tabs.List>
-    </Tabs>
+    <ShowsHeader status={status} onStatusChange={setStatus} filtersOpened={filtersOpened} activeFilters={[teamFilter, yearFilter].filter(Boolean).length} onToggleFilters={() => { telegramHaptic("selection"); setFiltersOpened((opened) => !opened); }} />
     <Collapse expanded={filtersOpened}>
       <Group className="filters-panel" gap="xs" grow>
         <Select clearable searchable placeholder="Все команды" aria-label="Фильтр по команде" value={teamFilter} onChange={setTeamFilter} data={options.teams.map((team) => team.name)} />
@@ -704,7 +748,7 @@ function App({ themePreference, onThemePreferenceChange }: { themePreference: Th
       {shows.map((show) => <ShowCard key={show.id} show={show} onClick={() => { telegramHaptic("selection"); void openShow(show); }} />)}
     </section>
     {showsHasMore && <Button fullWidth mt="md" variant="default" loading={loading} onClick={() => reloadShows(showsNextOffset, true)}>Показать ещё</Button>}
-    <BottomActionBar><Button className="primary" fullWidth onClick={() => { telegramHaptic("light"); setEditing(null); setFormOpened(true); }}>＋ Создать афишу</Button></BottomActionBar>
+    <RootNavigation onShows={() => setSelected(null)} onCreate={() => { telegramHaptic("light"); setEditing(null); setFormOpened(true); }} onSettings={() => { telegramHaptic("selection"); setManagementOpened(true); }} />
     <ShowForm opened={formOpened} initial={editing} options={options} me={me} reloadOptions={reloadOptions} onClose={() => setFormOpened(false)} onSaved={() => { setFormOpened(false); reloadShows(); }} />
     <ManagementModal opened={managementOpened} onClose={() => setManagementOpened(false)} me={me} options={options} reload={reloadOptions} themePreference={themePreference} onThemePreferenceChange={onThemePreferenceChange} />
   </main>;
