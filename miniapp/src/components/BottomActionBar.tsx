@@ -16,8 +16,8 @@ function TabBarIcon({ name }: { name: TabBarIconName }) {
   return <svg viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
 }
 
-export function BottomActionBar({ children, navigation = false, sticky = false }: { children: ReactNode; navigation?: boolean; sticky?: boolean }) {
-  return <div className={`bottom-action-bar${navigation ? " bottom-action-navigation" : ""}${sticky ? " is-sticky" : ""}`}>{children}</div>;
+export function BottomActionBar({ children, navigation = false, inline = false }: { children: ReactNode; navigation?: boolean; inline?: boolean }) {
+  return <div className={`bottom-action-bar${navigation ? " bottom-action-navigation" : ""}${inline ? " is-inline" : ""}`}>{children}</div>;
 }
 
 export function BottomNavAction({ icon, label, meta, active = false, onClick }: { icon: TabBarIconName; label: string; meta?: number | string; active?: boolean; onClick: () => void }) {

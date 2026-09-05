@@ -2,6 +2,7 @@ import React from "react";
 import { Alert, Anchor, Badge, Button, Group, Modal, Paper, Progress, SimpleGrid, Skeleton, Stack, Text, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { api, authenticatedBlob } from "../lib/api";
+import { useAppResume } from "../hooks/useAppResume";
 import type { Analytics, Show } from "../types";
 import { BottomActionBar } from "./BottomActionBar";
 
@@ -29,6 +30,7 @@ export function AnalyticsModal({ opened, onClose, show, demo }: { opened: boolea
   }, [show.id, show.maxSeats, show.occupiedSeats, demo]);
 
   React.useEffect(() => { if (opened) void load(); }, [opened, load]);
+  useAppResume(() => { void load(); }, opened);
   const sourceLabels: Record<string, string> = { direct: "Через бота", manual: "Вручную", social: "Другие соцсети", instagram: "Instagram", channel: "Telegram-канал", team: "Команда" };
   const maxRating = data ? Math.max(1, ...Object.values(data.ratingDistribution)) : 1;
 
