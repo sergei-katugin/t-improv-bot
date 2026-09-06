@@ -1,0 +1,409 @@
+
+<!doctype html>
+<html lang="en">
+
+<head>
+    <title>Code coverage report for src/features/AnnouncementModal.tsx</title>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../../prettify.css" />
+    <link rel="stylesheet" href="../../base.css" />
+    <link rel="shortcut icon" type="image/x-icon" href="../../favicon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style type='text/css'>
+        .coverage-summary .sorter {
+            background-image: url(../../sort-arrow-sprite.png);
+        }
+    </style>
+</head>
+    
+<body>
+<div class='wrapper'>
+    <div class='pad1'>
+        <h1><a href="../../index.html">All files</a> / <a href="index.html">src/features</a> AnnouncementModal.tsx</h1>
+        <div class='clearfix'>
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">63.79% </span>
+                <span class="quiet">Statements</span>
+                <span class='fraction'>37/58</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">70.27% </span>
+                <span class="quiet">Branches</span>
+                <span class='fraction'>26/37</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">58.82% </span>
+                <span class="quiet">Functions</span>
+                <span class='fraction'>10/17</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">68.62% </span>
+                <span class="quiet">Lines</span>
+                <span class='fraction'>35/51</span>
+            </div>
+        
+            
+        </div>
+        <p class="quiet">
+            Press <em>n</em> or <em>j</em> to go to the next uncovered block, <em>b</em>, <em>p</em> or <em>k</em> for the previous block.
+        </p>
+        <template id="filterTemplate">
+            <div class="quiet">
+                Filter:
+                <input type="search" id="fileSearch">
+            </div>
+        </template>
+    </div>
+    <div class='status-line medium'></div>
+    <pre><table class="coverage">
+<tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
+<a name='L2'></a><a href='#L2'>2</a>
+<a name='L3'></a><a href='#L3'>3</a>
+<a name='L4'></a><a href='#L4'>4</a>
+<a name='L5'></a><a href='#L5'>5</a>
+<a name='L6'></a><a href='#L6'>6</a>
+<a name='L7'></a><a href='#L7'>7</a>
+<a name='L8'></a><a href='#L8'>8</a>
+<a name='L9'></a><a href='#L9'>9</a>
+<a name='L10'></a><a href='#L10'>10</a>
+<a name='L11'></a><a href='#L11'>11</a>
+<a name='L12'></a><a href='#L12'>12</a>
+<a name='L13'></a><a href='#L13'>13</a>
+<a name='L14'></a><a href='#L14'>14</a>
+<a name='L15'></a><a href='#L15'>15</a>
+<a name='L16'></a><a href='#L16'>16</a>
+<a name='L17'></a><a href='#L17'>17</a>
+<a name='L18'></a><a href='#L18'>18</a>
+<a name='L19'></a><a href='#L19'>19</a>
+<a name='L20'></a><a href='#L20'>20</a>
+<a name='L21'></a><a href='#L21'>21</a>
+<a name='L22'></a><a href='#L22'>22</a>
+<a name='L23'></a><a href='#L23'>23</a>
+<a name='L24'></a><a href='#L24'>24</a>
+<a name='L25'></a><a href='#L25'>25</a>
+<a name='L26'></a><a href='#L26'>26</a>
+<a name='L27'></a><a href='#L27'>27</a>
+<a name='L28'></a><a href='#L28'>28</a>
+<a name='L29'></a><a href='#L29'>29</a>
+<a name='L30'></a><a href='#L30'>30</a>
+<a name='L31'></a><a href='#L31'>31</a>
+<a name='L32'></a><a href='#L32'>32</a>
+<a name='L33'></a><a href='#L33'>33</a>
+<a name='L34'></a><a href='#L34'>34</a>
+<a name='L35'></a><a href='#L35'>35</a>
+<a name='L36'></a><a href='#L36'>36</a>
+<a name='L37'></a><a href='#L37'>37</a>
+<a name='L38'></a><a href='#L38'>38</a>
+<a name='L39'></a><a href='#L39'>39</a>
+<a name='L40'></a><a href='#L40'>40</a>
+<a name='L41'></a><a href='#L41'>41</a>
+<a name='L42'></a><a href='#L42'>42</a>
+<a name='L43'></a><a href='#L43'>43</a>
+<a name='L44'></a><a href='#L44'>44</a>
+<a name='L45'></a><a href='#L45'>45</a>
+<a name='L46'></a><a href='#L46'>46</a>
+<a name='L47'></a><a href='#L47'>47</a>
+<a name='L48'></a><a href='#L48'>48</a>
+<a name='L49'></a><a href='#L49'>49</a>
+<a name='L50'></a><a href='#L50'>50</a>
+<a name='L51'></a><a href='#L51'>51</a>
+<a name='L52'></a><a href='#L52'>52</a>
+<a name='L53'></a><a href='#L53'>53</a>
+<a name='L54'></a><a href='#L54'>54</a>
+<a name='L55'></a><a href='#L55'>55</a>
+<a name='L56'></a><a href='#L56'>56</a>
+<a name='L57'></a><a href='#L57'>57</a>
+<a name='L58'></a><a href='#L58'>58</a>
+<a name='L59'></a><a href='#L59'>59</a>
+<a name='L60'></a><a href='#L60'>60</a>
+<a name='L61'></a><a href='#L61'>61</a>
+<a name='L62'></a><a href='#L62'>62</a>
+<a name='L63'></a><a href='#L63'>63</a>
+<a name='L64'></a><a href='#L64'>64</a>
+<a name='L65'></a><a href='#L65'>65</a>
+<a name='L66'></a><a href='#L66'>66</a>
+<a name='L67'></a><a href='#L67'>67</a>
+<a name='L68'></a><a href='#L68'>68</a>
+<a name='L69'></a><a href='#L69'>69</a>
+<a name='L70'></a><a href='#L70'>70</a>
+<a name='L71'></a><a href='#L71'>71</a>
+<a name='L72'></a><a href='#L72'>72</a>
+<a name='L73'></a><a href='#L73'>73</a>
+<a name='L74'></a><a href='#L74'>74</a>
+<a name='L75'></a><a href='#L75'>75</a>
+<a name='L76'></a><a href='#L76'>76</a>
+<a name='L77'></a><a href='#L77'>77</a>
+<a name='L78'></a><a href='#L78'>78</a>
+<a name='L79'></a><a href='#L79'>79</a>
+<a name='L80'></a><a href='#L80'>80</a>
+<a name='L81'></a><a href='#L81'>81</a>
+<a name='L82'></a><a href='#L82'>82</a>
+<a name='L83'></a><a href='#L83'>83</a>
+<a name='L84'></a><a href='#L84'>84</a>
+<a name='L85'></a><a href='#L85'>85</a>
+<a name='L86'></a><a href='#L86'>86</a>
+<a name='L87'></a><a href='#L87'>87</a>
+<a name='L88'></a><a href='#L88'>88</a>
+<a name='L89'></a><a href='#L89'>89</a>
+<a name='L90'></a><a href='#L90'>90</a>
+<a name='L91'></a><a href='#L91'>91</a>
+<a name='L92'></a><a href='#L92'>92</a>
+<a name='L93'></a><a href='#L93'>93</a>
+<a name='L94'></a><a href='#L94'>94</a>
+<a name='L95'></a><a href='#L95'>95</a>
+<a name='L96'></a><a href='#L96'>96</a>
+<a name='L97'></a><a href='#L97'>97</a>
+<a name='L98'></a><a href='#L98'>98</a>
+<a name='L99'></a><a href='#L99'>99</a>
+<a name='L100'></a><a href='#L100'>100</a>
+<a name='L101'></a><a href='#L101'>101</a>
+<a name='L102'></a><a href='#L102'>102</a>
+<a name='L103'></a><a href='#L103'>103</a>
+<a name='L104'></a><a href='#L104'>104</a>
+<a name='L105'></a><a href='#L105'>105</a>
+<a name='L106'></a><a href='#L106'>106</a>
+<a name='L107'></a><a href='#L107'>107</a>
+<a name='L108'></a><a href='#L108'>108</a>
+<a name='L109'></a><a href='#L109'>109</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">14x</span>
+<span class="cline-any cline-yes">14x</span>
+<span class="cline-any cline-yes">14x</span>
+<span class="cline-any cline-yes">14x</span>
+<span class="cline-any cline-yes">14x</span>
+<span class="cline-any cline-yes">14x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">14x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">14x</span>
+<span class="cline-any cline-yes">5x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">14x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">14x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">9x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import React from "react";
+import { Alert, Anchor, Autocomplete, Badge, Button, Collapse, FileInput, Group, Loader, Modal, NumberInput, Paper, Progress, Select, SimpleGrid, Skeleton, Stack, Switch, Tabs, Text, Textarea, TextInput, Title } from "@mantine/core";
+import { DateTimePicker } from "@mantine/dates";
+import { notifications } from "@mantine/notifications";
+import { BottomActionBar, RootNavigation } from "../components/BottomActionBar";
+import { ShowNavigation } from "../components/ShowNavigation";
+import { AppearanceSettings } from "../components/AppearanceSettings";
+import { ShowStepper } from "../components/ShowStepper";
+import { api, authenticatedBlob } from "../lib/api";
+import { telegramConfirm, telegramHaptic } from "../lib/telegram";
+import { useAppResume } from "../hooks/useAppResume";
+import type { AccessUser, Attendees, AuditItem, Me, Options, Promotion, RegistrationChatOption, Show, ShowFormValue, ThemePreference } from "../types";
+&nbsp;
+export function AnnouncementModal({ opened, onClose, show, demo, onEdit, onAnalytics, onRegistration, onMore, onPublished }: {
+  opened: boolean; onClose: () =&gt; void; show: Show; demo: boolean; onEdit: () =&gt; void; onAnalytics: () =&gt; void; onRegistration: () =&gt; void; onMore: () =&gt; void; onPublished: () =&gt; void;
+}) {
+  const [html, setHtml] = React.useState("");
+  const [loading, setLoading] = React.useState(false);
+  const [publishing, setPublishing] = React.useState(false);
+  const [sendingTest, setSendingTest] = React.useState(false);
+  const [promotion, setPromotion] = React.useState&lt;Promotion | null&gt;(null);
+  const [repeatConfirm, setRepeatConfirm] = React.useState(false);
+&nbsp;
+  const load = React.useCallback(async () =&gt; {
+    setLoading(true);
+    try {
+      if (demo) {
+        const demoHtml = `🎭 &lt;b&gt;${show.title}&lt;/b&gt;&lt;br&gt;👥 Команда: ${show.teamName}&lt;br&gt;&lt;br&gt;📅 ${show.showDateLabel}&lt;br&gt;📍 ${show.location}, ${show.city}&lt;br&gt;&lt;br&gt;👥 Записаться тут: &lt;b&gt;через бота&lt;/b&gt; или у @${show.registrarUsername ?? <span class="branch-1 cbranch-no" title="branch not covered" >"ответственного"}`;</span>
+        setHtml(demoHtml);
+        setPromotion({ html: demoHtml, text: `${show.title}\n${show.showDateLabel}\nhttps://t.me/ImprovCypEventBot?start=show_${show.id}`, registrationUrl: `https://t.me/ImprovCypEventBot?start=show_${show.id}`, hasPoster: false, hasPublished: false, channels: [{ id: 1, username: "limassol_events", url: "https://t.me/limassol_events" }] });
+      } else <span class="missing-if-branch" title="else path not taken" >E</span>{
+        const preview = <span class="cstat-no" title="statement not covered" >await api&lt;Promotion&gt;(`/api/miniapp/shows/${show.id}/promotion`);</span>
+<span class="cstat-no" title="statement not covered" >        setPromotion(preview);</span>
+<span class="cstat-no" title="statement not covered" >        setHtml(preview.html.split("\n").join("&lt;br&gt;"));</span>
+      }
+    } catch (reason) { <span class="cstat-no" title="statement not covered" >notifications.show({ color: "red", title: "Не удалось открыть предпросмотр", message: (reason as Error).message }); }</span>
+    finally { setLoading(false); }
+  }, [demo, show]);
+&nbsp;
+  React.useEffect(() =&gt; {
+    if (opened) void load();
+  }, [opened]); // eslint-disable-line react-hooks/exhaustive-deps
+<span class="fstat-no" title="function not covered" >  useAppResume(() =&gt; {</span> <span class="cstat-no" title="statement not covered" >void load(); }</span>, opened);
+&nbsp;
+  async function publish(repeat = false) {
+    setPublishing(true);
+    try {
+      <span class="missing-if-branch" title="if path not taken" >I</span>if (!demo) {
+        const idempotencyKey = <span class="cstat-no" title="statement not covered" >Array.from(crypto.getRandomValues(new Uint8Array(16)<span class="fstat-no" title="function not covered" >), (b</span>yte) =&gt; <span class="cstat-no" title="statement not covered" >byte.toString(16).padStart(2, "0"))</span>.join("");</span>
+<span class="cstat-no" title="statement not covered" >        await api(`/api/miniapp/shows/${show.id}/publish`, {</span>
+          method: "POST",
+          body: JSON.stringify(repeat ? { repeat: true, confirmed: true, idempotencyKey } : {}),
+        });
+      }
+      setPromotion((current) =&gt; current ? { ...current, hasPublished: true } : <span class="branch-1 cbranch-no" title="branch not covered" >current)</span>;
+      onPublished();
+      setRepeatConfirm(false);
+      notifications.show({ color: "green", title: repeat ? "Анонс отправлен повторно" : "Анонс опубликован", message: "Пост отправлен в основной канал с кнопкой записи" });
+    } catch (reason) { <span class="cstat-no" title="statement not covered" >notifications.show({ color: "red", title: "Не удалось опубликовать", message: (reason as Error).message }); }</span>
+    finally { setPublishing(false); }
+  }
+&nbsp;
+  async function <span class="fstat-no" title="function not covered" >copyPromotion() {</span>
+<span class="cstat-no" title="statement not covered" >    if (!promotion) <span class="cstat-no" title="statement not covered" >return;</span></span>
+<span class="cstat-no" title="statement not covered" >    try {</span>
+<span class="cstat-no" title="statement not covered" >      await navigator.clipboard.writeText(promotion.text);</span>
+<span class="cstat-no" title="statement not covered" >      notifications.show({ color: "green", title: "Текст и ссылка скопированы", message: "Можно вставить их в соцсеть, канал или чат" });</span>
+    } catch { <span class="cstat-no" title="statement not covered" >notifications.show({ color: "red", title: "Не удалось скопировать", message: "Выдели текст анонса вручную" }); }</span>
+  }
+&nbsp;
+  async function sendTestAnnouncement() {
+    setSendingTest(true);
+    try {
+      <span class="missing-if-branch" title="if path not taken" >I</span>if (!demo) <span class="cstat-no" title="statement not covered" >await api(`/api/miniapp/shows/${show.id}/promotion/test`, { method: "POST" });</span>
+      notifications.show({ color: "green", title: "Тест отправлен", message: "Проверь личный чат с админ-ботом" });
+    } catch (reason) {
+<span class="cstat-no" title="statement not covered" >      notifications.show({ color: "red", title: "Не удалось отправить тест", message: (reason as Error).message });</span>
+    } finally { setSendingTest(false); }
+  }
+&nbsp;
+  return &lt;Modal opened={opened} onClose={onClose} title="Предпросмотр анонса" fullScreen classNames={{ close: "fullscreen-modal-close" }}&gt;
+    &lt;Stack gap="md"&gt;
+      {loading &amp;&amp; <span class="branch-1 cbranch-no" title="branch not covered" >&lt;Skeleton height={240} radius="lg" /&gt;}</span>
+      {!loading &amp;&amp; &lt;Paper className="telegram-preview" dangerouslySetInnerHTML={{ __html: html }} /&gt;}
+      {!loading &amp;&amp; promotion &amp;&amp; &lt;Paper className="resource-form"&gt;&lt;Stack&gt;
+        &lt;Title order={3}&gt;Публикация&lt;/Title&gt;
+        {!promotion.hasPublished ?
+          &lt;Text size="sm" c="dimmed"&gt;После проверки опубликуй готовый анонс.&lt;/Text&gt; :
+          &lt;Alert color="green"&gt;Анонс уже публиковался. Если до шоу осталось мало времени и есть свободные места, его можно отправить повторно.&lt;/Alert&gt;}
+        &lt;Button variant="default" loading={sendingTest} onClick={() =&gt; void sendTestAnnouncement()}&gt;Отправить тест себе&lt;/Button&gt;
+        &lt;Text size="xs" c="dimmed"&gt;Придёт только тебе в личный чат с админ-ботом и не будет считаться публикацией.&lt;/Text&gt;
+        &lt;Button variant="default" <span class="fstat-no" title="function not covered" >onClick={() =&gt; <span class="cstat-no" title="statement not covered" >v</span>oid copyPromotion()}&gt;С</span>копировать текст и ссылку&lt;/Button&gt;
+        &lt;Text size="xs" c="dimmed"&gt;Готовая версия для другой соцсети, канала или чата. Ссылка на запись уже добавлена.&lt;/Text&gt;
+        &lt;Button className="primary" loading={publishing} onClick={() =&gt; promotion.hasPublished ? setRepeatConfirm(true) : void publish()}&gt;{promotion.hasPublished ? "Опубликовать повторно" : "Опубликовать в основном канале"}&lt;/Button&gt;
+      &lt;/Stack&gt;&lt;/Paper&gt;}
+      {!loading &amp;&amp; promotion &amp;&amp; &lt;Paper className="resource-form"&gt;&lt;Stack&gt;
+        &lt;Title order={3}&gt;Рекламные каналы&lt;/Title&gt;
+        &lt;Text size="sm" c="dimmed"&gt;При копировании Telegram не переносит inline-кнопку. Поэтому в текст добавлена прямая ссылка на запись — она останется кликабельной.&lt;/Text&gt;
+        {promotion.channels.length ? promotion.channels.map((channel) =&gt; &lt;Button key={channel.id} component="a" href={channel.url} target="_blank" variant="default"&gt;Открыть @{channel.username.replace(/^@/, "")}&lt;/Button&gt;) : <span class="branch-1 cbranch-no" title="branch not covered" >&lt;Text size="sm" c="dimmed"&gt;Активные рекламные каналы пока не добавлены.&lt;/Text&gt;}</span>
+      &lt;/Stack&gt;&lt;/Paper&gt;}
+    &lt;/Stack&gt;
+    &lt;ShowNavigation show={show} active="announcement" onShow={onClose} onEdit={onEdit} <span class="fstat-no" title="function not covered" >onAnnouncement={() =&gt; <span class="cstat-no" title="statement not covered" >u</span>ndefined} onAnalytics={o</span>nAnalytics} onRegistration={onRegistration} onMore={onMore} /&gt;
+    &lt;Modal opened={repeatConfirm} <span class="fstat-no" title="function not covered" >onClose={() =&gt; <span class="cstat-no" title="statement not covered" >s</span>etRepeatConfirm(false)} t</span>itle="Повторить публикацию?" centered&gt;
+      &lt;Text&gt;В основной канал будет отправлена ещё одна полноценная афиша с кнопкой записи.&lt;/Text&gt;
+      &lt;Group justify="flex-end" mt="lg"&gt;&lt;Button variant="default" <span class="fstat-no" title="function not covered" >onClick={() =&gt; <span class="cstat-no" title="statement not covered" >s</span>etRepeatConfirm(false)}&gt;О</span>тмена&lt;/Button&gt;&lt;Button color="orange" loading={publishing} onClick={() =&gt; void publish(true)}&gt;Да, отправить повторно&lt;/Button&gt;&lt;/Group&gt;
+    &lt;/Modal&gt;
+  &lt;/Modal&gt;;
+}
+&nbsp;</pre></td></tr></table></pre>
+
+                <div class='push'></div><!-- for sticky footer -->
+            </div><!-- /wrapper -->
+            <div class='footer quiet pad2 space-top1 center small'>
+                Code coverage generated by
+                <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
+                at 2026-09-06T09:14:05.619Z
+            </div>
+        <script src="../../prettify.js"></script>
+        <script>
+            window.onload = function () {
+                prettyPrint();
+            };
+        </script>
+        <script src="../../sorter.js"></script>
+        <script src="../../block-navigation.js"></script>
+    </body>
+</html>
+    

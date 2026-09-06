@@ -65,3 +65,28 @@ async def test_manual_attendees_share_the_same_capacity_limit():
             assert await crud.count_active_registrations(session, show.id) == 1
     finally:
         await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_manual_attendee_guests_count_towards_capacity():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        async with sessions() as session:
+            creator = User(telegram_id=21, first_name="Creator")
+            session.add(creator)
+            await session.flush()
+            show = Show(
+                title="Manual guests", team_name="Team",
+                show_date=utc_now() + timedelta(days=1), location="Venue", city="City",
+                max_seats=3, creator_id=creator.id,
+            )
+            session.add(show)
+            await session.commit()
+            assert await crud.add_manual_attendees(session, show.id, ["First"], guests=[2]) == 1
+            assert await crud.count_active_registrations(session, show.id) == 3
+            assert await crud.add_manual_attendees(session, show.id, ["Overflow"]) == 0
+    finally:
+        await engine.dispose()

@@ -8,8 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import User
 from db import crud
-from public_bot.callbacks import RegisterCb, CancelRegCb
+from public_bot.callbacks import RegisterCb, CancelRegCb, WaitlistCb
 from public_bot.show_utils import NO_LINK_PREVIEW, show_text, render_show_detail
+from time_utils import utc_now
 
 router = Router()
 
@@ -155,12 +156,15 @@ async def cmd_start(message: Message, state: FSMContext, db_user: User, session:
     text = show_text(show, seats_left, reg=reg)
 
     builder = InlineKeyboardBuilder()
-    if seats_left > 0 and not is_registered:
+    registration_closed = bool(getattr(show, "registration_closes_at", None) and show.registration_closes_at <= utc_now())
+    if seats_left > 0 and not is_registered and not registration_closed:
         builder.button(text="📝 Записаться", callback_data=RegisterCb(show_id=show.id).pack())
     elif is_registered:
         builder.button(text="❌ Отменить запись", callback_data=CancelRegCb(show_id=show.id).pack())
+    elif registration_closed:
+        builder.button(text="🔒 Запись закрыта", callback_data="pub_registration_closed")
     else:
-        builder.button(text="😔 Мест нет", callback_data="pub_no_seats")
+        builder.button(text="⏳ Встать в лист ожидания", callback_data=WaitlistCb(show_id=show.id).pack())
     if len(shows) > 1:
         builder.button(text="🎭 Другое шоу", callback_data="pub_shows_list")
     builder.adjust(1)

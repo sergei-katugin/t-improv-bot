@@ -1428,6 +1428,7 @@ async def _finish_clone_show(message: Message, raw_time: str, state: FSMContext,
         location_url=source.location_url, city=source.city,
         poster_text=source.poster_text, poster_file_id=source.poster_file_id,
         max_seats=source.max_seats, creator_id=db_user.id,
+        max_guests=source.max_guests,
         registrar_id=source.registrar_id, registrar_username=source.registrar_username,
         checkin_enabled=source.checkin_enabled, feedback_enabled=source.feedback_enabled,
     )

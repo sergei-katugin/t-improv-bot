@@ -55,7 +55,8 @@ async def test_start_registration_rejects_missing_existing_and_full_show(monkeyp
     monkeypatch.setattr(registration.crud, "count_active_registrations", AsyncMock(return_value=10))
     monkeypatch.setattr(registration.crud, "get_registration", AsyncMock(return_value=None))
     await registration.start_registration(callback, SimpleNamespace(show_id=10), state, user, AsyncMock())
-    assert "все места" in callback.answer.await_args.args[0]
+    assert "Все места заняты" in callback.message.answer.await_args.args[0]
+    assert "лист ожидания" in callback.message.answer.await_args.args[0]
 
 
 @pytest.mark.asyncio
@@ -168,6 +169,23 @@ async def test_registration_chat_notification_includes_total_occupancy():
     assert button.callback_data == registration.AdminShowActionCb(
         action="chat_add_manual", show_id=show.id
     ).pack()
+
+
+@pytest.mark.asyncio
+async def test_registration_chat_is_notified_when_registration_is_cancelled():
+    admin_bot = AsyncMock()
+    show = _show(registration_chat_id=-100123, max_seats=80)
+
+    await registration._notify_registration_cancellation(
+        admin_bot, show, "Sergey Katugin", 2, 14
+    )
+
+    message = admin_bot.send_message.await_args.args[1]
+    assert admin_bot.send_message.await_args.args[0] == -100123
+    assert "Запись отменена" in message
+    assert "Sergey K." in message
+    assert "Освободилось мест: 3" in message
+    assert "Заполнено: <b>14 / 80</b>" in message
 
 
 @pytest.mark.asyncio

@@ -19,12 +19,36 @@ from public_bot.keyboards.inline import (
 from public_bot.keyboards.inline import registrar_username
 from public_bot.callbacks import (
     RegisterCb, ConfirmRegCb, GuestsCb, GuestsCustomCb,
-    RemindToggleCb, EditGuestsCb, AttendanceCb, CalendarCb, FeedbackCb,
+    RemindToggleCb, EditGuestsCb, AttendanceCb, CalendarCb, FeedbackCb, WaitlistCb,
 )
 from html_utils import h
 from time_utils import format_local, utc_now
 
 router = Router()
+
+
+@router.callback_query(F.data == "pub_registration_closed")
+async def registration_closed(callback: CallbackQuery):
+    await callback.answer("Запись на это шоу уже закрыта.", show_alert=True)
+
+
+@router.callback_query(WaitlistCb.filter())
+async def join_show_waitlist(callback: CallbackQuery, callback_data: WaitlistCb, db_user: User, session: AsyncSession):
+    show = await crud.get_show(session, callback_data.show_id)
+    if show is None:
+        await callback.answer("Шоу не найдено.", show_alert=True)
+        return
+    entry, position = await crud.join_waitlist(
+        session, show.id, db_user.id, db_user.first_name or db_user.username or "Зритель",
+    )
+    if entry is None:
+        await callback.answer("Лист ожидания уже недоступен.", show_alert=True)
+        return
+    await callback.answer("Добавлено")
+    await callback.message.answer(
+        f"⏳ Ты в листе ожидания на <b>{h(show.title)}</b>. Твоя позиция: <b>{position}</b>.\n\n"
+        "Если освободится место, бот запишет тебя автоматически и пришлёт сообщение."
+    )
 
 import logging
 logger = get_project_logger(__name__)
@@ -104,12 +128,49 @@ async def _notify_registration_chat(
                 logger.exception("failed to alert show creator about registration chat show_id=%s", show.id)
 
 
+async def _notify_registration_cancellation(
+    admin_bot: Bot,
+    show,
+    attendee_name: str,
+    guests: int,
+    occupied_seats: int,
+) -> None:
+    if not getattr(show, "registration_chat_id", None):
+        return
+    party = 1 + guests
+    display_name = attendee_name
+    if getattr(show, "registration_chat_name_mode", "short") != "full":
+        parts = attendee_name.split()
+        display_name = parts[0] + (f" {parts[1][0]}." if len(parts) > 1 and parts[1] else "")
+    try:
+        await admin_bot.send_message(
+            show.registration_chat_id,
+            f"↩️ <b>Запись отменена</b>\n"
+            f"🎭 {h(show.title)}\n"
+            f"Имя: <b>{h(display_name)}</b>\n"
+            f"Освободилось мест: {party}\n"
+            f"Заполнено: <b>{occupied_seats} / {show.max_seats}</b>",
+        )
+    except Exception:
+        logger.exception("failed to notify registration chat about cancellation show_id=%s", show.id)
+        creator = getattr(show, "creator", None)
+        if creator is not None:
+            try:
+                await admin_bot.send_message(
+                    creator.telegram_id,
+                    f"⚠️ Не удалось отправить отмену записи в чат шоу «{h(show.title)}». "
+                    "Проверь, что бот остаётся администратором канала или группы и может публиковать сообщения.",
+                )
+            except Exception:
+                logger.exception("failed to alert show creator about cancellation chat show_id=%s", show.id)
+
+
 @router.callback_query(RegisterCb.filter())
 async def start_registration(callback: CallbackQuery, callback_data: RegisterCb, state: FSMContext, db_user: User, session: AsyncSession):
     show_id = callback_data.show_id
 
     show = await crud.get_show(session, show_id)
-    if show is None or not show.is_active or show.show_date < utc_now():
+    if show is None or not show.is_active or show.show_date < utc_now() or (getattr(show, "registration_closes_at", None) and show.registration_closes_at <= utc_now()):
         await callback.answer()
         await callback.message.answer("Шоу не найдено.")
         return
@@ -121,7 +182,10 @@ async def start_registration(callback: CallbackQuery, callback_data: RegisterCb,
         return
 
     if active_count >= show.max_seats:
-        await callback.answer("😔 К сожалению, все места уже заняты.", show_alert=True)
+        builder = InlineKeyboardBuilder()
+        builder.button(text="⏳ Встать в лист ожидания", callback_data=WaitlistCb(show_id=show_id).pack())
+        await callback.answer()
+        await callback.message.answer("Все места заняты, но можно встать в лист ожидания.", reply_markup=builder.as_markup())
         return
 
     await callback.answer()
@@ -132,6 +196,7 @@ async def start_registration(callback: CallbackQuery, callback_data: RegisterCb,
         show_title=show.title,
         show_date=format_local(show.show_date),
         registration_chat_name_mode=(show.registration_chat_name_mode if show.registration_chat_id else None),
+        max_guests=getattr(show, "max_guests", 2),
         registration_source=(
             existing_state_data.get("registration_source")
             if existing_state_data.get("registration_source_show_id") == show_id
@@ -176,7 +241,7 @@ async def process_name(message: Message, state: FSMContext):
         await state.set_state(RegisterFSM.choose_guests)
         await message.answer(
             f"Сколько вас придёт на <b>{h(show_title)}</b>?",
-            reply_markup=guests_kb(show_id),
+            reply_markup=guests_kb(show_id, int(data.get("max_guests", 2))),
         )
 
 
@@ -184,11 +249,14 @@ async def process_name(message: Message, state: FSMContext):
 async def choose_guests(callback: CallbackQuery, callback_data: GuestsCb, state: FSMContext):
     show_id = callback_data.show_id
     guests = callback_data.guests
-    if guests < 0 or guests > 50:
+    if guests < 0 or guests > 6:
         await callback.answer("Некорректное количество гостей.", show_alert=True)
         return
-
     data = await state.get_data()
+    max_guests = min(int(data.get("max_guests", 2)), 6)
+    if guests < 0 or guests > max_guests:
+        await callback.answer("Некорректное количество гостей.", show_alert=True)
+        return
     if show_id != data.get("show_id"):
         await callback.answer("Эта кнопка устарела.", show_alert=True)
         return
@@ -228,10 +296,11 @@ async def guests_custom(callback: CallbackQuery, callback_data: GuestsCustomCb, 
 async def process_guests_count(message: Message, state: FSMContext):
     try:
         guests = int(message.text.strip())
-        if guests < 0 or guests > 50:
+        max_guests = min(int((await state.get_data()).get("max_guests", 2)), 6)
+        if guests < 0 or guests > max_guests:
             raise ValueError
     except ValueError:
-        await message.answer("Введи корректное число от 0 до 50:")
+        await message.answer(f"Введи корректное число от 0 до {max_guests}:")
         return
 
     data = await state.get_data()
@@ -511,7 +580,7 @@ async def handle_attendance(callback: CallbackQuery, callback_data: AttendanceCb
             await callback.message.edit_text(
                 f"Сколько вас придёт на <b>{h(show.title)}</b>?\n"
                 f"Сейчас: {1 + (reg.guests or 0)} чел.",
-                reply_markup=guests_kb(show_id),
+                reply_markup=guests_kb(show_id, getattr(show, "max_guests", 2)),
             )
         except Exception:
             pass
@@ -532,7 +601,7 @@ async def edit_guests_start(callback: CallbackQuery, callback_data: EditGuestsCb
     await callback.message.answer(
         f"Сколько вас придёт на <b>{h(show.title)}</b>?\n"
         f"Сейчас: {1 + reg.guests} чел.",
-        reply_markup=guests_kb(show_id),
+        reply_markup=guests_kb(show_id, getattr(show, "max_guests", 2)),
     )
 
 
@@ -545,23 +614,23 @@ async def set_guests(callback: CallbackQuery, callback_data: GuestsCb, state: FS
 
     show_id = callback_data.show_id
     guests = callback_data.guests
-    if guests < 0 or guests > 50:
-        await callback.answer("Некорректное количество гостей.", show_alert=True)
-        return
-    await callback.answer()
-
     show = await crud.get_show(session, show_id)
     reg = await crud.get_registration(session, show_id, db_user.id)
-    if show is None or not show.is_active or show.show_date < utc_now() or reg is None or reg.is_cancelled:
+    if show is None or not show.is_active or show.show_date < utc_now() or (getattr(show, "registration_closes_at", None) and show.registration_closes_at <= utc_now()) or reg is None or reg.is_cancelled:
         await callback.message.edit_text("Ты не записан(а) на это шоу.")
         return
+    max_guests = getattr(show, "max_guests", 2)
+    if guests < 0 or guests > max_guests:
+        await callback.answer(f"Можно добавить не больше {max_guests} гостей.", show_alert=True)
+        return
+    await callback.answer()
     updated = await crud.update_registration_guests_safe(session, show_id, db_user.id, guests)
     if updated is None:
         active_count = await crud.count_active_registrations(session, show_id)
         old_guests = reg.guests or 0
         await callback.message.edit_text(
             f"😔 Мест не хватает: нужно {1 + guests}, осталось {show.max_seats - active_count + 1 + old_guests}.",
-            reply_markup=guests_kb(show_id),
+            reply_markup=guests_kb(show_id, getattr(show, "max_guests", 2)),
         )
         return
 

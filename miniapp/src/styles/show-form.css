@@ -1,0 +1,10 @@
+.show-form { width: min(100%, 620px); margin: 0 auto; padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
+.mantine-Modal-body:has(.show-form) { padding-bottom: 16px; }
+.show-stepper { display: flex; align-items: center; width: 100%; margin: -2px 0 6px; }
+.show-stepper-item { display: flex; flex: 1 1 0; min-width: 0; align-items: center; }
+.show-stepper-item:last-child { flex: 0 0 auto; }
+.show-stepper-dot { display: grid; width: 28px; height: 28px; padding: 0; place-items: center; border: 1px solid var(--line); border-radius: 50%; color: var(--muted); background: var(--surface); }
+.show-stepper-dot[data-state="active"] { color: var(--app-bg); background: var(--app-text); }
+.show-stepper-dot[data-state="complete"] { color: var(--app-text); background: var(--surface-strong); }
+.show-stepper-line { flex: 1; height: 1px; margin: 0 7px; background: var(--line); }
+.show-stepper-line[data-complete="true"] { background: var(--app-text); }
