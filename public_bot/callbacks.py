@@ -19,6 +19,10 @@ class CancelRegCb(CallbackData, prefix="pub_cancel"):
     show_id: int
 
 
+class WaitlistCb(CallbackData, prefix="pub_waitlist"):
+    show_id: int
+
+
 class EditGuestsCb(CallbackData, prefix="pub_edit_guests"):
     show_id: int
 

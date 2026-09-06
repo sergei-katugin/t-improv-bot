@@ -49,7 +49,36 @@ def test_scheduler_reconciles_immediately_and_every_fifteen_minutes(monkeypatch)
     assert announcement_job.kwargs["next_run_time"] is not None
     assert announcement_job.kwargs["coalesce"] is True
     assert announcement_job.kwargs["max_instances"] == 1
+    cleanup_job = next(call for call in fake_scheduler.add_job.call_args_list if call.kwargs["id"] == "disconnect_finished_registration_chats")
+    assert cleanup_job.args[1].interval.total_seconds() == 60 * 60
     fake_scheduler.start.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_finished_show_registration_chat_is_notified_and_disconnected(monkeypatch):
+    class SessionContext:
+        async def __aenter__(self):
+            return AsyncMock()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(jobs, "AsyncSessionLocal", lambda: SessionContext())
+    monkeypatch.setattr(
+        jobs.crud,
+        "list_finished_shows_with_registration_chat",
+        AsyncMock(return_value=[SimpleNamespace(id=12, title="Finished", registration_chat_id=-10012)]),
+    )
+    clear = AsyncMock(return_value=True)
+    monkeypatch.setattr(jobs.crud, "clear_registration_chat_if_matches", clear)
+    bot = AsyncMock()
+
+    await jobs._run_registration_chat_cleanup(bot)
+
+    bot.send_message.assert_awaited_once()
+    assert "больше не подключён" in bot.send_message.await_args.args[1]
+    assert clear.await_count == 1
+    assert clear.await_args.args[1:] == (12, -10012)
 
 
 @pytest.mark.asyncio
@@ -177,6 +206,10 @@ async def test_reminders_mark_only_successful_deliveries(monkeypatch):
     await jobs._maybe_send_personal(AsyncMock(), bot, show, 1)
 
     assert mark.await_args.args[1] == [1]
+    reminder_markup = bot.send_message.await_args_list[0].kwargs["reply_markup"]
+    cancel_button = reminder_markup.inline_keyboard[0][0]
+    assert cancel_button.text == "Не получается — отменить запись"
+    assert cancel_button.callback_data == "pub_cancel:42"
 
 
 @pytest.mark.asyncio

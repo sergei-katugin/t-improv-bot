@@ -8,7 +8,11 @@ export type Show = {
   locationUrl?: string | null;
   city: string;
   isActive: boolean;
+  isPast?: boolean;
   maxSeats: number;
+  maxGuests?: number;
+  registrationClosesAt?: string | null;
+  registrationClosed?: boolean;
   occupiedSeats: number;
   registrarUsername: string | null;
   registrationUrl?: string;
@@ -16,6 +20,7 @@ export type Show = {
   feedbackEnabled?: boolean;
   checkinEnabled?: boolean;
   hasPoster?: boolean;
+  hasPublished?: boolean;
   registrationChatId?: number | null;
   registrationChatTitle?: string | null;
   registrationChatNameMode?: "short" | "full";
@@ -36,7 +41,8 @@ export type ThemePreference = "system" | "light" | "dark";
 export type Attendees = {
   occupied: number; maxSeats: number; arrived: number; hasMore: boolean; nextOffset: number;
   registrations: { id: number; name: string; guests: number; username: string | null; confirmed: boolean | null; checkedInCount: number; source: string | null }[];
-  manual: { id: number; name: string; contact: string | null; checkedInCount: number; source: string | null }[];
+  manual: { id: number; name: string; contact: string | null; guests: number; checkedInCount: number; source: string | null }[];
+  waitlist: { id: number; name: string; username: string | null; position: number }[];
 };
 
 export type Promotion = {
@@ -57,4 +63,5 @@ export type ShowFormValue = {
   title: string; teamName: string; showDateLocal: string; location: string;
   locationUrl: string; city: string; posterText: string; maxSeats: number;
   registrarUsername: string; checkinEnabled: boolean; feedbackEnabled: boolean;
+  maxGuests: number; registrationClosesAt: string;
 };

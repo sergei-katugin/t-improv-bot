@@ -14,7 +14,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from aiogram import Bot
 from aiogram.types import FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
 from sqlalchemy import func, select
-from public_bot.keyboards.inline import attendance_kb, feedback_kb
+from public_bot.keyboards.inline import attendance_kb, feedback_kb, reminder_cancel_kb
 
 from config import settings
 from db.base import AsyncSessionLocal, engine, is_sqlite
@@ -73,6 +73,15 @@ def setup_scheduler(public_bot: Bot, admin_bot: Bot) -> None:
         max_instances=1,
     )
     scheduler.add_job(
+        disconnect_finished_registration_chats,
+        IntervalTrigger(hours=1, timezone=settings.APP_TIMEZONE),
+        args=[admin_bot],
+        id="disconnect_finished_registration_chats",
+        replace_existing=True,
+        coalesce=True,
+        max_instances=1,
+    )
+    scheduler.add_job(
         cleanup_stale_fsm,
         IntervalTrigger(hours=24, timezone=settings.APP_TIMEZONE),
         id="fsm_storage_cleanup",
@@ -91,6 +100,42 @@ async def cleanup_stale_fsm() -> None:
     deleted = await SQLAlchemyStorage.cleanup_stale(settings.FSM_TTL_DAYS)
     if deleted:
         logger.info("Deleted %d stale FSM storage records", deleted)
+
+
+async def disconnect_finished_registration_chats(admin_bot: Bot) -> None:
+    """Notify and detach working chats two hours after a show starts."""
+    if is_sqlite:
+        await _run_registration_chat_cleanup(admin_bot)
+        return
+    lock_id = 0x54494D504348
+    async with engine.connect() as lock_connection:
+        acquired = bool((await lock_connection.execute(
+            select(func.pg_try_advisory_lock(lock_id))
+        )).scalar())
+        if not acquired:
+            return
+        try:
+            await _run_registration_chat_cleanup(admin_bot)
+        finally:
+            await lock_connection.execute(select(func.pg_advisory_unlock(lock_id)))
+
+
+async def _run_registration_chat_cleanup(admin_bot: Bot) -> None:
+    async with AsyncSessionLocal() as session:
+        shows = await crud.list_finished_shows_with_registration_chat(session)
+        targets = [(show.id, show.title, show.registration_chat_id) for show in shows]
+    for show_id, title, chat_id in targets:
+        try:
+            await send_with_retry(
+                admin_bot.send_message,
+                chat_id,
+                f"🏁 Шоу «{h(title)}» завершилось. Этот чат больше не подключён к афише.",
+            )
+        except Exception:
+            logger.exception("failed to notify registration chat before automatic disconnect show_id=%s", show_id)
+        async with AsyncSessionLocal() as session:
+            if await crud.clear_registration_chat_if_matches(session, show_id, chat_id):
+                logger.info("automatically disconnected registration chat show_id=%s chat_id=%s", show_id, chat_id)
 
 
 async def request_post_show_feedback(public_bot: Bot) -> None:
@@ -324,6 +369,9 @@ async def _maybe_send_personal(session, bot: Bot, show, days: int) -> None:
                 intro = intros[days]
                 text = f"{intro}\n\nТы записан(а) на шоу <b>{h(show.title)}</b>\n📅 {date_str}\n{location_line}"
                 kwargs = {}
+                if days == 1:
+                    text += "\n\nЕсли планы изменились, отмени запись кнопкой ниже — место освободится для другого зрителя."
+                    kwargs["reply_markup"] = reminder_cancel_kb(show.id)
                 if post_url:
                     kwargs["link_preview_options"] = LinkPreviewOptions(url=post_url)
                 await send_with_retry(bot.send_message, reg.user.telegram_id, text, **kwargs)

@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from db.models import User, Show, Registration, ShowFeedback, AnnouncementLog, InviteToken, ManualAttendee, UserRole, Venue, Team, FreeAdChannel, ConnectedRegistrationChat, ShowCheckinStaff, CheckinInviteToken, _utcnow
+from db.models import User, Show, Registration, WaitlistEntry, ShowFeedback, AnnouncementLog, InviteToken, ManualAttendee, UserRole, Venue, Team, FreeAdChannel, ConnectedRegistrationChat, ShowCheckinStaff, CheckinInviteToken, _utcnow
 from app_logging import get_project_logger
 
 logger = get_project_logger(__name__)
@@ -277,6 +277,8 @@ async def create_show(
     poster_file_id: str | None,
     max_seats: int,
     creator_id: int,
+    max_guests: int = 2,
+    registration_closes_at: datetime | None = None,
     registrar_id: int | None = None,
     registrar_username: str | None = None,
     checkin_enabled: bool = False,
@@ -292,6 +294,8 @@ async def create_show(
         poster_text=poster_text,
         poster_file_id=poster_file_id,
         max_seats=max_seats,
+        max_guests=max_guests,
+        registration_closes_at=registration_closes_at,
         creator_id=creator_id,
         registrar_id=registrar_id,
         registrar_username=registrar_username,
@@ -429,6 +433,29 @@ async def list_shows_by_creator(session: AsyncSession, telegram_id: int) -> list
     return list(result.scalars().all())
 
 
+async def list_finished_shows_with_registration_chat(session: AsyncSession) -> list[Show]:
+    result = await session.execute(
+        select(Show)
+        .where(
+            Show.registration_chat_id.is_not(None),
+            Show.show_date <= _utcnow() - timedelta(hours=2),
+        )
+        .order_by(Show.id)
+        .limit(100)
+    )
+    return list(result.scalars().all())
+
+
+async def clear_registration_chat_if_matches(session: AsyncSession, show_id: int, chat_id: int) -> bool:
+    result = await session.execute(
+        update(Show)
+        .where(Show.id == show_id, Show.registration_chat_id == chat_id)
+        .values(registration_chat_id=None, registration_chat_title=None, updated_at=_utcnow())
+    )
+    await session.commit()
+    return bool(result.rowcount)
+
+
 async def update_show(session: AsyncSession, show_id: int, **fields) -> Show | None:
     show = await get_show(session, show_id)
     if show is None:
@@ -485,7 +512,7 @@ async def count_active_registrations(session: AsyncSession, show_id: int) -> int
         .where(Registration.show_id == show_id, Registration.is_cancelled == False)
     )
     manual_result = await session.execute(
-        select(func.count(ManualAttendee.id)).where(ManualAttendee.show_id == show_id)
+        select(func.coalesce(func.sum(ManualAttendee.guests + 1), 0)).where(ManualAttendee.show_id == show_id)
     )
     return int(registered_result.scalar_one()) + int(manual_result.scalar_one())
 
@@ -513,13 +540,15 @@ async def register_user_safe(
     source: str | None = None,
 ) -> Registration | None:
     """Register under a show-row lock so concurrent requests cannot oversubscribe."""
-    if guests < 0 or guests > 50 or not 2 <= len(attendee_name.strip()) <= 100:
+    if guests < 0 or guests > 6 or not 2 <= len(attendee_name.strip()) <= 100:
         return None
     show_result = await session.execute(
         select(Show).where(Show.id == show_id).with_for_update()
     )
     show = show_result.scalar_one_or_none()
-    if show is None or not show.is_active or show.show_date < _utcnow():
+    if show is None or not show.is_active or show.show_date < _utcnow() or (show.registration_closes_at and show.registration_closes_at <= _utcnow()):
+        return None
+    if guests > show.max_guests:
         return None
 
     existing = await get_registration(session, show_id, user_id)
@@ -559,13 +588,15 @@ async def register_user_safe(
 async def update_registration_guests_safe(
     session: AsyncSession, show_id: int, user_id: int, guests: int,
 ) -> Registration | None:
-    if guests < 0 or guests > 50:
+    if guests < 0 or guests > 6:
         return None
     show_result = await session.execute(
         select(Show).where(Show.id == show_id).with_for_update()
     )
     show = show_result.scalar_one_or_none()
-    if show is None or not show.is_active or show.show_date < _utcnow():
+    if show is None or not show.is_active or show.show_date < _utcnow() or (show.registration_closes_at and show.registration_closes_at <= _utcnow()):
+        return None
+    if guests > show.max_guests:
         return None
     reg = await get_registration(session, show_id, user_id)
     if reg is None or reg.is_cancelled:
@@ -592,6 +623,62 @@ async def cancel_registration(
     await session.refresh(reg)
     logger.info("cancelled registration id=%s show_id=%s user_id=%s", reg.id, show_id, user_id)
     return reg
+
+
+async def join_waitlist(session: AsyncSession, show_id: int, user_id: int, attendee_name: str) -> tuple[WaitlistEntry | None, int]:
+    show = await session.get(Show, show_id)
+    if show is None or not show.is_active or show.show_date <= _utcnow() or (show.registration_closes_at and show.registration_closes_at <= _utcnow()):
+        return None, 0
+    active = await get_registration(session, show_id, user_id)
+    if active and not active.is_cancelled:
+        return None, 0
+    if await count_active_registrations(session, show_id) < show.max_seats:
+        return None, 0
+    existing = await session.scalar(select(WaitlistEntry).where(WaitlistEntry.show_id == show_id, WaitlistEntry.user_id == user_id))
+    if existing:
+        if existing.promoted_at is None and existing.cancelled_at is None:
+            position = int(await session.scalar(select(func.count(WaitlistEntry.id)).where(WaitlistEntry.show_id == show_id, WaitlistEntry.promoted_at.is_(None), WaitlistEntry.cancelled_at.is_(None), WaitlistEntry.created_at <= existing.created_at)) or 0)
+            return existing, position
+        existing.promoted_at = None
+        existing.cancelled_at = None
+        existing.created_at = _utcnow()
+        existing.attendee_name = attendee_name.strip()
+        entry = existing
+    else:
+        entry = WaitlistEntry(show_id=show_id, user_id=user_id, attendee_name=attendee_name.strip(), guests=0)
+        session.add(entry)
+    await session.commit()
+    position = int(await session.scalar(select(func.count(WaitlistEntry.id)).where(WaitlistEntry.show_id == show_id, WaitlistEntry.promoted_at.is_(None), WaitlistEntry.cancelled_at.is_(None))) or 0)
+    return entry, position
+
+
+async def promote_waitlist(session: AsyncSession, show_id: int) -> tuple[Registration, User] | None:
+    show = await session.scalar(select(Show).where(Show.id == show_id).with_for_update())
+    if show is None or not show.is_active or show.show_date <= _utcnow() or (show.registration_closes_at and show.registration_closes_at <= _utcnow()):
+        return None
+    occupied = await count_active_registrations(session, show_id)
+    if occupied >= show.max_seats:
+        return None
+    entry = await session.scalar(select(WaitlistEntry).options(selectinload(WaitlistEntry.user)).where(
+        WaitlistEntry.show_id == show_id, WaitlistEntry.promoted_at.is_(None), WaitlistEntry.cancelled_at.is_(None),
+    ).order_by(WaitlistEntry.created_at, WaitlistEntry.id).with_for_update().limit(1))
+    if entry is None or occupied + 1 + entry.guests > show.max_seats:
+        return None
+    registration = await get_registration(session, show_id, entry.user_id)
+    if registration is None:
+        registration = Registration(show_id=show_id, user_id=entry.user_id, attendee_name=entry.attendee_name, guests=entry.guests)
+        session.add(registration)
+    else:
+        registration.attendee_name = entry.attendee_name
+        registration.guests = entry.guests
+        registration.is_cancelled = False
+        registration.cancelled_at = None
+        registration.registered_at = _utcnow()
+        registration.confirmed = None
+    entry.promoted_at = _utcnow()
+    await session.commit()
+    await session.refresh(registration)
+    return registration, entry.user
 
 
 async def get_user_registrations(session: AsyncSession, user_id: int) -> list[Registration]:
@@ -935,22 +1022,27 @@ async def add_manual_attendees(
     names: list[str],
     source: str | None = "manual",
     contacts: list[str | None] | None = None,
+    guests: list[int] | None = None,
 ) -> int:
     show_result = await session.execute(
         select(Show).where(Show.id == show_id).with_for_update()
     )
     show = show_result.scalar_one_or_none()
-    if show is None or not show.is_active or show.show_date < _utcnow():
+    if show is None or not show.is_active or show.show_date < _utcnow() or (show.registration_closes_at and show.registration_closes_at <= _utcnow()):
         return 0
     occupied = await count_active_registrations(session, show_id)
-    if occupied + len(names) > show.max_seats:
+    normalized_guests = guests or [0] * len(names)
+    if any(guest_count < 0 or guest_count > show.max_guests for guest_count in normalized_guests):
+        return 0
+    if occupied + sum(guest_count + 1 for guest_count in normalized_guests) > show.max_seats:
         return 0
     normalized_contacts = contacts or [None] * len(names)
-    for name, contact in zip(names, normalized_contacts):
+    for name, contact, guest_count in zip(names, normalized_contacts, normalized_guests):
         session.add(ManualAttendee(
             show_id=show_id,
             name=name.strip(),
             contact=contact.strip() if contact and contact.strip() else None,
+            guests=guest_count,
             source=source,
         ))
     await session.commit()

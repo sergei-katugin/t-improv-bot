@@ -114,27 +114,6 @@ def test_miniapp_rejects_invalid_show_fields(field, value):
         _show_fields({**_valid_show_payload(), field: value}, require_all=True)
 
 
-@pytest.mark.asyncio
-async def test_miniapp_preview_is_sent_only_to_current_telegram_user():
-    bot = type("Bot", (), {"send_message": AsyncMock()})()
-
-    class Request(dict):
-        content_length = None
-
-        def __init__(self):
-            super().__init__(miniapp_telegram_id=42)
-            self.app = {miniapp_api.ADMIN_BOT_KEY: bot}
-
-        async def json(self):
-            return _valid_show_payload()
-
-    response = await miniapp_api.miniapp_send_show_preview(Request())
-
-    assert response.status == 200
-    assert bot.send_message.await_args.args[0] == 42
-    assert "Предпросмотр" in bot.send_message.await_args.args[1]
-
-
 class _Request(dict):
     def __init__(self, *, show_id: int, user_id: int, is_admin: bool = False, body=None):
         super().__init__(miniapp_user_id=user_id, miniapp_is_admin=is_admin)
@@ -151,6 +130,34 @@ def test_miniapp_admin_resources_require_admin_role():
     with pytest.raises(web.HTTPForbidden):
         _require_admin({"miniapp_is_admin": False})
     _require_admin({"miniapp_is_admin": True})
+
+
+@pytest.mark.asyncio
+async def test_test_announcement_is_sent_only_to_current_miniapp_user(monkeypatch):
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        async with sessions() as session:
+            owner = User(telegram_id=4242, role=UserRole.organizer)
+            session.add(owner); await session.flush()
+            show = Show(title="Test announcement", team_name="T", show_date=utc_now() + timedelta(days=1), location="V", city="C", max_seats=10, creator_id=owner.id, poster_text="Text")
+            session.add(show); await session.commit(); show_id, owner_id = show.id, owner.id
+        monkeypatch.setattr(miniapp_api, "AsyncSessionLocal", sessions)
+        bot = AsyncMock()
+        request = _Request(show_id=show_id, user_id=owner_id, body={})
+        request["miniapp_telegram_id"] = 4242
+        request.app = {miniapp_api.ADMIN_BOT_KEY: bot}
+
+        response = await miniapp_api.miniapp_send_test_announcement(request)
+
+        assert response.status == 200
+        assert bot.send_message.await_args.args[0] == 4242
+        assert "Тестовый анонс" in bot.send_message.await_args.args[1]
+        assert bot.send_message.await_args.kwargs["reply_markup"].inline_keyboard[0][0].url.endswith(f"show_{show_id}")
+    finally:
+        await engine.dispose()
 
 
 @pytest.mark.parametrize("value,expected", [
@@ -278,7 +285,7 @@ async def test_miniapp_manual_attendees_require_show_ownership(monkeypatch):
             await session.commit()
             show_id, owner_id, other_id = show.id, owner.id, other.id
         monkeypatch.setattr(miniapp_api, "AsyncSessionLocal", sessions)
-        body = {"rows": [{"name": "Manual", "contact": "@manual"}]}
+        body = {"rows": [{"name": "Manual", "contact": "@manual", "guests": 1}]}
 
         with pytest.raises(web.HTTPNotFound):
             await miniapp_api.miniapp_add_manual_attendees(
@@ -290,7 +297,7 @@ async def test_miniapp_manual_attendees_require_show_ownership(monkeypatch):
         assert response.status == 201
         async with sessions() as session:
             attendees = await miniapp_api.crud.get_manual_attendees(session, show_id)
-            assert [(item.name, item.contact) for item in attendees] == [("Manual", "@manual")]
+            assert [(item.name, item.contact, item.guests) for item in attendees] == [("Manual", "@manual", 1)]
     finally:
         await engine.dispose()
 
@@ -776,12 +783,35 @@ async def test_show_tasks_and_manual_notification_confirmation(monkeypatch):
         monkeypatch.setattr(miniapp_api, "AsyncSessionLocal", sessions)
         request = _Request(show_id=show_id, user_id=owner_id)
         tasks = json.loads((await miniapp_api.miniapp_show_tasks(request)).text)["items"]
-        assert {item["key"] for item in tasks} == {"announcement", "registration_chat", "manual_notifications"}
+        assert {item["key"] for item in tasks} == {"announcement", "show_responsible", "auto_close", "registration_chat", "manual_notifications"}
 
         confirmed = json.loads((await miniapp_api.miniapp_confirm_manual_notifications(request)).text)
         assert confirmed == {"confirmed": 1}
         tasks = json.loads((await miniapp_api.miniapp_show_tasks(request)).text)["items"]
         assert "manual_notifications" not in {item["key"] for item in tasks}
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_show_tasks_recommends_manual_repeat_for_near_underfilled_show(monkeypatch):
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        async with sessions() as session:
+            owner = User(telegram_id=1902, role=UserRole.organizer)
+            session.add(owner); await session.flush()
+            show = Show(title="Soon", team_name="T", show_date=utc_now() + timedelta(days=2), location="V", city="C", max_seats=20, creator_id=owner.id)
+            session.add(show); await session.flush()
+            session.add(AnnouncementLog(show_id=show.id, announcement_type="manual"))
+            await session.commit(); show_id, owner_id = show.id, owner.id
+        monkeypatch.setattr(miniapp_api, "AsyncSessionLocal", sessions)
+        tasks = json.loads((await miniapp_api.miniapp_show_tasks(_Request(show_id=show_id, user_id=owner_id))).text)["items"]
+        repeat = next(item for item in tasks if item["key"] == "repeat_announcement")
+        assert repeat["label"] == "Повторить анонс"
+        assert "0 из 20" in repeat["description"]
     finally:
         await engine.dispose()
 
@@ -848,7 +878,7 @@ async def test_failed_publish_releases_claim_for_retry(monkeypatch):
             show = Show(
                 title="Publish failure", team_name="T", show_date=utc_now() + timedelta(days=1),
                 location="V", city="C", max_seats=10, creator_id=owner.id,
-                poster_text="Ready", poster_file_id="file-id",
+                poster_text="Ready", poster_file_id=None,
             )
             session.add(show); await session.commit(); show_id, owner_id = show.id, owner.id
         monkeypatch.setattr(miniapp_api, "AsyncSessionLocal", sessions)

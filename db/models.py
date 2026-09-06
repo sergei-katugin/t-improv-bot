@@ -70,6 +70,8 @@ class Show(Base):
     poster_file_id = Column(String(256), nullable=True)
     pub_poster_file_id = Column(String(256), nullable=True)
     max_seats = Column(Integer, nullable=False, default=50)
+    max_guests = Column(Integer, nullable=False, default=2)
+    registration_closes_at = Column(DateTime, nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
     checkin_enabled = Column(Boolean, default=False, nullable=False)
     checkin_mode = Column(String(16), default="named", nullable=False)
@@ -142,6 +144,27 @@ class Registration(Base):
     user = relationship("User", back_populates="registrations")
 
 
+class WaitlistEntry(Base):
+    __tablename__ = "waitlist_entries"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    show_id = Column(Integer, ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    attendee_name = Column(String(256), nullable=False)
+    guests = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=_utcnow, nullable=False)
+    promoted_at = Column(DateTime, nullable=True)
+    cancelled_at = Column(DateTime, nullable=True)
+
+    show = relationship("Show")
+    user = relationship("User")
+
+    __table_args__ = (
+        UniqueConstraint("show_id", "user_id", name="uq_waitlist_show_user"),
+        Index("ix_waitlist_show_pending", "show_id", "promoted_at", "cancelled_at", "created_at"),
+    )
+
+
 class ShowFeedback(Base):
     __tablename__ = "show_feedback"
 
@@ -168,6 +191,7 @@ class ManualAttendee(Base):
     show_id = Column(Integer, ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
     name = Column(String(256), nullable=False)
     contact = Column(String(512), nullable=True)
+    guests = Column(Integer, default=0, nullable=False)
     source = Column(String(64), nullable=True)
     added_at = Column(DateTime, default=_utcnow)
     organizer_reminded_at = Column(DateTime, nullable=True)

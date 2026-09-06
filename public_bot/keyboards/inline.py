@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from config import settings
 from db.models import Show
-from time_utils import format_local, utc_to_local
+from time_utils import format_local, utc_now, utc_to_local
 from public_bot.callbacks import (
     ShowCb, RegisterCb, ConfirmRegCb, CancelRegCb,
     EditGuestsCb, GuestsCb, GuestsCustomCb, RemindToggleCb, AttendanceCb,
-    CalendarCb, FeedbackCb,
+    CalendarCb, FeedbackCb, WaitlistCb,
 )
 
 
@@ -40,10 +41,12 @@ def show_detail_kb(show: Show, is_registered: bool, seats_left: int) -> InlineKe
         builder.button(text="📅 Добавить в календарь", callback_data=CalendarCb(show_id=show_id).pack())
         builder.button(text="👥 Изменить кол-во гостей", callback_data=EditGuestsCb(show_id=show_id).pack())
         builder.button(text="❌ Отменить запись", callback_data=CancelRegCb(show_id=show_id).pack())
-    elif seats_left > 0:
+    elif seats_left > 0 and not (getattr(show, "registration_closes_at", None) and show.registration_closes_at <= utc_now()):
         builder.button(text="✅ Записаться", callback_data=RegisterCb(show_id=show_id).pack())
+    elif seats_left > 0:
+        builder.button(text="🔒 Запись закрыта", callback_data="pub_registration_closed")
     else:
-        builder.button(text="😔 Мест нет", callback_data="pub_no_seats")
+        builder.button(text="⏳ Встать в лист ожидания", callback_data=WaitlistCb(show_id=show_id).pack())
     username = registrar_username(show)
     if username:
         builder.button(text="💬 Помощь с записью", url=f"https://t.me/{username}")
@@ -58,13 +61,12 @@ def manage_registration_kb(show_id: int) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def guests_kb(show_id: int) -> InlineKeyboardMarkup:
+def guests_kb(show_id: int, max_guests: int = 2) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.button(text="Только я",      callback_data=GuestsCb(show_id=show_id, guests=0).pack())
-    builder.button(text="+1",            callback_data=GuestsCb(show_id=show_id, guests=1).pack())
-    builder.button(text="+2",            callback_data=GuestsCb(show_id=show_id, guests=2).pack())
-    builder.button(text="✏️ Свой вариант", callback_data=GuestsCustomCb(show_id=show_id).pack())
-    builder.adjust(3, 1)
+    builder.button(text="Только я", callback_data=GuestsCb(show_id=show_id, guests=0).pack())
+    for guests in range(1, min(max_guests, 6) + 1):
+        builder.button(text=f"+{guests}", callback_data=GuestsCb(show_id=show_id, guests=guests).pack())
+    builder.adjust(3)
     return builder.as_markup()
 
 
@@ -135,6 +137,15 @@ def attendance_kb(show_id: int) -> InlineKeyboardMarkup:
     builder.button(text="❌ Не смогу", callback_data=AttendanceCb(show_id=show_id, action="no").pack())
     builder.button(text="👥 Изменить состав", callback_data=AttendanceCb(show_id=show_id, action="guests").pack())
     builder.adjust(2, 1)
+    return builder.as_markup()
+
+
+def reminder_cancel_kb(show_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="Не получается — отменить запись",
+        callback_data=CancelRegCb(show_id=show_id).pack(),
+    )
     return builder.as_markup()
 
 

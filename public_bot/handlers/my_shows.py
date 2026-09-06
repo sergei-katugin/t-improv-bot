@@ -1,4 +1,5 @@
 from app_logging import get_project_logger
+from aiogram import Bot
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -12,6 +13,8 @@ from public_bot.keyboards.inline import my_shows_kb, shows_list_kb
 from public_bot.keyboards.reply import main_menu_kb
 from public_bot.callbacks import CancelRegCb
 from html_utils import h
+from public_bot.handlers.registration import _notify_registration_cancellation, _notify_registration_chat
+from time_utils import format_local
 
 router = Router()
 logger = get_project_logger(__name__)
@@ -48,7 +51,7 @@ async def cmd_my_shows(message: Message, state: FSMContext, db_user: User, sessi
 
 
 @router.callback_query(CancelRegCb.filter())
-async def cancel_registration(callback: CallbackQuery, callback_data: CancelRegCb, db_user: User, session: AsyncSession):
+async def cancel_registration(callback: CallbackQuery, callback_data: CancelRegCb, db_user: User, session: AsyncSession, admin_bot: Bot):
     show_id = callback_data.show_id
     await callback.answer()
 
@@ -58,6 +61,32 @@ async def cancel_registration(callback: CallbackQuery, callback_data: CancelRegC
     if reg is None:
         await callback.message.answer("Запись не найдена или уже отменена.")
         return
+
+    if show is not None:
+        occupied_seats = await crud.count_active_registrations(session, show_id)
+        await _notify_registration_cancellation(
+            admin_bot,
+            show,
+            reg.attendee_name,
+            reg.guests or 0,
+            occupied_seats,
+        )
+        promoted = await crud.promote_waitlist(session, show_id)
+        if promoted:
+            promoted_registration, promoted_user = promoted
+            try:
+                await callback.bot.send_message(
+                    promoted_user.telegram_id,
+                    f"🎉 Освободилось место! Ты автоматически записан(а) на <b>{h(show.title)}</b>.\n"
+                    f"📅 {format_local(show.show_date)}",
+                )
+            except Exception:
+                logger.exception("failed to notify promoted waitlist user show_id=%s user_id=%s", show_id, promoted_user.id)
+            promoted_occupied = await crud.count_active_registrations(session, show_id)
+            await _notify_registration_chat(
+                admin_bot, show, promoted_registration.attendee_name,
+                promoted_registration.guests or 0, "waitlist", promoted_occupied,
+            )
 
     show_title = show.title if show else "шоу"
 

@@ -106,6 +106,10 @@ def _csv_cell(value) -> str:
 
 class AddManualFSM(StatesGroup):
     names = State()
+    chat_name = State()
+    chat_source = State()
+    chat_contact = State()
+    chat_guests = State()
 
 
 class DeleteManualFSM(StatesGroup):
@@ -682,6 +686,7 @@ async def export_show_csv(callback: CallbackQuery, callback_data: AdminShowActio
     source_labels = {
         "direct": "Прямая ссылка",
         "instagram": "Instagram",
+        "telegram": "Telegram",
         "channel": "Telegram-канал",
         "team": "Команда",
         "manual": "Добавлен вручную",
@@ -749,7 +754,7 @@ async def start_add_manual_from_registration_chat(
         return
 
     await callback.answer()
-    await state.set_state(AddManualFSM.names)
+    await state.set_state(AddManualFSM.chat_name)
     await state.update_data(
         show_id=show.id,
         manual_source="social",
@@ -757,10 +762,98 @@ async def start_add_manual_from_registration_chat(
     )
     await callback.message.answer(
         f"➕ <b>Добавить запись на «{h(show.title)}»</b>\n\n"
-        "Отправь имена ответом на это сообщение — один зритель на строку. "
-        "Контакт можно указать через <code>|</code>:\n\n"
-        "<i>Иван Иванов | @ivan\nМария Петрова</i>"
+        "Напиши имя одного зрителя ответом на это сообщение."
     )
+
+
+@router.message(AddManualFSM.chat_name, F.text)
+async def process_chat_manual_name(message: Message, state: FSMContext):
+    name = message.text.strip()
+    if len(name) < 2 or len(name) > 100:
+        await message.answer("Имя должно содержать от 2 до 100 символов.")
+        return
+    await state.update_data(manual_name=name)
+    await state.set_state(AddManualFSM.chat_source)
+    builder = InlineKeyboardBuilder()
+    builder.button(text="Telegram", callback_data="manual_source:telegram")
+    builder.button(text="Instagram", callback_data="manual_source:instagram")
+    builder.button(text="Другое", callback_data="manual_source:other")
+    builder.adjust(2, 1)
+    await message.answer("Откуда пришёл зритель и где с ним связаться?", reply_markup=builder.as_markup())
+
+
+@router.callback_query(AddManualFSM.chat_source, F.data.startswith("manual_source:"))
+async def process_chat_manual_source(callback: CallbackQuery, state: FSMContext):
+    source = callback.data.split(":", 1)[1]
+    if source not in {"telegram", "instagram", "other"}:
+        await callback.answer("Неизвестный источник.", show_alert=True)
+        return
+    await callback.answer()
+    await state.update_data(manual_contact_source=source)
+    await state.set_state(AddManualFSM.chat_contact)
+    prompt = {
+        "telegram": "Пришли Telegram-ник зрителя, например <code>@username</code>.",
+        "instagram": "Пришли Instagram-ник зрителя, например <code>@username</code>.",
+        "other": "Пришли телефон, ссылку или другой способ связи.",
+    }[source]
+    await callback.message.answer(prompt)
+
+
+@router.message(AddManualFSM.chat_contact, F.text)
+async def process_chat_manual_contact(message: Message, state: FSMContext):
+    contact = message.text.strip()
+    if len(contact) < 2 or len(contact) > 256:
+        await message.answer("Контакт должен содержать от 2 до 256 символов.")
+        return
+    data = await state.get_data()
+    source = data.get("manual_contact_source")
+    if source in {"telegram", "instagram"}:
+        contact = "@" + contact.lstrip("@").strip()
+    label = {"telegram": "Telegram", "instagram": "Instagram", "other": "Другое"}.get(source, "Контакт")
+    await state.update_data(manual_contact=f"{label}: {contact}")
+    await state.set_state(AddManualFSM.chat_guests)
+    await message.answer("Сколько дополнительных гостей придёт с этим человеком? Отправь число от 0 до 50.")
+
+
+@router.message(AddManualFSM.chat_guests, F.text)
+async def process_chat_manual_guests(message: Message, state: FSMContext, session: AsyncSession, is_super_admin: bool = False, db_user=None):
+    try:
+        guests = int(message.text.strip())
+    except ValueError:
+        guests = -1
+    if guests < 0 or guests > 6:
+        await message.answer("Отправь число дополнительных гостей от 0 до 6.")
+        return
+    data = await state.get_data()
+    show_id = data["show_id"]
+    show = await crud.get_show(session, show_id)
+    if not _can_manage(is_super_admin, db_user, show.creator_id if show else None):
+        await state.clear()
+        await message.answer("⛔ Нет доступа к этому шоу.")
+        return
+    if guests > show.max_guests:
+        await message.answer(f"Для этого шоу можно добавить не больше {show.max_guests} гостей.")
+        return
+    count = await crud.add_manual_attendees(
+        session,
+        show_id,
+        [data["manual_name"]],
+        source=data.get("manual_contact_source", "social"),
+        contacts=[data["manual_contact"]],
+        guests=[guests],
+    )
+    await state.clear()
+    await state.update_data(current_show_id=show_id, reply_context="show")
+    if count == 0:
+        occupied = await crud.count_active_registrations(session, show_id)
+        await message.answer(f"😔 Не хватает мест: свободно {max(0, show.max_seats - occupied)}.", reply_markup=show_context_kb())
+        return
+    await message.answer(
+        f"✅ Добавлен {h(data['manual_name'])}{f' +{guests}' if guests else ''}.\n"
+        f"Связь: {h(data['manual_contact'])}",
+        reply_markup=show_context_kb(),
+    )
+    logger.info("added manual attendee from registration chat show_id=%s by admin=%s", show_id, message.from_user.id)
 
 
 @router.message(AddManualFSM.names, F.text)

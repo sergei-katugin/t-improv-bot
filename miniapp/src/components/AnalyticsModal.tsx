@@ -4,9 +4,12 @@ import { notifications } from "@mantine/notifications";
 import { api, authenticatedBlob } from "../lib/api";
 import { useAppResume } from "../hooks/useAppResume";
 import type { Analytics, Show } from "../types";
-import { BottomActionBar } from "./BottomActionBar";
+import { ShowNavigation } from "./ShowNavigation";
 
-export function AnalyticsModal({ opened, onClose, show, demo }: { opened: boolean; onClose: () => void; show: Show; demo: boolean }) {
+export function AnalyticsModal({ opened, onClose, show, demo, onEdit, onAnnouncement, onRegistration, onMore }: {
+  opened: boolean; onClose: () => void; show: Show; demo: boolean;
+  onEdit: () => void; onAnnouncement: () => void; onRegistration: () => void; onMore: () => void;
+}) {
   const [data, setData] = React.useState<Analytics | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -31,7 +34,7 @@ export function AnalyticsModal({ opened, onClose, show, demo }: { opened: boolea
 
   React.useEffect(() => { if (opened) void load(); }, [opened, load]);
   useAppResume(() => { void load(); }, opened);
-  const sourceLabels: Record<string, string> = { direct: "Через бота", manual: "Вручную", social: "Другие соцсети", instagram: "Instagram", channel: "Telegram-канал", team: "Команда" };
+  const sourceLabels: Record<string, string> = { direct: "Через бота", manual: "Вручную", social: "Другие соцсети", telegram: "Telegram", instagram: "Instagram", channel: "Telegram-канал", team: "Команда" };
   const maxRating = data ? Math.max(1, ...Object.values(data.ratingDistribution)) : 1;
 
   async function downloadCsv() {
@@ -69,7 +72,8 @@ export function AnalyticsModal({ opened, onClose, show, demo }: { opened: boolea
       </Stack></Paper>
       <Title order={3}>Комментарии</Title>
       {data.comments.length ? data.comments.map((item) => <Paper className="resource-card" key={item.id}><Group justify="space-between" align="flex-start"><div><Text fw={700}>{item.name}</Text>{item.username && <Anchor size="sm" href={`https://t.me/${item.username}`} target="_blank">@{item.username}</Anchor>}</div><Badge color="yellow">{item.rating} ★</Badge></Group><Text mt="sm" style={{ whiteSpace: "pre-wrap" }}>{item.comment}</Text></Paper>) : <Text c="dimmed">Текстовых отзывов пока нет.</Text>}
+      <Button variant="default" fullWidth onClick={() => void downloadCsv()}>Скачать отчёт · CSV</Button>
     </Stack>}
-    {!loading && data && <BottomActionBar><Button className="primary" fullWidth onClick={() => void downloadCsv()}>Скачать отчёт · CSV</Button></BottomActionBar>}
+    <ShowNavigation show={show} active="analytics" onShow={onClose} onEdit={onEdit} onAnnouncement={onAnnouncement} onAnalytics={() => undefined} onRegistration={onRegistration} onMore={onMore} />
   </Modal>;
 }

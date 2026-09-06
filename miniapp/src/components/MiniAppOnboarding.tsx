@@ -81,15 +81,15 @@ export function MiniAppOnboarding({ opened, onFinish }: { opened: boolean; onFin
       className="onboarding-screen"
       onPointerDown={(event) => {
         if (!event.isPrimary) return;
+        if ((event.target as HTMLElement).closest("button")) return;
         pointerStart.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
-        event.currentTarget.setPointerCapture(event.pointerId);
       }}
       onPointerUp={(event) => {
         finishSwipe(event.pointerId, event.clientX, event.clientY);
       }}
       onPointerCancel={() => { pointerStart.current = null; }}
     >
-      {step < steps.length - 1 && <Button className="onboarding-skip" variant="subtle" onClick={onFinish}>Пропустить</Button>}
+      {step < steps.length - 1 && <Button className="onboarding-skip" variant="subtle" onPointerDown={(event) => event.stopPropagation()} onClick={onFinish}>Пропустить</Button>}
       <div className="onboarding-content" key={step}>
         <OnboardingIllustration step={step} />
         <Text className="onboarding-eyebrow">{current.eyebrow}</Text>
@@ -104,7 +104,7 @@ export function MiniAppOnboarding({ opened, onFinish }: { opened: boolean; onFin
               {steps.map((item, index) => <button type="button" key={item.eyebrow} aria-label={`Перейти к шагу ${index + 1}`} aria-current={index === step ? "step" : undefined} data-active={index === step} data-complete={index < step} onClick={() => setStep(index)} />)}
             </div>
           </div>
-          <Button className="primary" fullWidth onClick={() => step === steps.length - 1 ? onFinish() : setStep((value) => value + 1)}>{step === steps.length - 1 ? "Начать" : "Дальше"}</Button>
+          <Button className="primary" fullWidth onPointerDown={(event) => event.stopPropagation()} onClick={() => step === steps.length - 1 ? onFinish() : setStep((value) => value + 1)}>{step === steps.length - 1 ? "Начать" : "Дальше"}</Button>
         </Stack>
       </BottomActionBar>
     </div>

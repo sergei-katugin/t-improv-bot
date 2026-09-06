@@ -1,0 +1,12 @@
+.bottom-action-bar { position: fixed; z-index: 190; right: 0; bottom: 0; left: 50%; width: min(100%, 620px); padding: 6px max(16px, env(safe-area-inset-right)) calc(5px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); border-top: .5px solid var(--line); background: var(--app-bg); transform: translateX(-50%); }
+.mantine-Modal-content .bottom-action-bar { right: 0; left: 0; width: auto; transform: none; }
+.bottom-action-bar .mantine-Button-root { min-height: 48px; border-radius: 14px; }
+.bottom-action-bar .mantine-Button-root.primary { margin-top: 0; color: var(--app-bg); background: var(--app-text); }
+.bottom-action-bar.is-inline { position: static; width: auto; margin: 20px 0 0; padding: 0; border: 0; background: transparent; transform: none; }
+.bottom-action-navigation { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); }
+.bottom-nav-action { position: relative; display: grid; min-height: 52px; place-content: center; justify-items: center; gap: 2px; padding: 3px 1px 2px; border: 0; color: var(--muted); background: transparent; }
+.bottom-nav-action.is-active { color: var(--app-text); }
+.bottom-nav-icon { display: grid; width: 25px; height: 25px; place-items: center; }
+.bottom-nav-icon svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.bottom-nav-label { max-width: 100%; overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.bottom-nav-meta { position: absolute; top: 0; left: calc(50% + 6px); min-width: 17px; padding: 0 4px; border: 2px solid var(--app-bg); border-radius: 9px; color: var(--app-bg); background: var(--app-text); font-size: 9px; text-align: center; }
