@@ -66,7 +66,7 @@ def promotion_context_kb() -> ReplyKeyboardMarkup:
 def registrations_context_kb() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="➕ Добавить зрителя"), KeyboardButton(text="🔔 Чат записей")],
+            [KeyboardButton(text="🔔 Чат записей")],
             [KeyboardButton(text="◀️ К шоу")],
         ], resize_keyboard=True, persistent=True,
     )

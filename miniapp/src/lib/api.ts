@@ -17,6 +17,7 @@ export function api<T>(path: string, init: RequestInit = {}): Promise<T> {
       const requestId = response.headers.get("X-Request-ID") ?? payload.requestId;
       const message = response.status === 401 ? "Открой Mini App из админ-бота" :
         response.status === 403 ? "Недостаточно прав для этого действия" :
+        typeof payload.message === "string" ? payload.message :
         payload.field ? `Проверь поле: ${payload.field}` : "Не удалось выполнить запрос";
       throw new Error(`${message}${requestId ? ` · код ${requestId}` : ""}`);
     }

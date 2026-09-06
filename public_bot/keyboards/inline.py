@@ -61,7 +61,7 @@ def manage_registration_kb(show_id: int) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def guests_kb(show_id: int, max_guests: int = 2) -> InlineKeyboardMarkup:
+def guests_kb(show_id: int, max_guests: int = 6) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="Только я", callback_data=GuestsCb(show_id=show_id, guests=0).pack())
     for guests in range(1, min(max_guests, 6) + 1):

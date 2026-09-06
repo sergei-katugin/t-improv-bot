@@ -21,6 +21,7 @@ import { ShowDetails } from "./components/ShowDetails";
 import { ShowsHeader } from "./components/ShowsHeader";
 import { ShowStepper } from "./components/ShowStepper";
 import { MiniAppOnboarding } from "./components/MiniAppOnboarding";
+import { AttentionCenter, type AttentionItem } from "./components/AttentionCenter";
 import { api, authenticatedBlob } from "./lib/api";
 import { telegramConfirm, telegramHaptic } from "./lib/telegram";
 import { useAppTheme } from "./hooks/useAppTheme";
@@ -29,8 +30,8 @@ import { theme } from "./theme";
 import type { AccessUser, Attendees, AuditItem, Me, Options, Promotion, RegistrationChatOption, Show, ShowFormValue, ThemePreference } from "./types";
 
 const previewShows: Show[] = [
-  { id: 1, title: "Истории на ночь", teamName: "T·IMPRO", showDateLabel: "5 сентября, 20:00", location: "Ravens Music Hall", city: "Лимасол", isActive: true, maxSeats: 50, occupiedSeats: 34, registrarUsername: "sergey" },
-  { id: 2, title: "Маэстро", teamName: "Импровизаторы Кипра", showDateLabel: "12 сентября, 19:30", location: "Yurts in Cyprus", city: "Пафос", isActive: true, maxSeats: 40, occupiedSeats: 18, registrarUsername: "anna_impro" },
+  { id: 1, title: "Истории на ночь", teamName: "T·IMPRO", showDateLabel: "5 сентября, 20:00", location: "Ravens Music Hall", city: "Лимасол", isActive: true, maxSeats: 50, occupiedSeats: 34, registrarUsername: "sergey", hasPublished: true },
+  { id: 2, title: "Маэстро", teamName: "Импровизаторы Кипра", showDateLabel: "12 сентября, 19:30", location: "Yurts in Cyprus", city: "Пафос", isActive: true, maxSeats: 40, occupiedSeats: 18, registrarUsername: "anna_impro", hasPublished: false },
 ];
 
 
@@ -46,7 +47,9 @@ function App({ themePreference, onThemePreferenceChange, onResetLocalData }: { t
   const [showsHasMore, setShowsHasMore] = React.useState(false);
   const [showsNextOffset, setShowsNextOffset] = React.useState(0);
   const [loading, setLoading] = React.useState(!isPreview);
+  const [loadingMore, setLoadingMore] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [attention, setAttention] = React.useState<AttentionItem[]>([]);
   const [options, setOptions] = React.useState<Options>({ teams: [], venues: [], adChannels: [] });
   const [me, setMe] = React.useState<Me | null>(isPreview ? { id: 1, firstName: "Sergey", username: "sergey", role: "admin" } : null);
   const [formOpened, setFormOpened] = React.useState(false);
@@ -62,6 +65,7 @@ function App({ themePreference, onThemePreferenceChange, onResetLocalData }: { t
   const managementBackRef = React.useRef<(() => boolean) | null>(null);
   const attendeesBackRef = React.useRef<(() => boolean) | null>(null);
   const toolsBackRef = React.useRef<(() => boolean) | null>(null);
+  const showsRequestRef = React.useRef(0);
 
   const hasBackTarget = Boolean(selected || formOpened || managementOpened || settingsOpened || attendeesOpened || announcementOpened || analyticsOpened || toolsOpened);
 
@@ -72,7 +76,7 @@ function App({ themePreference, onThemePreferenceChange, onResetLocalData }: { t
       : attendeesOpened ? "Зрители"
       : announcementOpened ? "Анонс"
       : analyticsOpened ? "Аналитика"
-      : toolsOpened ? `Ещё · ${selected?.title ?? "Шоу"}`
+      : toolsOpened ? `${selected?.isPast ? "Настройки" : "Действия"} · ${selected?.title ?? "Шоу"}`
       : selected?.title ?? "Мои афиши";
     document.title = title;
   }, [analyticsOpened, announcementOpened, attendeesOpened, editing, formOpened, managementOpened, selected, settingsOpened, toolsOpened]);
@@ -115,17 +119,44 @@ function App({ themePreference, onThemePreferenceChange, onResetLocalData }: { t
 
   function reloadShows(offset = 0, append = false) {
     if (isPreview) return;
-    setLoading(true);
+    const requestId = ++showsRequestRef.current;
+    if (append) setLoadingMore(true);
+    else {
+      setLoading(true);
+      setShows([]);
+      setShowsHasMore(false);
+    }
+    setError(null);
     const query = new URLSearchParams({ status, offset: String(offset) });
     if (teamFilter) query.set("team", teamFilter);
     if (yearFilter) query.set("year", yearFilter);
     api<{ items: Show[]; hasMore: boolean; nextOffset: number }>(`/api/miniapp/shows?${query}`)
       .then(({ items, hasMore, nextOffset }) => {
+        if (requestId !== showsRequestRef.current) return;
         setShows((current) => append ? [...current, ...items] : items);
         setShowsHasMore(hasMore); setShowsNextOffset(nextOffset);
       })
-      .catch((reason: Error) => setError(reason.message))
-      .finally(() => setLoading(false));
+      .catch((reason: Error) => {
+        if (requestId === showsRequestRef.current) setError(reason.message);
+      })
+      .finally(() => {
+        if (requestId !== showsRequestRef.current) return;
+        if (append) setLoadingMore(false); else setLoading(false);
+      });
+  }
+
+  function changeStatus(nextStatus: "upcoming" | "past") {
+    if (nextStatus === status) return;
+    if (isPreview) {
+      setStatus(nextStatus);
+      return;
+    }
+    showsRequestRef.current += 1;
+    setShows([]);
+    setShowsHasMore(false);
+    setLoading(true);
+    setLoadingMore(false);
+    setStatus(nextStatus);
   }
 
   async function reloadOptions() {
@@ -133,19 +164,34 @@ function App({ themePreference, onThemePreferenceChange, onResetLocalData }: { t
     setOptions(await api<Options>("/api/miniapp/options"));
   }
 
+  const reloadAttention = React.useCallback(() => {
+    if (isPreview) return;
+    api<{ items: AttentionItem[] }>("/api/miniapp/attention").then(({ items }) => setAttention(items)).catch(() => undefined);
+  }, [isPreview]);
+
   React.useEffect(() => {
     if (isPreview) return;
     setLoading(true);
     setError(null);
     reloadShows();
-  }, [status, teamFilter, yearFilter, isPreview]);
+    reloadAttention();
+  }, [status, teamFilter, yearFilter, isPreview, reloadAttention]);
 
   useAppResume(() => {
     if (isPreview) return;
     void reloadOptions();
+    reloadAttention();
     reloadShows();
     if (selected) api<Show>(`/api/miniapp/shows/${selected.id}`).then(setSelected).catch(() => undefined);
   });
+
+  async function openAttention(item: AttentionItem) {
+    const show = shows.find((candidate) => candidate.id === item.showId) ?? await api<Show>(`/api/miniapp/shows/${item.showId}`);
+    setSelected(show);
+    if (item.kind === "announcement") setAnnouncementOpened(true);
+    else if (item.kind === "chat") { setToolsMode("chat"); setToolsOpened(true); }
+    else { setEditing(show); setFormOpened(true); }
+  }
 
   async function openShow(show: Show) {
     setDescriptionOpened(false);
@@ -193,24 +239,25 @@ function App({ themePreference, onThemePreferenceChange, onResetLocalData }: { t
   }
 
   return <main className="shell">
-    <ShowsHeader status={status} onStatusChange={setStatus} filtersOpened={filtersOpened} activeFilters={[teamFilter, yearFilter].filter(Boolean).length} onToggleFilters={() => { telegramHaptic("selection"); setFiltersOpened((opened) => !opened); }} />
+    <ShowsHeader status={status} onStatusChange={changeStatus} filtersOpened={filtersOpened} activeFilters={[teamFilter, yearFilter].filter(Boolean).length} onToggleFilters={() => { telegramHaptic("selection"); setFiltersOpened((opened) => !opened); }} />
     <Collapse expanded={filtersOpened}>
       <Group className="filters-panel" gap="xs" grow>
         <Select clearable searchable placeholder="Все команды" aria-label="Фильтр по команде" value={teamFilter} onChange={setTeamFilter} data={options.teams.map((team) => team.name)} />
         <Select clearable placeholder="Все годы" aria-label="Фильтр по году" value={yearFilter} onChange={setYearFilter} data={Array.from({ length: new Date().getFullYear() - 2019 + 3 }, (_, index) => String(new Date().getFullYear() + 3 - index))} />
       </Group>
     </Collapse>
+    {status === "upcoming" && <AttentionCenter items={attention} onOpen={(item) => void openAttention(item)} />}
     {loading && <Stack gap="sm" aria-label="Загружаем афиши"><Skeleton height={184} radius="md" /><Skeleton height={184} radius="md" /></Stack>}
     {error && <Alert color="red" title="Не удалось открыть панель">{error}</Alert>}
     {!loading && !error && shows.length === 0 && <Paper className="state"><Title order={3}>Здесь пока пусто</Title><Text>{status === "upcoming" ? "Создай первую афишу прямо здесь или проверь прошедшие события." : "Прошедших афиш пока нет."}</Text></Paper>}
-    <section className="show-list">
-      {shows.map((show) => <ShowCard key={show.id} show={show} onClick={() => { telegramHaptic("selection"); void openShow(show); }} />)}
-    </section>
-    {showsHasMore && <Button fullWidth mt="md" variant="default" loading={loading} onClick={() => reloadShows(showsNextOffset, true)}>Показать ещё</Button>}
+    {!loading && <section className="show-list">
+      {shows.map((show) => <ShowCard key={show.id} show={show} onClick={() => { telegramHaptic("selection"); void openShow(show); }} onCopyLink={() => { const url = show.registrationUrl ?? `https://t.me/ImprovCypEventBot?start=show_${show.id}`; void navigator.clipboard.writeText(url).then(() => notifications.show({ color: "green", title: "Ссылка скопирована", message: show.title })).catch(() => notifications.show({ color: "red", title: "Не удалось скопировать", message: url })); }} onAnnouncement={() => { setSelected(show); setAnnouncementOpened(true); }} />)}
+    </section>}
+    {showsHasMore && <Button fullWidth mt="md" variant="default" loading={loadingMore} onClick={() => reloadShows(showsNextOffset, true)}>Показать ещё</Button>}
     <RootNavigation onShows={() => setSelected(null)} onCreate={() => { telegramHaptic("light"); setEditing(null); setFormOpened(true); }} onAdministration={() => { telegramHaptic("selection"); setManagementOpened(true); }} onSettings={() => { telegramHaptic("selection"); setSettingsOpened(true); }} />
     <ShowForm opened={formOpened} initial={editing} options={options} me={me} reloadOptions={reloadOptions} onClose={() => setFormOpened(false)} onSaved={() => { setFormOpened(false); reloadShows(); }} />
-    <ManagementModal opened={managementOpened} onClose={() => setManagementOpened(false)} me={me} options={options} reload={reloadOptions} themePreference={themePreference} onThemePreferenceChange={onThemePreferenceChange} onResetLocalData={onResetLocalData} backHandlerRef={managementBackRef} />
-    <AppSettingsModal opened={settingsOpened} onClose={() => setSettingsOpened(false)} value={themePreference} onChange={onThemePreferenceChange} onReset={onResetLocalData} />
+    <ManagementModal opened={managementOpened} onClose={() => setManagementOpened(false)} onCreate={() => { setManagementOpened(false); setEditing(null); setFormOpened(true); }} onSettings={() => { setManagementOpened(false); setSettingsOpened(true); }} me={me} options={options} reload={reloadOptions} themePreference={themePreference} onThemePreferenceChange={onThemePreferenceChange} onResetLocalData={onResetLocalData} backHandlerRef={managementBackRef} />
+    <AppSettingsModal opened={settingsOpened} onClose={() => setSettingsOpened(false)} onCreate={() => { setSettingsOpened(false); setEditing(null); setFormOpened(true); }} onAdministration={() => { setSettingsOpened(false); setManagementOpened(true); }} value={themePreference} onChange={onThemePreferenceChange} onReset={onResetLocalData} />
   </main>;
 }
 

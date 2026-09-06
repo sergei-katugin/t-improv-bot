@@ -54,6 +54,8 @@ export type Analytics = {
   registered: number; capacity: number; cancelledRegistrations: number; confirmed: number;
   arrived: number; checkinEnabled: boolean; feedbackEnabled: boolean; feedbackCount: number;
   averageRating: number; ratingDistribution: Record<string, number>;
+  occupancyRate: number; cancellationRate: number; attendanceRate: number;
+  dailyRegistrationRate: number; projectedAttendance: number; recommendation: string;
   sources: { source: string; count: number }[];
   comments: { id: number; rating: number; comment: string; username: string | null; name: string | number; createdAt: string }[];
   commentsLimit: number;

@@ -277,7 +277,7 @@ async def create_show(
     poster_file_id: str | None,
     max_seats: int,
     creator_id: int,
-    max_guests: int = 2,
+    max_guests: int = 6,
     registration_closes_at: datetime | None = None,
     registrar_id: int | None = None,
     registrar_username: str | None = None,
@@ -438,12 +438,33 @@ async def list_finished_shows_with_registration_chat(session: AsyncSession) -> l
         select(Show)
         .where(
             Show.registration_chat_id.is_not(None),
-            Show.show_date <= _utcnow() - timedelta(hours=2),
+            Show.registration_chat_summary_sent_at.is_(None),
+            Show.show_date <= _utcnow() - timedelta(hours=24),
         )
         .order_by(Show.id)
         .limit(100)
     )
     return list(result.scalars().all())
+
+
+async def mark_registration_chat_summary_sent(session: AsyncSession, show_id: int, chat_id: int) -> bool:
+    result = await session.execute(
+        update(Show)
+        .where(Show.id == show_id, Show.registration_chat_id == chat_id, Show.registration_chat_summary_sent_at.is_(None))
+        .values(registration_chat_summary_sent_at=_utcnow(), updated_at=_utcnow())
+    )
+    await session.commit()
+    return bool(result.rowcount)
+
+
+async def get_show_outcome(session: AsyncSession, show_id: int) -> dict[str, int | float]:
+    registered = int((await session.scalar(select(func.coalesce(func.sum(Registration.guests + 1), 0)).where(Registration.show_id == show_id, Registration.is_cancelled == False))) or 0)
+    cancelled = int((await session.scalar(select(func.count(Registration.id)).where(Registration.show_id == show_id, Registration.is_cancelled == True))) or 0)
+    manual = int((await session.scalar(select(func.coalesce(func.sum(ManualAttendee.guests + 1), 0)).where(ManualAttendee.show_id == show_id))) or 0)
+    arrived = int((await session.scalar(select(func.coalesce(func.sum(Registration.checked_in_count), 0)).where(Registration.show_id == show_id))) or 0)
+    arrived += int((await session.scalar(select(func.coalesce(func.sum(ManualAttendee.checked_in_count), 0)).where(ManualAttendee.show_id == show_id))) or 0)
+    feedback_count, average_rating = (await session.execute(select(func.count(ShowFeedback.id), func.coalesce(func.avg(ShowFeedback.rating), 0)).where(ShowFeedback.show_id == show_id))).one()
+    return {"registered": registered + manual, "cancelled": cancelled, "arrived": arrived, "feedback_count": int(feedback_count), "average_rating": float(average_rating)}
 
 
 async def clear_registration_chat_if_matches(session: AsyncSession, show_id: int, chat_id: int) -> bool:

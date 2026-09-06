@@ -20,6 +20,8 @@ export function AnalyticsModal({ opened, onClose, show, demo, onEdit, onAnnounce
       registered: show.occupiedSeats, capacity: show.maxSeats, cancelledRegistrations: 4,
       confirmed: 27, arrived: 25, checkinEnabled: true, feedbackEnabled: true,
       feedbackCount: 18, averageRating: 4.7, ratingDistribution: { "5": 14, "4": 3, "3": 1 },
+      occupancyRate: 68, cancellationRate: 9, attendanceRate: 74, dailyRegistrationRate: 3.2, projectedAttendance: 46,
+      recommendation: "Текущего темпа недостаточно для заполнения 75% мест",
       sources: [{ source: "direct", count: 20 }, { source: "instagram", count: 9 }, { source: "manual", count: 5 }],
       comments: [{ id: 1, rating: 5, comment: "Очень тёплое и смешное шоу!", username: "viewer", name: "Анна", createdAt: new Date().toISOString() }], commentsLimit: 100,
     };
@@ -64,6 +66,12 @@ export function AnalyticsModal({ opened, onClose, show, demo, onEdit, onAnnounce
         <Paper className="resource-card"><Text size="sm" c="dimmed">Пришли</Text><Title order={2}>{data.checkinEnabled ? data.arrived : "—"}</Title></Paper>
         <Paper className="resource-card"><Text size="sm" c="dimmed">Подтвердили</Text><Title order={2}>{data.confirmed}</Title></Paper>
         <Paper className="resource-card"><Text size="sm" c="dimmed">Отмен записей</Text><Title order={2}>{data.cancelledRegistrations}</Title></Paper>
+      </SimpleGrid>
+      <Paper className="resource-form"><Stack gap="xs"><Group justify="space-between"><Title order={3}>Прогноз</Title><Badge variant="light">{data.projectedAttendance} / {data.capacity}</Badge></Group><Text size="sm">Темп: <b>{data.dailyRegistrationRate}</b> места в день</Text><Text size="sm" c="dimmed">{data.recommendation}</Text></Stack></Paper>
+      <SimpleGrid cols={3}>
+        <Paper className="resource-card"><Text size="xs" c="dimmed">Заполнено</Text><Text fw={800}>{data.occupancyRate}%</Text></Paper>
+        <Paper className="resource-card"><Text size="xs" c="dimmed">Отмены</Text><Text fw={800}>{data.cancellationRate}%</Text></Paper>
+        <Paper className="resource-card"><Text size="xs" c="dimmed">Явка</Text><Text fw={800}>{data.checkinEnabled ? `${data.attendanceRate}%` : "—"}</Text></Paper>
       </SimpleGrid>
       <Paper className="resource-form"><Stack><Title order={3}>Источники записей</Title>{data.sources.length ? data.sources.map((item) => <div key={item.source}><Group justify="space-between"><Text>{sourceLabels[item.source] ?? item.source}</Text><Text fw={700}>{item.count}</Text></Group><Progress value={data.registered ? item.count / data.registered * 100 : 0} mt={5} /></div>) : <Text c="dimmed">Данных пока нет</Text>}</Stack></Paper>
       <Paper className="resource-form"><Stack><Group justify="space-between"><Title order={3}>Отзывы</Title><Badge color="yellow" size="lg">★ {data.averageRating.toFixed(1)} · {data.feedbackCount}</Badge></Group>

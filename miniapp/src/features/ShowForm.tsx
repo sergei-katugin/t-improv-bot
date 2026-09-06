@@ -12,17 +12,23 @@ import { useAppResume } from "../hooks/useAppResume";
 import type { AccessUser, Attendees, AuditItem, Me, Options, Promotion, RegistrationChatOption, Show, ShowFormValue, ThemePreference } from "../types";
 import { invalidTelegramUsername } from "../lib/validation";
 
-function emptyForm(): ShowFormValue {
+export function oneHourBefore(localDateTime: string): string {
+  const date = new Date(localDateTime);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Date(date.getTime() - 60 * 60 * 1000 - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
+
+export function newShowForm(): ShowFormValue {
   const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
   const local = new Date(tomorrow.getTime() - tomorrow.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
-  return { title: "", teamName: "", showDateLocal: local, location: "", locationUrl: "", city: "Лимасол", posterText: "", maxSeats: 50, maxGuests: 2, registrationClosesAt: "", registrarUsername: "", checkinEnabled: false, feedbackEnabled: false };
+  return { title: "", teamName: "", showDateLocal: local, location: "", locationUrl: "", city: "Лимасол", posterText: "", maxSeats: 50, maxGuests: 6, registrationClosesAt: oneHourBefore(local), registrarUsername: "", checkinEnabled: false, feedbackEnabled: false };
 }
 
 function formFromShow(show: Show): ShowFormValue {
   return {
     title: show.title, teamName: show.teamName, showDateLocal: show.showDateLocal ?? "",
     location: show.location, locationUrl: show.locationUrl ?? "", city: show.city,
-    posterText: show.posterText ?? "", maxSeats: show.maxSeats, maxGuests: show.maxGuests ?? 2,
+    posterText: show.posterText ?? "", maxSeats: show.maxSeats, maxGuests: show.maxGuests ?? 6,
     registrationClosesAt: show.registrationClosesAt ?? "",
     registrarUsername: show.registrarUsername ? `@${show.registrarUsername}` : "",
     checkinEnabled: show.checkinEnabled ?? false, feedbackEnabled: show.feedbackEnabled ?? false,
@@ -33,7 +39,7 @@ export function ShowForm({ opened, initial, options, me, reloadOptions, onClose,
   opened: boolean; initial: Show | null; options: Options; me: Me | null;
   reloadOptions: () => Promise<void>; onClose: () => void; onSaved: (id: number) => void;
 }) {
-  const [value, setValue] = React.useState<ShowFormValue>(emptyForm());
+  const [value, setValue] = React.useState<ShowFormValue>(newShowForm());
   const [venueId, setVenueId] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [teamModal, setTeamModal] = React.useState(false);
@@ -68,7 +74,7 @@ export function ShowForm({ opened, initial, options, me, reloadOptions, onClose,
     const formKey = initial ? `edit:${initial.id}` : "create";
     if (initializedFormRef.current === formKey) return;
     initializedFormRef.current = formKey;
-    const nextValue = initial ? formFromShow(initial) : emptyForm();
+    const nextValue = initial ? formFromShow(initial) : newShowForm();
     const venue = initial
       ? options.venues.find((item) => item.name === initial.location && item.city === initial.city)
       : undefined;
@@ -98,6 +104,16 @@ export function ShowForm({ opened, initial, options, me, reloadOptions, onClose,
     true,
   ];
   const stepLabels = ["Основное", "Место", "Запись", "Афиша"];
+
+  function changeShowDate(next: string) {
+    setValue((current) => ({
+      ...current,
+      showDateLocal: next,
+      registrationClosesAt: current.registrationClosesAt === oneHourBefore(current.showDateLocal)
+        ? oneHourBefore(next)
+        : current.registrationClosesAt,
+    }));
+  }
 
   function showPayload(): ShowFormValue {
     return selectedVenue
@@ -206,7 +222,7 @@ export function ShowForm({ opened, initial, options, me, reloadOptions, onClose,
         {activeStep === 0 && <>
         <TextInput required label="Название" value={value.title} onChange={(e) => set("title", e.currentTarget.value)} maxLength={256} />
         <Select required searchable allowDeselect={false} label="Команда" data={[...options.teams.map((team) => ({ value: team.name, label: team.name })), { value: "__new__", label: "＋ Добавить новую команду" }]} value={value.teamName || null} dropdownOpened={teamDropdownOpened} onDropdownOpen={() => setTeamDropdownOpened(true)} onDropdownClose={() => setTeamDropdownOpened(false)} onChange={(next) => { setTeamDropdownOpened(false); if (next === "__new__") setTeamModal(true); else set("teamName", next ?? ""); }} />
-        <DateTimePicker required size="lg" dropdownType="modal" label="Дата и время" valueFormat="D MMMM YYYY, HH:mm" locale="ru" minDate={new Date().toISOString().slice(0, 10)} value={value.showDateLocal.replace("T", " ")} onChange={(next) => set("showDateLocal", next?.replace(" ", "T") ?? "")} timePickerProps={{ minutesStep: 5 }} clearable={false} className="large-date-picker" />
+        <DateTimePicker required size="lg" dropdownType="modal" label="Дата и время" valueFormat="D MMMM YYYY, HH:mm" locale="ru" minDate={new Date().toISOString().slice(0, 10)} value={value.showDateLocal.replace("T", " ")} onChange={(next) => changeShowDate(next?.replace(" ", "T") ?? "")} timePickerProps={{ minutesStep: 5 }} clearable={false} className="large-date-picker" />
         </>}
         {activeStep === 1 && <>
         <Select required searchable allowDeselect={false} label="Площадка" placeholder="Выбери площадку" data={[...options.venues.map((venue) => ({ value: String(venue.id), label: `${venue.name} · ${venue.city}` })), ...(initial && venueId === "__custom__" ? [{ value: "__custom__", label: `${value.location} · ${value.city}` }] : []), ...(me?.role === "admin" ? [{ value: "__new__", label: "＋ Добавить новую площадку" }] : [])]} value={venueId} onChange={selectVenue} />
@@ -226,7 +242,7 @@ export function ShowForm({ opened, initial, options, me, reloadOptions, onClose,
           description={registrarIsValid ? <Anchor href={`https://t.me/${normalizedRegistrar.slice(1)}`} target="_blank" size="xs">Проверить профиль в Telegram ↗</Anchor> : "Можно выбрать участника любой команды или ввести другой ник"}
         />
         <NumberInput label="Максимум дополнительных гостей" description="Сколько гостей один зритель может добавить к своей записи" min={0} max={6} value={value.maxGuests} onChange={(next) => set("maxGuests", typeof next === "number" ? next : 0)} />
-        <TextInput type="datetime-local" label="Закрыть запись автоматически" description="Необязательно — после этого времени новые записи и изменения гостей станут недоступны" value={value.registrationClosesAt} max={value.showDateLocal} onChange={(event) => set("registrationClosesAt", event.currentTarget.value)} />
+        <TextInput type="datetime-local" label="Закрыть запись автоматически" description="По умолчанию — за час до шоу. После этого новые записи и изменения гостей станут недоступны" value={value.registrationClosesAt} max={value.showDateLocal} onChange={(event) => set("registrationClosesAt", event.currentTarget.value)} />
         {!initial && <Paper className="venue-summary optional-section"><Stack gap="sm">
           <div>
             <Text fw={700}>Чат записей</Text>

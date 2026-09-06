@@ -22,7 +22,7 @@ from aiogram import Bot
 from aiogram.enums import ChatMemberStatus, ChatType
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import case, exists, func, or_, select
 from sqlalchemy.orm import selectinload
 
 from admin_bot.security import can_manage_owned
@@ -33,7 +33,7 @@ from admin_bot.telegram_usernames import (
 from config import ADMIN_ID_LIST, settings
 from db import crud
 from db.base import AsyncSessionLocal
-from db.models import AuditLog, ManualAttendee, Registration, Show, ShowFeedback, User, UserRole, WaitlistEntry
+from db.models import AnnouncementLog, AuditLog, ManualAttendee, Registration, Show, ShowFeedback, User, UserRole, WaitlistEntry
 from html_utils import h
 from telegram_delivery import send_with_retry
 from time_utils import format_local, local_naive_to_utc, utc_now, utc_to_local
@@ -233,9 +233,9 @@ def _set_miniapp_security_headers(request: web.Request, response: web.StreamResp
         )
 
 
-def _show_payload(show: Show, occupied: int) -> dict[str, object]:
+def _show_payload(show: Show, occupied: int, has_published: bool | None = None) -> dict[str, object]:
     registrar_username = show.registrar.username if show.registrar else show.registrar_username
-    return {
+    payload: dict[str, object] = {
         "id": show.id,
         "title": show.title,
         "teamName": show.team_name,
@@ -258,6 +258,9 @@ def _show_payload(show: Show, occupied: int) -> dict[str, object]:
         "registrationChatTitle": show.registration_chat_title,
         "registrationChatNameMode": show.registration_chat_name_mode,
     }
+    if has_published is not None:
+        payload["hasPublished"] = has_published
+    return payload
 
 
 async def miniapp_me(request: web.Request) -> web.Response:
@@ -360,8 +363,9 @@ async def miniapp_shows(request: web.Request) -> web.Response:
         .scalar_subquery()
     )
     occupied = (_occupied_expression() + manual_occupied).label("occupied")
+    has_published = exists(select(AnnouncementLog.id).where(AnnouncementLog.show_id == Show.id)).label("has_published")
     query = (
-        select(Show, occupied)
+        select(Show, occupied, has_published)
         .options(selectinload(Show.registrar))
         .outerjoin(Registration, Registration.show_id == Show.id)
         .group_by(Show.id)
@@ -386,7 +390,7 @@ async def miniapp_shows(request: web.Request) -> web.Response:
         rows = (await session.execute(query)).all()
         items = rows[:MAX_SHOWS_PER_PAGE]
         return web.json_response({
-            "items": [_show_payload(show, int(count)) for show, count in items],
+            "items": [_show_payload(show, int(count), bool(published)) for show, count, published in items],
             "limit": MAX_SHOWS_PER_PAGE,
             "hasMore": len(rows) > MAX_SHOWS_PER_PAGE,
             "nextOffset": offset + len(items),
@@ -419,6 +423,27 @@ async def miniapp_show_detail(request: web.Request) -> web.Response:
             "hasPublished": await crud.has_any_announcement_been_sent(session, show.id),
         })
         return web.json_response(payload)
+
+
+async def miniapp_attention(request: web.Request) -> web.Response:
+    query = select(Show).where(Show.is_active == True, Show.show_date >= utc_now()).order_by(Show.show_date).limit(20)
+    if not request["miniapp_is_admin"]:
+        query = query.where(Show.creator_id == request["miniapp_user_id"])
+    async with AsyncSessionLocal() as session:
+        shows = list((await session.scalars(query)).all())
+        items = []
+        for show in shows:
+            occupied = await crud.count_active_registrations(session, show.id)
+            announced = await crud.has_any_announcement_been_sent(session, show.id)
+            if not announced:
+                items.append({"showId": show.id, "showTitle": show.title, "kind": "announcement", "label": "Опубликовать анонс"})
+            elif show.show_date <= utc_now() + timedelta(days=7) and occupied < show.max_seats * .5:
+                items.append({"showId": show.id, "showTitle": show.title, "kind": "announcement", "label": "Низкая заполненность — повторить анонс"})
+            if not show.registration_chat_id:
+                items.append({"showId": show.id, "showTitle": show.title, "kind": "chat", "label": "Подключить чат записей"})
+            if not show.registrar_id and not show.registrar_username:
+                items.append({"showId": show.id, "showTitle": show.title, "kind": "edit", "label": "Указать ответственного"})
+        return web.json_response({"items": items[:12]})
 
 
 async def miniapp_announcement_preview(request: web.Request) -> web.Response:
@@ -582,6 +607,7 @@ async def miniapp_clone_show(request: web.Request) -> web.Response:
             poster_text=source.poster_text, poster_file_id=source.poster_file_id,
             max_seats=source.max_seats, creator_id=request["miniapp_user_id"],
             max_guests=source.max_guests,
+            registration_closes_at=show_date - timedelta(hours=1),
             registrar_id=source.registrar_id, registrar_username=source.registrar_username,
             checkin_enabled=source.checkin_enabled, feedback_enabled=source.feedback_enabled,
         )
@@ -692,6 +718,8 @@ async def miniapp_show_analytics(request: web.Request) -> web.Response:
             .where(ManualAttendee.show_id == show_id)
             .group_by(manual_source)
         )).all()
+        first_registration = await session.scalar(select(func.min(Registration.registered_at)).where(Registration.show_id == show_id))
+        first_manual = await session.scalar(select(func.min(ManualAttendee.added_at)).where(ManualAttendee.show_id == show_id))
         comments = (await session.execute(
             select(ShowFeedback, User)
             .join(User, User.id == ShowFeedback.user_id)
@@ -708,6 +736,19 @@ async def miniapp_show_analytics(request: web.Request) -> web.Response:
         int(show.checkin_counter or 0) if show.checkin_mode == "counter"
         else int(reg_summary[3]) + int(manual_summary[1])
     )
+    occupancy_rate = round(registered / show.max_seats * 100) if show.max_seats else 0
+    cancellation_rate = round(int(reg_summary[1]) / max(1, int(reg_summary[1]) + registered) * 100)
+    attendance_rate = round(arrived / registered * 100) if registered else 0
+    starts = [item for item in (first_registration, first_manual) if item]
+    elapsed_days = max(1.0, (utc_now() - min(starts)).total_seconds() / 86_400) if starts else 1.0
+    daily_rate = round(registered / elapsed_days, 1)
+    remaining_days = max(0.0, (show.show_date - utc_now()).total_seconds() / 86_400)
+    projected = min(show.max_seats, round(registered + daily_rate * remaining_days)) if not show.is_active is False else registered
+    recommendation = "Мест достаточно — продолжай следить за динамикой"
+    if show.show_date > utc_now() and occupancy_rate < 50 and remaining_days <= 7:
+        recommendation = "Заполненность низкая: стоит сделать повторный анонс"
+    elif show.show_date > utc_now() and projected < show.max_seats * .75:
+        recommendation = "Текущего темпа недостаточно для заполнения 75% мест"
     return web.json_response({
         "registered": registered,
         "capacity": show.max_seats,
@@ -718,6 +759,12 @@ async def miniapp_show_analytics(request: web.Request) -> web.Response:
         "feedbackEnabled": show.feedback_enabled,
         "feedbackCount": int(feedback_summary[0]),
         "averageRating": round(float(feedback_summary[1]), 1),
+        "occupancyRate": occupancy_rate,
+        "cancellationRate": cancellation_rate,
+        "attendanceRate": attendance_rate,
+        "dailyRegistrationRate": daily_rate,
+        "projectedAttendance": projected,
+        "recommendation": recommendation,
         "ratingDistribution": {str(rating): int(count) for rating, count in rating_rows},
         "sources": [
             {"source": source, "count": count}
@@ -1217,6 +1264,8 @@ def _show_fields(data: dict, *, require_all: bool) -> dict[str, object]:
         if isinstance(guests, bool) or not isinstance(guests, int) or not 0 <= guests <= 6:
             raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_field", "field": "maxGuests"}), content_type="application/json")
         result["max_guests"] = guests
+    elif require_all:
+        result["max_guests"] = 6
     if "registrationClosesAt" in data:
         raw_close = data["registrationClosesAt"]
         if raw_close in (None, ""):
@@ -1229,6 +1278,8 @@ def _show_fields(data: dict, *, require_all: bool) -> dict[str, object]:
             result["registration_closes_at"] = close_at
     if result.get("registration_closes_at") and result.get("show_date") and result["registration_closes_at"] >= result["show_date"]:
         raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_field", "field": "registrationClosesAt"}), content_type="application/json")
+    if require_all and "registrationClosesAt" not in data:
+        result["registration_closes_at"] = result["show_date"] - timedelta(hours=1)
     if "registrarUsername" in data:
         raw_username = _optional_text(data, "registrarUsername", 64)
         username = normalize_telegram_username(raw_username)
@@ -1264,6 +1315,13 @@ async def _json_body(request: web.Request) -> dict:
 async def miniapp_create_show(request: web.Request) -> web.Response:
     fields = _show_fields(await _json_body(request), require_all=True)
     async with AsyncSessionLocal() as session:
+        conflict = await session.scalar(select(Show).where(
+            Show.is_active == True,
+            Show.show_date.between(fields["show_date"] - timedelta(hours=3), fields["show_date"] + timedelta(hours=3)),
+            or_(Show.team_name == fields["team_name"], Show.location == fields["location"]),
+        ).limit(1))
+        if conflict:
+            raise web.HTTPConflict(text=json.dumps({"error": "scheduling_conflict", "field": "showDateLocal", "message": f"Конфликт с афишей «{conflict.title}»: та же команда или площадка в пределах трёх часов"}), content_type="application/json")
         username = fields.get("registrar_username")
         registrar = await crud.get_user_by_username(session, str(username)) if username else None
         show = await crud.create_show(
@@ -1297,6 +1355,16 @@ async def miniapp_update_show(request: web.Request) -> web.Response:
             username = fields["registrar_username"]
             registrar = await crud.get_user_by_username(session, str(username)) if username else None
             fields["registrar_id"] = registrar.id if registrar else None
+        effective_date = fields.get("show_date", show.show_date)
+        effective_team = fields.get("team_name", show.team_name)
+        effective_location = fields.get("location", show.location)
+        conflict = await session.scalar(select(Show).where(
+            Show.id != show_id, Show.is_active == True,
+            Show.show_date.between(effective_date - timedelta(hours=3), effective_date + timedelta(hours=3)),
+            or_(Show.team_name == effective_team, Show.location == effective_location),
+        ).limit(1))
+        if conflict:
+            raise web.HTTPConflict(text=json.dumps({"error": "scheduling_conflict", "field": "showDateLocal", "message": f"Конфликт с афишей «{conflict.title}»: та же команда или площадка в пределах трёх часов"}), content_type="application/json")
         effective_close = fields.get("registration_closes_at", show.registration_closes_at)
         if effective_close and effective_close >= fields.get("show_date", show.show_date):
             raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_field", "field": "registrationClosesAt"}), content_type="application/json")
@@ -1574,35 +1642,6 @@ async def miniapp_attendees(request: web.Request) -> web.Response:
         })
 
 
-async def miniapp_add_manual_attendees(request: web.Request) -> web.Response:
-    show_id = _show_id(request)
-    data = await _json_body(request)
-    if set(data) != {"rows"} or not isinstance(data["rows"], list) or not 1 <= len(data["rows"]) <= 50:
-        raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_payload"}), content_type="application/json")
-    names: list[str] = []
-    contacts: list[str | None] = []
-    guests: list[int] = []
-    for row in data["rows"]:
-        if not isinstance(row, dict) or any(key not in {"name", "contact", "guests"} for key in row):
-            raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_payload"}), content_type="application/json")
-        names.append(_required_text(row, "name", 100))
-        contacts.append(_optional_text(row, "contact", 512))
-        guest_count = row.get("guests", 0)
-        if isinstance(guest_count, bool) or not isinstance(guest_count, int) or not 0 <= guest_count <= 6:
-            raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_field", "field": "guests"}), content_type="application/json")
-        guests.append(guest_count)
-    async with AsyncSessionLocal() as session:
-        await _manageable_api_show(session, request, show_id)
-        added = await crud.add_manual_attendees(
-            session, show_id, names, source="manual", contacts=contacts, guests=guests,
-        )
-        if added != len(names):
-            raise web.HTTPConflict(
-                text=json.dumps({"error": "capacity_exceeded"}), content_type="application/json",
-            )
-        return web.json_response({"added": added}, status=201)
-
-
 async def miniapp_update_registration(request: web.Request) -> web.Response:
     show_id = _show_id(request)
     try:
@@ -1666,50 +1705,6 @@ async def miniapp_cancel_registration(request: web.Request) -> web.Response:
         return web.json_response({"id": registration_id})
 
 
-async def miniapp_update_manual_attendee(request: web.Request) -> web.Response:
-    show_id = _show_id(request)
-    try:
-        attendee_id = int(request.match_info["attendee_id"])
-    except ValueError:
-        raise web.HTTPNotFound()
-    data = await _json_body(request)
-    if set(data) != {"checkedInCount"}:
-        raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_payload"}), content_type="application/json")
-    count = data["checkedInCount"]
-    if isinstance(count, bool) or not isinstance(count, int) or count < 0:
-        raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_field", "field": "checkedInCount"}), content_type="application/json")
-    async with AsyncSessionLocal() as session:
-        await _manageable_api_show(session, request, show_id)
-        attendee = await session.scalar(select(ManualAttendee).where(
-            ManualAttendee.id == attendee_id, ManualAttendee.show_id == show_id,
-        ))
-        if attendee is None:
-            raise web.HTTPNotFound()
-        if count > (attendee.guests or 0) + 1:
-            raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_field", "field": "checkedInCount"}), content_type="application/json")
-        updated = await crud.set_manual_checkin_count(session, show_id, attendee_id, count)
-        if updated is None:
-            raise web.HTTPNotFound()
-        return web.json_response({"id": updated.id})
-
-
-async def miniapp_delete_manual_attendee(request: web.Request) -> web.Response:
-    show_id = _show_id(request)
-    try:
-        attendee_id = int(request.match_info["attendee_id"])
-    except ValueError:
-        raise web.HTTPNotFound()
-    async with AsyncSessionLocal() as session:
-        await _manageable_api_show(session, request, show_id)
-        attendee = await session.scalar(select(ManualAttendee).where(
-            ManualAttendee.id == attendee_id, ManualAttendee.show_id == show_id,
-        ))
-        if attendee is None:
-            raise web.HTTPNotFound()
-        await crud.delete_manual_attendee(session, attendee_id)
-        return web.json_response({"id": attendee_id})
-
-
 async def miniapp_index(request: web.Request) -> web.FileResponse:
     index = MINIAPP_DIST / "index.html"
     if not index.is_file():
@@ -1743,6 +1738,7 @@ def register_miniapp_routes(app: web.Application) -> None:
     app.router.add_patch("/api/miniapp/ad-channels/{channel_id}/toggle", miniapp_toggle_ad_channel)
     app.router.add_delete("/api/miniapp/ad-channels/{channel_id}", miniapp_delete_ad_channel)
     app.router.add_get("/api/miniapp/shows/{show_id}/attendees", miniapp_attendees)
+    app.router.add_get("/api/miniapp/attention", miniapp_attention)
     app.router.add_get("/api/miniapp/shows/{show_id}/tasks", miniapp_show_tasks)
     app.router.add_post("/api/miniapp/shows/{show_id}/remind", miniapp_remind_viewers)
     app.router.add_put("/api/miniapp/shows/{show_id}/registration-chat", miniapp_registration_chat)
@@ -1750,11 +1746,8 @@ def register_miniapp_routes(app: web.Application) -> None:
     app.router.add_get("/api/miniapp/registration-chats", miniapp_registration_chats)
     app.router.add_post("/api/miniapp/registration-chat/verify", miniapp_verify_registration_chat)
     app.router.add_post("/api/miniapp/shows/{show_id}/manual-notifications/confirm", miniapp_confirm_manual_notifications)
-    app.router.add_post("/api/miniapp/shows/{show_id}/attendees/manual", miniapp_add_manual_attendees)
     app.router.add_patch("/api/miniapp/shows/{show_id}/registrations/{registration_id}", miniapp_update_registration)
     app.router.add_delete("/api/miniapp/shows/{show_id}/registrations/{registration_id}", miniapp_cancel_registration)
-    app.router.add_patch("/api/miniapp/shows/{show_id}/manual-attendees/{attendee_id}", miniapp_update_manual_attendee)
-    app.router.add_delete("/api/miniapp/shows/{show_id}/manual-attendees/{attendee_id}", miniapp_delete_manual_attendee)
     app.router.add_get("/api/miniapp/shows/{show_id}/announcement-preview", miniapp_announcement_preview)
     app.router.add_get("/api/miniapp/shows/{show_id}/promotion", miniapp_promotion)
     app.router.add_post("/api/miniapp/shows/{show_id}/promotion/test", miniapp_send_test_announcement)

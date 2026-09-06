@@ -168,25 +168,6 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession, 
     if not user.onboarding_done:
         await start_onboarding(message)
         return
-    if payload.startswith("manual_"):
-        try:
-            show_id = int(payload.removeprefix("manual_"))
-        except ValueError:
-            show_id = 0
-        show = await manageable_show(session, show_id, db_user or user, is_super_admin)
-        if show is None:
-            await message.answer("⛔ Шоу не найдено или у тебя нет доступа.", reply_markup=main_menu_kb())
-            return
-        from admin_bot.handlers.registrations import AddManualFSM
-        await state.set_state(AddManualFSM.names)
-        await state.update_data(show_id=show.id, manual_source="social")
-        await message.answer(
-            f"➕ <b>Добавить запись на «{h(show.title)}»</b>\n\n"
-            "Подходит для Instagram, звонков и личных сообщений. Отправь имена — каждое с новой строки:\n\n"
-            "<i>Иван Иванов\nМария Петрова</i>",
-            reply_markup=flow_context_kb(),
-        )
-        return
     await message.answer(
         "👋 Привет! Открой панель управления:",
         reply_markup=miniapp_launch_kb(),

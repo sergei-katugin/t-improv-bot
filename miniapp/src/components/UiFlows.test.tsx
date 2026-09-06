@@ -32,11 +32,14 @@ describe("ShowDetails", () => {
     fireEvent.click(screen.getByRole("button", { name: "Показать описание" }));
     expect(onAttendees).toHaveBeenCalledOnce();
     expect(onToggleDescription).toHaveBeenCalledOnce();
+    expect(screen.getByText("Запись открыта")).toBeInTheDocument();
+    expect(screen.getByText("Экспериментаторы")).toBeInTheDocument();
+    expect(screen.getByText("Лимасол")).toBeInTheDocument();
   });
 
   it("shows a completed state without obsolete navigation", () => {
     render(<ShowDetails show={{ ...show, isPast: true }} descriptionOpened={false} onToggleDescription={() => undefined} onAttendees={() => undefined} onEdit={() => undefined} onAnnouncement={() => undefined} onAnalytics={() => undefined} onRegistration={() => undefined} onMore={() => undefined} />, { wrapper });
-    expect(screen.getByText("Шоу завершилось")).toBeInTheDocument();
+    expect(screen.getByText("Прошедшее")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Изменить" })).not.toBeInTheDocument();
   });
 });
