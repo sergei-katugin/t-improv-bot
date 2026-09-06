@@ -70,7 +70,7 @@ class Show(Base):
     poster_file_id = Column(String(256), nullable=True)
     pub_poster_file_id = Column(String(256), nullable=True)
     max_seats = Column(Integer, nullable=False, default=50)
-    max_guests = Column(Integer, nullable=False, default=2)
+    max_guests = Column(Integer, nullable=False, default=6, server_default="6")
     registration_closes_at = Column(DateTime, nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
     checkin_enabled = Column(Boolean, default=False, nullable=False)
@@ -84,6 +84,7 @@ class Show(Base):
     registration_chat_id = Column(BigInteger, nullable=True)
     registration_chat_title = Column(String(256), nullable=True)
     registration_chat_name_mode = Column(String(16), nullable=False, default="short")
+    registration_chat_summary_sent_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=_utcnow)
     updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
 

@@ -98,6 +98,8 @@ def test_miniapp_show_payload_is_normalized_and_whitelisted():
     assert fields["team_name"] == "T·IMPRO"
     assert fields["registrar_username"] == "sergey"
     assert fields["max_seats"] == 50
+    assert fields["max_guests"] == 6
+    assert fields["registration_closes_at"] == fields["show_date"] - timedelta(hours=1)
 
     with pytest.raises(web.HTTPBadRequest):
         _show_fields({**_valid_show_payload(), "creator_id": 999}, require_all=True)
@@ -266,43 +268,6 @@ async def test_miniapp_show_detail_hides_another_organizers_show(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_miniapp_manual_attendees_require_show_ownership(monkeypatch):
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    try:
-        async with engine.begin() as connection:
-            await connection.run_sync(Base.metadata.create_all)
-        sessions = async_sessionmaker(engine, expire_on_commit=False)
-        async with sessions() as session:
-            owner = User(telegram_id=300, role=UserRole.organizer)
-            other = User(telegram_id=400, role=UserRole.organizer)
-            session.add_all([owner, other])
-            await session.flush()
-            show = Show(
-                title="Owned", team_name="Team", show_date=utc_now() + timedelta(days=1),
-                location="Venue", city="City", max_seats=2, creator_id=owner.id,
-            )
-            session.add(show)
-            await session.commit()
-            show_id, owner_id, other_id = show.id, owner.id, other.id
-        monkeypatch.setattr(miniapp_api, "AsyncSessionLocal", sessions)
-        body = {"rows": [{"name": "Manual", "contact": "@manual", "guests": 1}]}
-
-        with pytest.raises(web.HTTPNotFound):
-            await miniapp_api.miniapp_add_manual_attendees(
-                _Request(show_id=show_id, user_id=other_id, body=body),
-            )
-        response = await miniapp_api.miniapp_add_manual_attendees(
-            _Request(show_id=show_id, user_id=owner_id, body=body),
-        )
-        assert response.status == 201
-        async with sessions() as session:
-            attendees = await miniapp_api.crud.get_manual_attendees(session, show_id)
-            assert [(item.name, item.contact, item.guests) for item in attendees] == [("Manual", "@manual", 1)]
-    finally:
-        await engine.dispose()
-
-
-@pytest.mark.asyncio
 async def test_announcement_claim_prevents_duplicate_publish_and_can_be_released():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     try:
@@ -401,6 +366,7 @@ async def test_clone_show_preserves_configuration_but_uses_new_date(monkeypatch)
             )
             assert clone.checkin_enabled is True
             assert clone.feedback_enabled is True
+            assert clone.registration_closes_at == clone.show_date - timedelta(hours=1)
             assert clone.id != show_id
     finally:
         await engine.dispose()
@@ -472,11 +438,33 @@ async def test_show_analytics_aggregates_people_sources_and_feedback(monkeypatch
         assert payload["confirmed"] == 2
         assert payload["cancelledRegistrations"] == 1
         assert payload["averageRating"] == 5.0
+        assert payload["occupancyRate"] == 15
+        assert payload["attendanceRate"] == 100
+        assert payload["cancellationRate"] == 25
         assert payload["sources"] == [
             {"source": "instagram", "count": 2},
             {"source": "manual", "count": 1},
         ]
         assert payload["comments"][0]["comment"] == "Great"
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_attention_center_reports_actionable_upcoming_shows(monkeypatch):
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        async with sessions() as session:
+            owner = User(telegram_id=990, role=UserRole.organizer)
+            session.add(owner); await session.flush()
+            show = Show(title="Needs work", team_name="Team", show_date=utc_now() + timedelta(days=2), location="Venue", city="City", max_seats=20, creator_id=owner.id)
+            session.add(show); await session.commit(); owner_id = owner.id
+        monkeypatch.setattr(miniapp_api, "AsyncSessionLocal", sessions)
+        payload = json.loads((await miniapp_api.miniapp_attention(_Request(show_id=0, user_id=owner_id))).text)
+        assert {item["kind"] for item in payload["items"]} == {"announcement", "chat", "edit"}
     finally:
         await engine.dispose()
 
@@ -574,11 +562,14 @@ async def test_show_list_filters_by_team_year_and_paginates(monkeypatch):
         async with sessions() as session:
             owner = User(telegram_id=1200, role=UserRole.organizer)
             session.add(owner); await session.flush()
+            first_show = Show(title="First", team_name="Alpha", show_date=utc_now() + timedelta(days=10), location="V", city="C", max_seats=10, creator_id=owner.id)
             session.add_all([
-                Show(title="First", team_name="Alpha", show_date=utc_now() + timedelta(days=10), location="V", city="C", max_seats=10, creator_id=owner.id),
+                first_show,
                 Show(title="Second", team_name="Alpha", show_date=utc_now() + timedelta(days=9), location="V", city="C", max_seats=10, creator_id=owner.id),
                 Show(title="Other", team_name="Beta", show_date=utc_now() + timedelta(days=8), location="V", city="C", max_seats=10, creator_id=owner.id),
             ])
+            await session.flush()
+            session.add(AnnouncementLog(show_id=first_show.id, announcement_type="manual"))
             await session.commit(); owner_id = owner.id
         monkeypatch.setattr(miniapp_api, "AsyncSessionLocal", sessions)
         monkeypatch.setattr(miniapp_api, "MAX_SHOWS_PER_PAGE", 1)
@@ -586,10 +577,12 @@ async def test_show_list_filters_by_team_year_and_paginates(monkeypatch):
         request.query = {"status": "upcoming", "team": "Alpha", "year": str((utc_now() + timedelta(days=10)).year), "offset": "0"}
         first = json.loads((await miniapp_api.miniapp_shows(request)).text)
         assert [item["teamName"] for item in first["items"]] == ["Alpha"]
+        assert first["items"][0]["hasPublished"] is True
         assert first["hasMore"] is True and first["nextOffset"] == 1
         request.query["offset"] = "1"
         second = json.loads((await miniapp_api.miniapp_shows(request)).text)
         assert len(second["items"]) == 1 and second["hasMore"] is False
+        assert second["items"][0]["hasPublished"] is False
     finally:
         await engine.dispose()
 
@@ -963,7 +956,7 @@ async def test_registration_mutations_validate_show_and_capacity(monkeypatch):
             registration = Registration(show_id=show.id, user_id=viewer.id, attendee_name="Viewer", guests=0)
             manual = ManualAttendee(show_id=show.id, name="Manual")
             session.add_all([registration, manual]); await session.commit()
-            show_id, owner_id, registration_id, manual_id = show.id, owner.id, registration.id, manual.id
+            show_id, owner_id, registration_id = show.id, owner.id, registration.id
         monkeypatch.setattr(miniapp_api, "AsyncSessionLocal", sessions)
 
         request = _Request(show_id=show_id, user_id=owner_id, body={"guests": 1})
@@ -972,11 +965,6 @@ async def test_registration_mutations_validate_show_and_capacity(monkeypatch):
             await miniapp_api.miniapp_update_registration(request)
         request._body = {"checkedInCount": 1}
         assert (await miniapp_api.miniapp_update_registration(request)).status == 200
-
-        request.match_info = {"show_id": str(show_id), "attendee_id": str(manual_id)}
-        request._body = {"checkedInCount": 1}
-        assert (await miniapp_api.miniapp_update_manual_attendee(request)).status == 200
-        assert (await miniapp_api.miniapp_delete_manual_attendee(request)).status == 200
 
         request.match_info = {"show_id": str(show_id), "registration_id": str(registration_id)}
         assert (await miniapp_api.miniapp_cancel_registration(request)).status == 200

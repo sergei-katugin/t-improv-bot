@@ -23,7 +23,7 @@ from admin_bot.keyboards.inline import (
     checkin_counter_kb, checkin_kb, checkin_mode_kb, party_count_kb,
     registration_chat_kb, registrations_kb,
 )
-from admin_bot.keyboards.reply import flow_context_kb, registration_channel_picker_kb, registrations_context_kb, show_context_kb
+from admin_bot.keyboards.reply import registration_channel_picker_kb, registrations_context_kb, show_context_kb
 from admin_bot.callbacks import AdminCheckinCb, AdminManualCheckinCb, AdminPartyCountCb, AdminShowActionCb
 from admin_bot.security import checkin_accessible_show, deny, manageable_show
 from html_utils import h
@@ -105,7 +105,6 @@ def _csv_cell(value) -> str:
 
 
 class AddManualFSM(StatesGroup):
-    names = State()
     chat_name = State()
     chat_source = State()
     chat_contact = State()
@@ -127,20 +126,6 @@ class CheckinSearchFSM(StatesGroup):
 async def _current_show_from_state(state: FSMContext, session: AsyncSession, db_user, is_super_admin: bool):
     show_id = (await state.get_data()).get("current_show_id")
     return await manageable_show(session, show_id, db_user, is_super_admin) if show_id else None
-
-
-@router.message(F.text == "➕ Добавить зрителя")
-async def quick_add_attendee(message: Message, state: FSMContext, session: AsyncSession, db_user=None, is_super_admin: bool = False):
-    show = await _current_show_from_state(state, session, db_user, is_super_admin)
-    if show is None:
-        await message.answer("Сначала открой шоу из афиши.", reply_markup=show_context_kb())
-        return
-    await state.set_state(AddManualFSM.names)
-    await state.update_data(show_id=show.id, manual_source="manual", current_show_id=show.id)
-    await message.answer(
-        "Отправь зрителей по одному на строку. Контакт можно указать после <code>|</code>, "
-        "например: <code>Анна | @anna</code>.", reply_markup=flow_context_kb(),
-    )
 
 
 @router.message(F.text == "🔔 Чат записей")
@@ -718,23 +703,6 @@ async def export_show_csv(callback: CallbackQuery, callback_data: AdminShowActio
     )
 
 
-@router.callback_query(AdminShowActionCb.filter(F.action == "add_manual"))
-async def start_add_manual(callback: CallbackQuery, callback_data: AdminShowActionCb, state: FSMContext, session: AsyncSession, is_super_admin: bool = False, db_user=None):
-    show_id = callback_data.show_id
-    show = await crud.get_show(session, show_id)
-    if not _can_manage(is_super_admin, db_user, show.creator_id if show else None):
-        await callback.answer("⛔ Нет доступа к этому шоу.", show_alert=True)
-        return
-    await callback.answer()
-    await state.set_state(AddManualFSM.names)
-    await state.update_data(show_id=show_id, manual_source="manual")
-    await callback.message.edit_text(
-        "➕ <b>Добавить участников вручную</b>\n\n"
-        "Отправь список — один зритель на строку. Контакт можно указать через <code>|</code>:\n\n"
-        "<i>Иван Иванов | @ivan\nМария Петрова | instagram.com/maria\nАлексей Сидоров</i>"
-    )
-
-
 @router.callback_query(AdminShowActionCb.filter(F.action == "chat_add_manual"))
 async def start_add_manual_from_registration_chat(
     callback: CallbackQuery,
@@ -854,39 +822,6 @@ async def process_chat_manual_guests(message: Message, state: FSMContext, sessio
         reply_markup=show_context_kb(),
     )
     logger.info("added manual attendee from registration chat show_id=%s by admin=%s", show_id, message.from_user.id)
-
-
-@router.message(AddManualFSM.names, F.text)
-async def process_manual_names(message: Message, state: FSMContext, session: AsyncSession, is_super_admin: bool = False, db_user=None):
-    data = await state.get_data()
-    show_id = data["show_id"]
-    await state.clear()
-    show = await crud.get_show(session, show_id)
-    if not _can_manage(is_super_admin, db_user, show.creator_id if show else None):
-        await message.answer("⛔ Нет доступа к этому шоу.")
-        return
-
-    rows = [line.strip() for line in message.text.splitlines() if line.strip()]
-    parsed = [tuple(part.strip() for part in row.split("|", 1)) for row in rows]
-    names = [parts[0] for parts in parsed if parts[0]]
-    contacts = [parts[1] if len(parts) > 1 else None for parts in parsed if parts[0]]
-    if not names:
-        await message.answer("Список пустой, попробуй ещё раз.")
-        return
-
-    source = data.get("manual_source", "manual")
-    count = await crud.add_manual_attendees(
-        session, show_id, names, source=source, contacts=contacts,
-    )
-    if count == 0:
-        occupied = await crud.count_active_registrations(session, show_id)
-        await message.answer(
-            f"😔 Нельзя добавить {len(names)}: свободно {max(0, show.max_seats - occupied)} мест."
-        )
-        return
-    await message.answer(f"✅ Добавлено: {count} чел.")
-    logger.info("added %s manual attendees to show_id=%s by admin=%s", count, show_id, message.from_user.id)
-    await _render_registrations(message, show_id, session, edit=False, is_super_admin=is_super_admin, db_user=db_user)
 
 
 @router.callback_query(AdminShowActionCb.filter(F.action == "del_manual"))

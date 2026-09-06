@@ -232,7 +232,6 @@ def edit_show_fields_kb(show: Show, group: str | None = None) -> InlineKeyboardM
 def registrations_kb(show_id: int, manual_attendees=None, can_manage: bool = True) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     if can_manage:
-        builder.button(text="➕ Добавить вручную", callback_data=AdminShowActionCb(action="add_manual", show_id=show_id).pack())
         builder.button(text="🔔 Чат записей", callback_data=AdminShowActionCb(action="reg_chat", show_id=show_id).pack())
         if manual_attendees:
             builder.button(text="🗑 Удалить вручную", callback_data=AdminShowActionCb(action="del_manual", show_id=show_id).pack())

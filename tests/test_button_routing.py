@@ -2,8 +2,16 @@ import ast
 import re
 from pathlib import Path
 
+from admin_bot.keyboards.inline import registrations_kb
+
 
 ROOTS = (Path("admin_bot"), Path("public_bot"))
+
+
+def test_admin_registration_screen_routes_manual_entry_to_registration_chat_only():
+    labels = [button.text for row in registrations_kb(42, can_manage=True).inline_keyboard for button in row]
+    assert "🔔 Чат записей" in labels
+    assert "➕ Добавить вручную" not in labels
 
 
 def _sources():

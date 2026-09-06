@@ -7,7 +7,7 @@ import { AnnouncementModal } from "./AnnouncementModal";
 import { AttendeesModal } from "./AttendeesModal";
 import { AnalyticsModal } from "../components/AnalyticsModal";
 import { ManagementModal } from "./ManagementModal";
-import { ShowForm } from "./ShowForm";
+import { newShowForm, oneHourBefore, ShowForm } from "./ShowForm";
 import { ShowToolsModal } from "./ShowToolsModal";
 
 const wrapper = ({ children }: { children: ReactNode }) => <MantineProvider>{children}</MantineProvider>;
@@ -20,6 +20,11 @@ const options: Options = {
 const me: Me = { id: 1, firstName: "Sergey", username: "sergey", role: "admin" };
 
 describe("ShowForm", () => {
+  it("defaults registration closing to one hour before the show", () => {
+    expect(oneHourBefore("2027-09-05T20:00")).toBe("2027-09-05T19:00");
+    expect(newShowForm().maxGuests).toBe(6);
+  });
+
   it("allows an editor to inspect every step", () => {
     render(<ShowForm opened initial={show} options={options} me={me} reloadOptions={async () => undefined} onClose={() => undefined} onSaved={() => undefined} />, { wrapper });
     fireEvent.click(screen.getByRole("button", { name: "Шаг 2: Место" }));
@@ -43,6 +48,17 @@ describe("ShowForm", () => {
 });
 
 describe("ManagementModal", () => {
+  it("keeps root navigation on the administration overview", () => {
+    const onCreate = vi.fn();
+    const onSettings = vi.fn();
+    render(<ManagementModal opened onClose={vi.fn()} onCreate={onCreate} onSettings={onSettings} me={me} options={options} reload={async () => undefined} themePreference="system" onThemePreferenceChange={vi.fn()} onResetLocalData={vi.fn()} backHandlerRef={createRef()} />, { wrapper });
+    expect(screen.getByRole("button", { name: "Управление" })).toHaveAttribute("aria-current", "page");
+    fireEvent.click(screen.getByRole("button", { name: "Создать" }));
+    fireEvent.click(screen.getByRole("button", { name: "Настройки" }));
+    expect(onCreate).toHaveBeenCalledOnce();
+    expect(onSettings).toHaveBeenCalledOnce();
+  });
+
   it("opens administration sections", () => {
     render(<ManagementModal opened onClose={() => undefined} me={me} options={options} reload={async () => undefined} themePreference="system" onThemePreferenceChange={() => undefined} onResetLocalData={() => undefined} backHandlerRef={createRef()} />, { wrapper });
     fireEvent.click(screen.getByRole("button", { name: /Команды/ }));
@@ -88,6 +104,23 @@ describe("ManagementModal", () => {
 });
 
 describe("ShowToolsModal", () => {
+  it("keeps a published announcement in more actions", () => {
+    const onClose = vi.fn();
+    const onAnnouncement = vi.fn();
+    const props = { mode: "all" as const, opened: true, onClose, show, registrationUrl: "https://t.me/test", demo: true, backHandlerRef: createRef<(() => boolean) | null>(), onEdit: vi.fn(), onAnalytics: vi.fn(), onAnnouncement, onChanged: vi.fn(), onDeleted: vi.fn() };
+    render(<ShowToolsModal {...props} />, { wrapper });
+    fireEvent.click(screen.getByRole("button", { name: /Анонс/ }));
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(onAnnouncement).toHaveBeenCalledOnce();
+  });
+
+  it("does not duplicate analytics for a past show", () => {
+    const props = { mode: "all" as const, opened: true, onClose: vi.fn(), show: { ...show, isPast: true }, registrationUrl: "https://t.me/test", demo: true, backHandlerRef: createRef<(() => boolean) | null>(), onEdit: vi.fn(), onAnalytics: vi.fn(), onAnnouncement: vi.fn(), onChanged: vi.fn(), onDeleted: vi.fn() };
+    render(<ShowToolsModal {...props} />, { wrapper });
+    expect(screen.getByRole("dialog", { name: "Настройки · Супер" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Аналитика" })).toHaveLength(1);
+  });
+
   it("opens registration and clone tools", async () => {
     const props = { mode: "all" as const, opened: true, onClose: vi.fn(), show, registrationUrl: "https://t.me/test", demo: true, backHandlerRef: createRef<(() => boolean) | null>(), onEdit: vi.fn(), onAnalytics: vi.fn(), onAnnouncement: vi.fn(), onChanged: vi.fn(), onDeleted: vi.fn() };
     render(<ShowToolsModal {...props} />, { wrapper });
@@ -116,15 +149,11 @@ describe("ShowToolsModal", () => {
 });
 
 describe("AttendeesModal", () => {
-  it("opens the viewer list and requires confirmation before removal", async () => {
+  it("shows viewers immediately as a simple list", () => {
     render(<AttendeesModal opened onClose={vi.fn()} show={show} demo backHandlerRef={createRef<(() => boolean) | null>()} onEdit={vi.fn()} onAnnouncement={vi.fn()} onAnalytics={vi.fn()} onRegistration={vi.fn()} onMore={vi.fn()} />, { wrapper });
-    fireEvent.click(screen.getByRole("button", { name: /Список зрителей/ }));
-    expect(screen.getByText("Анна Смирнова +1")).toBeInTheDocument();
+    expect(screen.getByText("Анна Смирнова")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Фильтр зрителей"), { target: { value: "Анна" } });
-    fireEvent.click(screen.getAllByRole("button", { name: "Отменить" })[0]);
-    expect(await screen.findByText(/Удалить запись «Анна Смирнова»/)).toBeInTheDocument();
-    fireEvent.click(await screen.findByRole("button", { name: "Не удалять" }));
-    await waitFor(() => expect(screen.queryByText(/Удалить запись «Анна Смирнова»/)).not.toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Отменить" })).not.toBeInTheDocument();
   });
 });
 

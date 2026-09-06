@@ -30,11 +30,11 @@ export function BottomNavAction({ icon, label, meta, active = false, onClick }: 
   </button>;
 }
 
-export function RootNavigation({ onShows, onCreate, onAdministration, onSettings }: { onShows: () => void; onCreate: () => void; onAdministration: () => void; onSettings: () => void }) {
+export function RootNavigation({ active = "shows", onShows, onCreate, onAdministration, onSettings }: { active?: "shows" | "create" | "administration" | "settings"; onShows: () => void; onCreate: () => void; onAdministration: () => void; onSettings: () => void }) {
   return <BottomActionBar navigation>
-    <BottomNavAction icon="shows" label="Афиши" active onClick={onShows} />
-    <BottomNavAction icon="create" label="Создать" onClick={onCreate} />
-    <BottomNavAction icon="admin" label="Управление" onClick={onAdministration} />
-    <BottomNavAction icon="settings" label="Настройки" onClick={onSettings} />
+    <BottomNavAction icon="shows" label="Афиши" active={active === "shows"} onClick={onShows} />
+    <BottomNavAction icon="create" label="Создать" active={active === "create"} onClick={onCreate} />
+    <BottomNavAction icon="admin" label="Управление" active={active === "administration"} onClick={onAdministration} />
+    <BottomNavAction icon="settings" label="Настройки" active={active === "settings"} onClick={onSettings} />
   </BottomActionBar>;
 }

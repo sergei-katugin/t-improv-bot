@@ -12,8 +12,9 @@ import { useAppResume } from "../hooks/useAppResume";
 import type { AccessUser, Attendees, AuditItem, Me, Options, Promotion, RegistrationChatOption, Show, ShowFormValue, ThemePreference } from "../types";
 import { invalidTelegramUsername } from "../lib/validation";
 
-export function ManagementModal({ opened, onClose, me, options, reload, themePreference, onThemePreferenceChange, onResetLocalData, backHandlerRef }: {
+export function ManagementModal({ opened, onClose, onCreate, onSettings, me, options, reload, themePreference, onThemePreferenceChange, onResetLocalData, backHandlerRef }: {
   opened: boolean; onClose: () => void; me: Me | null; options: Options; reload: () => Promise<void>;
+  onCreate?: () => void; onSettings?: () => void;
   themePreference: ThemePreference; onThemePreferenceChange: (preference: ThemePreference) => void;
   onResetLocalData: () => void;
   backHandlerRef?: React.MutableRefObject<(() => boolean) | null>;
@@ -222,6 +223,7 @@ export function ManagementModal({ opened, onClose, me, options, reload, themePre
         {me?.role === "admin" && <button type="button" onClick={() => setSettingsTab("channels")}><span><b>Каналы для анонсов</b><small>{options.adChannels.length} подключено</small></span><span>›</span></button>}
         {me?.role === "admin" && <button type="button" onClick={() => setSettingsTab("access")}><span><b>Доступ и журнал</b><small>Организаторы и история действий</small></span><span>›</span></button>}
       </div>
+      <RootNavigation active="administration" onShows={onClose} onCreate={onCreate ?? onClose} onAdministration={() => undefined} onSettings={onSettings ?? onClose} />
     </div>}
     {settingsTab !== null && <>
       <button type="button" className="settings-section-back" onClick={() => setSettingsTab(null)}>‹ Все настройки</button>

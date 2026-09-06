@@ -154,14 +154,15 @@ export function ShowToolsModal({ mode, opened, onClose, show, registrationUrl, d
     else if (key === "manual_notifications") void confirmManualNotifications();
   }
 
-  const sectionTitle = section === "menu" ? "Ещё" : section === "chat" ? "Чат записей" : section === "registration" ? "Ссылка и QR" : "Создать копию";
+  const sectionTitle = section === "menu" ? (show.isPast ? "Настройки" : "Действия") : section === "chat" ? "Чат записей" : section === "registration" ? "Ссылка и QR" : "Создать копию";
   const title = `${sectionTitle} · ${show.title}`;
   return <Modal opened={opened} onClose={onClose} title={title} fullScreen classNames={{ close: "fullscreen-modal-close" }}>
     {section !== "menu" && mode === "all" && <Button className="back" variant="subtle" onClick={() => setSection("menu")}>← Все действия</Button>}
     {section === "menu" && <Stack gap="xs" className="tools-menu">
       {tasks.length > 0 && <><Text className="tools-section-label">Требуют внимания · {tasks.length}</Text>{tasks.map((task) => <button key={task.key} className="tools-menu-action attention" disabled={busy !== null} onClick={() => openTask(task.key)}><span><b>{task.label}</b><small>{task.description ?? (task.count > 1 ? `${task.count} элементов` : "Открыть и выполнить")}</small></span><span>→</span></button>)}</>}
       {!show.isPast && <button className="tools-menu-action" onClick={() => setSection("chat")}><span><b>Чат записей</b><small>{show.registrationChatId ? show.registrationChatTitle || "Подключён" : "Не подключён"}</small></span><span>→</span></button>}
-      <button className="tools-menu-action" onClick={onAnalytics}><span><b>Аналитика</b><small>Записи, посещаемость и отзывы</small></span><span>→</span></button>
+      {!show.isPast && show.hasPublished && <button className="tools-menu-action" onClick={() => { onClose(); onAnnouncement(); }}><span><b>Анонс</b><small>Посмотреть или опубликовать повторно</small></span><span>→</span></button>}
+      {!show.isPast && !show.hasPublished && <button className="tools-menu-action" onClick={onAnalytics}><span><b>Аналитика</b><small>Записи, посещаемость и отзывы</small></span><span>→</span></button>}
       {!show.isPast && <button className="tools-menu-action" onClick={() => setSection("registration")}><span><b>Ссылка и QR</b><small>Для самостоятельной записи зрителей</small></span><span>→</span></button>}
       <button className="tools-menu-action" onClick={() => setSection("clone")}><span><b>Создать копию</b><small>Новая афиша с теми же данными</small></span><span>→</span></button>
       {show.isPast ? <button className="tools-menu-action danger" onClick={() => setDeleteConfirm(true)}><span><b>Удалить навсегда</b><small>Удалить афишу и связанные данные</small></span><span>→</span></button> : show.isActive ? <button className="tools-menu-action danger" onClick={() => setCancelConfirm(true)}><span><b>Отменить афишу</b><small>Закрыть запись и уведомить зрителей</small></span><span>→</span></button> : <><button className="tools-menu-action" onClick={() => void restoreShow()}><span><b>Восстановить афишу</b><small>Снова открыть запись</small></span><span>→</span></button><button className="tools-menu-action danger" onClick={() => setDeleteConfirm(true)}><span><b>Удалить навсегда</b><small>Удалить афишу и связанные данные</small></span><span>→</span></button></>}

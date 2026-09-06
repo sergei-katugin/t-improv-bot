@@ -67,8 +67,10 @@ async def test_finished_show_registration_chat_is_notified_and_disconnected(monk
     monkeypatch.setattr(
         jobs.crud,
         "list_finished_shows_with_registration_chat",
-        AsyncMock(return_value=[SimpleNamespace(id=12, title="Finished", registration_chat_id=-10012)]),
+        AsyncMock(return_value=[SimpleNamespace(id=12, title="Finished", registration_chat_id=-10012, max_seats=80)]),
     )
+    monkeypatch.setattr(jobs.crud, "get_show_outcome", AsyncMock(return_value={"registered": 50, "arrived": 42, "cancelled": 3, "feedback_count": 10, "average_rating": 4.8}))
+    monkeypatch.setattr(jobs.crud, "mark_registration_chat_summary_sent", AsyncMock(return_value=True))
     clear = AsyncMock(return_value=True)
     monkeypatch.setattr(jobs.crud, "clear_registration_chat_if_matches", clear)
     bot = AsyncMock()
@@ -76,7 +78,8 @@ async def test_finished_show_registration_chat_is_notified_and_disconnected(monk
     await jobs._run_registration_chat_cleanup(bot)
 
     bot.send_message.assert_awaited_once()
-    assert "больше не подключён" in bot.send_message.await_args.args[1]
+    assert "Итоги шоу" in bot.send_message.await_args.args[1]
+    assert "50 / 80" in bot.send_message.await_args.args[1]
     assert clear.await_count == 1
     assert clear.await_args.args[1:] == (12, -10012)
 

@@ -196,7 +196,7 @@ async def start_registration(callback: CallbackQuery, callback_data: RegisterCb,
         show_title=show.title,
         show_date=format_local(show.show_date),
         registration_chat_name_mode=(show.registration_chat_name_mode if show.registration_chat_id else None),
-        max_guests=getattr(show, "max_guests", 2),
+        max_guests=getattr(show, "max_guests", 6),
         registration_source=(
             existing_state_data.get("registration_source")
             if existing_state_data.get("registration_source_show_id") == show_id
@@ -241,7 +241,7 @@ async def process_name(message: Message, state: FSMContext):
         await state.set_state(RegisterFSM.choose_guests)
         await message.answer(
             f"Сколько вас придёт на <b>{h(show_title)}</b>?",
-            reply_markup=guests_kb(show_id, int(data.get("max_guests", 2))),
+            reply_markup=guests_kb(show_id, int(data.get("max_guests", 6))),
         )
 
 
@@ -253,7 +253,7 @@ async def choose_guests(callback: CallbackQuery, callback_data: GuestsCb, state:
         await callback.answer("Некорректное количество гостей.", show_alert=True)
         return
     data = await state.get_data()
-    max_guests = min(int(data.get("max_guests", 2)), 6)
+    max_guests = min(int(data.get("max_guests", 6)), 6)
     if guests < 0 or guests > max_guests:
         await callback.answer("Некорректное количество гостей.", show_alert=True)
         return
@@ -296,7 +296,7 @@ async def guests_custom(callback: CallbackQuery, callback_data: GuestsCustomCb, 
 async def process_guests_count(message: Message, state: FSMContext):
     try:
         guests = int(message.text.strip())
-        max_guests = min(int((await state.get_data()).get("max_guests", 2)), 6)
+        max_guests = min(int((await state.get_data()).get("max_guests", 6)), 6)
         if guests < 0 or guests > max_guests:
             raise ValueError
     except ValueError:
@@ -580,7 +580,7 @@ async def handle_attendance(callback: CallbackQuery, callback_data: AttendanceCb
             await callback.message.edit_text(
                 f"Сколько вас придёт на <b>{h(show.title)}</b>?\n"
                 f"Сейчас: {1 + (reg.guests or 0)} чел.",
-                reply_markup=guests_kb(show_id, getattr(show, "max_guests", 2)),
+                reply_markup=guests_kb(show_id, getattr(show, "max_guests", 6)),
             )
         except Exception:
             pass
@@ -601,7 +601,7 @@ async def edit_guests_start(callback: CallbackQuery, callback_data: EditGuestsCb
     await callback.message.answer(
         f"Сколько вас придёт на <b>{h(show.title)}</b>?\n"
         f"Сейчас: {1 + reg.guests} чел.",
-        reply_markup=guests_kb(show_id, getattr(show, "max_guests", 2)),
+        reply_markup=guests_kb(show_id, getattr(show, "max_guests", 6)),
     )
 
 
@@ -619,7 +619,7 @@ async def set_guests(callback: CallbackQuery, callback_data: GuestsCb, state: FS
     if show is None or not show.is_active or show.show_date < utc_now() or (getattr(show, "registration_closes_at", None) and show.registration_closes_at <= utc_now()) or reg is None or reg.is_cancelled:
         await callback.message.edit_text("Ты не записан(а) на это шоу.")
         return
-    max_guests = getattr(show, "max_guests", 2)
+    max_guests = getattr(show, "max_guests", 6)
     if guests < 0 or guests > max_guests:
         await callback.answer(f"Можно добавить не больше {max_guests} гостей.", show_alert=True)
         return
@@ -630,7 +630,7 @@ async def set_guests(callback: CallbackQuery, callback_data: GuestsCb, state: FS
         old_guests = reg.guests or 0
         await callback.message.edit_text(
             f"😔 Мест не хватает: нужно {1 + guests}, осталось {show.max_seats - active_count + 1 + old_guests}.",
-            reply_markup=guests_kb(show_id, getattr(show, "max_guests", 2)),
+            reply_markup=guests_kb(show_id, getattr(show, "max_guests", 6)),
         )
         return
 

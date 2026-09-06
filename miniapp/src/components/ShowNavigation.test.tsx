@@ -12,13 +12,15 @@ describe("ShowNavigation", () => {
     render(<ShowNavigation show={show} {...actions} />);
     expect(screen.getByRole("button", { name: "Анонс" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Аналитика" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Ещё" }));
+    fireEvent.click(screen.getByRole("button", { name: "Действия" }));
     expect(actions.onMore).toHaveBeenCalledOnce();
   });
 
   it("replaces obsolete actions for a past show", () => {
     render(<ShowNavigation show={{ ...show, isPast: true }} {...handlers()} />);
     expect(screen.getByRole("button", { name: "Аналитика" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Настройки" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Действия" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Изменить" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Анонс" })).not.toBeInTheDocument();
   });

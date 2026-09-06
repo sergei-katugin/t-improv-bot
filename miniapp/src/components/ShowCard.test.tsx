@@ -16,8 +16,11 @@ describe("ShowCard", () => {
   });
 
   it("labels past capacity differently", () => {
-    render(<MantineProvider><ShowCard show={{ ...show, isPast: true }} onClick={() => undefined} /></MantineProvider>);
+    const { rerender } = render(<MantineProvider><ShowCard show={{ ...show, isPast: true }} onClick={() => undefined} /></MantineProvider>);
     expect(screen.getByText("Было записано")).toBeInTheDocument();
+    expect(screen.getByText("Прошедшее")).toBeInTheDocument();
+    rerender(<MantineProvider><ShowCard show={show} onClick={() => undefined} /></MantineProvider>);
+    expect(screen.queryByText("Прошедшее")).not.toBeInTheDocument();
   });
 
   it("marks a show without an announcement as a draft", () => {
@@ -25,5 +28,20 @@ describe("ShowCard", () => {
     expect(screen.getByText("Черновик")).toBeInTheDocument();
     rerender(<MantineProvider><ShowCard show={{ ...show, hasPublished: true }} onClick={() => undefined} /></MantineProvider>);
     expect(screen.queryByText("Черновик")).not.toBeInTheDocument();
+  });
+
+  it("does not guess draft status when publication data is absent", () => {
+    render(<MantineProvider><ShowCard show={{ ...show, hasPublished: undefined }} onClick={() => undefined} /></MantineProvider>);
+    expect(screen.queryByText("Черновик")).not.toBeInTheDocument();
+  });
+
+  it("offers quick actions for an upcoming show", () => {
+    const onAnnouncement = vi.fn();
+    const onCopyLink = vi.fn();
+    render(<MantineProvider><ShowCard show={{ ...show, hasPublished: true }} onClick={() => undefined} onAnnouncement={onAnnouncement} onCopyLink={onCopyLink} /></MantineProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "Скопировать ссылку" }));
+    fireEvent.click(screen.getByRole("button", { name: "Повторить анонс" }));
+    expect(onCopyLink).toHaveBeenCalledOnce();
+    expect(onAnnouncement).toHaveBeenCalledOnce();
   });
 });

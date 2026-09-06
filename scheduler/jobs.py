@@ -123,18 +123,30 @@ async def disconnect_finished_registration_chats(admin_bot: Bot) -> None:
 async def _run_registration_chat_cleanup(admin_bot: Bot) -> None:
     async with AsyncSessionLocal() as session:
         shows = await crud.list_finished_shows_with_registration_chat(session)
-        targets = [(show.id, show.title, show.registration_chat_id) for show in shows]
-    for show_id, title, chat_id in targets:
+        targets = []
+        for show in shows:
+            targets.append((show, await crud.get_show_outcome(session, show.id)))
+    for show, outcome in targets:
+        show_id, title, chat_id, capacity = show.id, show.title, show.registration_chat_id, show.max_seats
+        registered, arrived, cancelled = outcome["registered"], outcome["arrived"], outcome["cancelled"]
+        feedback_count, average_rating = outcome["feedback_count"], outcome["average_rating"]
         try:
             await send_with_retry(
                 admin_bot.send_message,
                 chat_id,
-                f"🏁 Шоу «{h(title)}» завершилось. Этот чат больше не подключён к афише.",
+                f"📊 <b>Итоги шоу «{h(title)}»</b>\n\n"
+                f"Записались: <b>{registered} / {capacity}</b>\n"
+                f"Пришли: <b>{arrived}</b>\n"
+                f"Отменили запись: <b>{cancelled}</b>\n"
+                f"Отзывы: <b>{feedback_count}</b>"
+                f"{f' · ★ {average_rating:.1f}' if feedback_count else ''}\n\n"
+                "Чат автоматически отключён от завершённого шоу.",
             )
         except Exception:
-            logger.exception("failed to notify registration chat before automatic disconnect show_id=%s", show_id)
+            logger.exception("failed to send registration chat summary show_id=%s", show_id)
+            continue
         async with AsyncSessionLocal() as session:
-            if await crud.clear_registration_chat_if_matches(session, show_id, chat_id):
+            if await crud.mark_registration_chat_summary_sent(session, show_id, chat_id) and await crud.clear_registration_chat_if_matches(session, show_id, chat_id):
                 logger.info("automatically disconnected registration chat show_id=%s chat_id=%s", show_id, chat_id)
 
 
