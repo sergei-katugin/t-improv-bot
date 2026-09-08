@@ -3,7 +3,7 @@
 <html lang="en">
 
 <head>
-    <title>Code coverage report for src/lib/telegram.ts</title>
+    <title>Code coverage report for src/components/AttentionCenter.tsx</title>
     <meta charset="utf-8" />
     <link rel="stylesheet" href="../../prettify.css" />
     <link rel="stylesheet" href="../../base.css" />
@@ -19,20 +19,20 @@
 <body>
 <div class='wrapper'>
     <div class='pad1'>
-        <h1><a href="../../index.html">All files</a> / <a href="index.html">src/lib</a> telegram.ts</h1>
+        <h1><a href="../../index.html">All files</a> / <a href="index.html">src/components</a> AttentionCenter.tsx</h1>
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
                 <span class="strong">100% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>9/9</span>
+                <span class='fraction'>5/5</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
                 <span class="strong">100% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>5/5</span>
+                <span class='fraction'>2/2</span>
             </div>
         
             
@@ -46,7 +46,7 @@
             <div class='fl pad1y space-right2'>
                 <span class="strong">100% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>7/7</span>
+                <span class='fraction'>2/2</span>
             </div>
         
             
@@ -72,35 +72,23 @@
 <a name='L7'></a><a href='#L7'>7</a>
 <a name='L8'></a><a href='#L8'>8</a>
 <a name='L9'></a><a href='#L9'>9</a>
-<a name='L10'></a><a href='#L10'>10</a>
-<a name='L11'></a><a href='#L11'>11</a>
-<a name='L12'></a><a href='#L12'>12</a>
-<a name='L13'></a><a href='#L13'>13</a>
-<a name='L14'></a><a href='#L14'>14</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">10x</span>
-<span class="cline-any cline-yes">10x</span>
-<span class="cline-any cline-yes">3x</span>
+<a name='L10'></a><a href='#L10'>10</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">27x</span>
 <span class="cline-any cline-yes">2x</span>
-<span class="cline-any cline-yes">2x</span>
-<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">export function telegramHaptic(kind: "selection" | "light" = "selection") {
-  const haptic = window.Telegram?.WebApp.HapticFeedback;
-  if (kind === "selection") haptic?.selectionChanged();
-  else haptic?.impactOccurred("light");
-}
+<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import { Badge, Paper, Stack, Text, Title } from "@mantine/core";
+import { ChevronRight } from "./ChevronRight";
 &nbsp;
-export function telegramConfirm(message: string): Promise&lt;boolean&gt; {
-  const showConfirm = window.Telegram?.WebApp.showConfirm;
-  if (showConfirm) {
-    return new Promise((resolve) =&gt; showConfirm(message, resolve));
-  }
-  return Promise.resolve(window.confirm(message));
+export type AttentionItem = { showId: number; showTitle: string; kind: "announcement" | "chat" | "edit"; label: string };
+&nbsp;
+export function AttentionCenter({ items, onOpen }: { items: AttentionItem[]; onOpen: (item: AttentionItem) =&gt; void }) {
+  if (!items.length) return null;
+  return &lt;Paper className="attention-center"&gt;&lt;div className="attention-center-heading"&gt;&lt;Title order={3}&gt;Требует внимания&lt;/Title&gt;&lt;Badge color="orange" variant="light"&gt;{items.length}&lt;/Badge&gt;&lt;/div&gt;&lt;Stack gap={0}&gt;{items.map((item, index) =&gt; &lt;button type="button" key={`${item.showId}-${item.kind}-${index}`} onClick={() =&gt; onOpen(item)}&gt;&lt;span&gt;&lt;b&gt;{item.label}&lt;/b&gt;&lt;small&gt;{item.showTitle}&lt;/small&gt;&lt;/span&gt;&lt;ChevronRight /&gt;&lt;/button&gt;)}&lt;/Stack&gt;&lt;/Paper&gt;;
 }
 &nbsp;</pre></td></tr></table></pre>
 

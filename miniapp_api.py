@@ -11,6 +11,7 @@ import mimetypes
 import re
 import secrets
 import time
+from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -42,11 +43,86 @@ from time_utils import format_local, local_naive_to_utc, utc_now, utc_to_local
 MINIAPP_DIST = Path(__file__).with_name("miniapp") / "dist"
 ADMIN_BOT_KEY = web.AppKey("miniapp_admin_bot", Bot)
 PUBLIC_BOT_KEY = web.AppKey("miniapp_public_bot", Bot)
-MAX_INIT_DATA_AGE_SECONDS = 60 * 60
+MINIAPP_RATE_LIMITER_KEY = web.AppKey("miniapp_rate_limiter", object)
+MINIAPP_CONCURRENCY_KEY = web.AppKey("miniapp_concurrency", asyncio.Semaphore)
+MINIAPP_UPLOAD_CONCURRENCY_KEY = web.AppKey("miniapp_upload_concurrency", asyncio.Semaphore)
+MAX_INIT_DATA_AGE_SECONDS = 15 * 60
 MAX_SHOWS_PER_PAGE = 100
+MAX_POSTER_BYTES = 6 * 1024 * 1024
+MAX_POSTER_PIXELS = 16_000_000
 REANNOUNCEMENT_WINDOW = timedelta(days=3)
 REANNOUNCEMENT_OCCUPANCY_THRESHOLD = 0.5
 logger = logging.getLogger(__name__)
+
+
+class MiniAppRateLimiter:
+    """Small per-process sliding-window limiter keyed by authenticated user."""
+
+    def __init__(self) -> None:
+        self._events: dict[tuple[int, str], deque[float]] = defaultdict(deque)
+        self._last_cleanup = 0.0
+
+    def allow(
+        self, user_id: int, bucket: str, limit: int, window: float, *, now: float,
+    ) -> tuple[bool, int]:
+        if now - self._last_cleanup >= 300:
+            stale_before = now - 60
+            for key, recorded in list(self._events.items()):
+                while recorded and recorded[0] <= stale_before:
+                    recorded.popleft()
+                if not recorded:
+                    self._events.pop(key, None)
+            self._last_cleanup = now
+        events = self._events[(user_id, bucket)]
+        cutoff = now - window
+        while events and events[0] <= cutoff:
+            events.popleft()
+        if len(events) >= limit:
+            return False, max(1, int(window - (now - events[0]) + 0.999))
+        events.append(now)
+        return True, 0
+
+
+def _miniapp_rate_policy(request: web.Request) -> tuple[str, int, int] | None:
+    path = request.path
+    if request.method == "POST" and path.endswith("/poster"):
+        return "poster_upload", 3, 60
+    if (
+        request.method == "POST"
+        and (path.endswith("/publish") or path.endswith("/remind") or path.endswith("/promotion/test"))
+    ):
+        return "telegram_send", 5, 60
+    if request.method == "GET" and path.endswith("/export.csv"):
+        return "csv_export", 5, 60
+    if request.method not in {"GET", "HEAD", "OPTIONS"}:
+        return "mutation", 30, 60
+    return None
+
+
+@web.middleware
+async def miniapp_rate_limit_middleware(request: web.Request, handler):
+    if not request.path.startswith("/api/miniapp/"):
+        return await handler(request)
+    user_id = request["miniapp_user_id"]
+    limiter = request.app[MINIAPP_RATE_LIMITER_KEY]
+    now = time.monotonic()
+    policies = [("all", 120, 60)]
+    specific = _miniapp_rate_policy(request)
+    if specific:
+        policies.append(specific)
+    for bucket, limit, window in policies:
+        allowed, retry_after = limiter.allow(user_id, bucket, limit, window, now=now)
+        if not allowed:
+            raise web.HTTPTooManyRequests(
+                text=json.dumps({"error": "rate_limit_exceeded", "bucket": bucket}),
+                content_type="application/json",
+                headers={"Retry-After": str(retry_after)},
+            )
+    async with request.app[MINIAPP_CONCURRENCY_KEY]:
+        if request.method == "POST" and request.path.endswith("/poster"):
+            async with request.app[MINIAPP_UPLOAD_CONCURRENCY_KEY]:
+                return await handler(request)
+        return await handler(request)
 
 
 class MiniAppAuthError(ValueError):
@@ -213,6 +289,9 @@ def _set_miniapp_security_headers(request: web.Request, response: web.StreamResp
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "no-referrer")
     response.headers.setdefault(
+        "Strict-Transport-Security", "max-age=31536000; includeSubDomains",
+    )
+    response.headers.setdefault(
         "Permissions-Policy", "camera=(), microphone=(), geolocation=()",
     )
     if request.path.startswith("/api/miniapp/"):
@@ -229,7 +308,7 @@ def _set_miniapp_security_headers(request: web.Request, response: web.StreamResp
             "default-src 'self'; script-src 'self' https://telegram.org; "
             "style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; "
             "connect-src 'self'; frame-ancestors https://web.telegram.org https://*.telegram.org; "
-            "base-uri 'none'; form-action 'self'",
+            "object-src 'none'; base-uri 'none'; form-action 'self'; upgrade-insecure-requests",
         )
 
 
@@ -865,14 +944,14 @@ async def miniapp_upload_poster(request: web.Request) -> web.Response:
     content = bytearray()
     while chunk := await part.read_chunk(size=64 * 1024):
         content.extend(chunk)
-        if len(content) > 8 * 1024 * 1024:
-            raise web.HTTPRequestEntityTooLarge(max_size=8 * 1024 * 1024, actual_size=len(content))
+        if len(content) > MAX_POSTER_BYTES:
+            raise web.HTTPRequestEntityTooLarge(max_size=MAX_POSTER_BYTES, actual_size=len(content))
     if not content:
         raise web.HTTPBadRequest(text=json.dumps({"error": "empty_poster"}), content_type="application/json")
     from PIL import Image, UnidentifiedImageError
     try:
         with Image.open(io.BytesIO(content)) as image:
-            if image.format not in {"JPEG", "PNG", "WEBP"} or image.width * image.height > 40_000_000:
+            if image.format not in {"JPEG", "PNG", "WEBP"} or image.width * image.height > MAX_POSTER_PIXELS:
                 raise ValueError
             image.verify()
     except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError):
@@ -1713,9 +1792,13 @@ async def miniapp_index(request: web.Request) -> web.FileResponse:
 
 
 def register_miniapp_routes(app: web.Application) -> None:
+    app[MINIAPP_RATE_LIMITER_KEY] = MiniAppRateLimiter()
+    app[MINIAPP_CONCURRENCY_KEY] = asyncio.Semaphore(settings.MAX_CONCURRENT_MINIAPP_REQUESTS)
+    app[MINIAPP_UPLOAD_CONCURRENCY_KEY] = asyncio.Semaphore(settings.MAX_CONCURRENT_POSTER_UPLOADS)
     app.middlewares.append(miniapp_security_headers_middleware)
     app.middlewares.append(miniapp_request_logging_middleware)
     app.middlewares.append(miniapp_auth_middleware)
+    app.middlewares.append(miniapp_rate_limit_middleware)
     app.router.add_get("/api/miniapp/me", miniapp_me)
     app.router.add_get("/api/miniapp/shows", miniapp_shows)
     app.router.add_post("/api/miniapp/shows", miniapp_create_show)

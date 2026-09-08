@@ -97,8 +97,12 @@ def get_webhook_secret(bot_token: str) -> str:
     until it is configured in the dashboard. Deriving a secret from the bot
     token keeps those deployments authenticated during that transition.
     """
+    if settings.REQUIRE_WEBHOOK_SECRET and not settings.WEBHOOK_SECRET:
+        raise RuntimeError("WEBHOOK_SECRET is required in this environment")
     if settings.WEBHOOK_SECRET:
         configured = settings.WEBHOOK_SECRET.strip()
+        if settings.REQUIRE_WEBHOOK_SECRET and len(configured) < 32:
+            raise RuntimeError("WEBHOOK_SECRET must contain at least 32 characters")
         if configured and len(configured) <= 256 and re.fullmatch(r"[A-Za-z0-9_-]+", configured):
             return configured
         logger.warning(

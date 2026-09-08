@@ -16,6 +16,8 @@ services:
         sync: false  # set to the public HTTPS URL, or leave blank to use RENDER_EXTERNAL_URL
       - key: WEBHOOK_SECRET
         sync: false  # set to 32+ characters using only A-Z, a-z, 0-9, _ or -
+      - key: REQUIRE_WEBHOOK_SECRET
+        value: true
       - key: ANNOUNCEMENT_CHANNEL_ID
         sync: false  # set in the Render dashboard
       - key: ADMIN_IDS
@@ -26,3 +28,7 @@ services:
         sync: false
       - key: ERROR_ALERT_CHAT_ID
         sync: false  # optional private admin chat for error alerts
+      - key: MAX_CONCURRENT_MINIAPP_REQUESTS
+        value: 16
+      - key: MAX_CONCURRENT_POSTER_UPLOADS
+        value: 2

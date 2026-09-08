@@ -1,11 +1,12 @@
 from datetime import timedelta
+import hashlib
 
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from db import crud
 from db.base import Base
-from db.models import ManualAttendee, Show, User, UserRole
+from db.models import InviteToken, ManualAttendee, Show, User, UserRole
 from time_utils import utc_now
 
 
@@ -33,6 +34,10 @@ async def test_invite_is_single_use_and_grants_role():
         async with sessions() as session:
             _, viewer, _ = await _fixture(session)
             invite = await crud.create_invite_token(session, UserRole.organizer)
+
+            stored = await session.get(InviteToken, invite.id)
+            assert stored.token == hashlib.sha256(invite.token.encode()).hexdigest()
+            assert stored.token != invite.token
 
             assert await crud.consume_invite_token(session, invite.token, viewer.id) is not None
             assert await crud.consume_invite_token(session, invite.token, viewer.id) is None

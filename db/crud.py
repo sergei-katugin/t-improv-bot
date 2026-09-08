@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+from dataclasses import dataclass
 from datetime import datetime, date, timedelta
 from sqlalchemy import select, func, exists, update, delete
 from sqlalchemy.exc import IntegrityError
@@ -12,6 +13,18 @@ from db.models import User, Show, Registration, WaitlistEntry, ShowFeedback, Ann
 from app_logging import get_project_logger
 
 logger = get_project_logger(__name__)
+
+
+@dataclass(frozen=True)
+class IssuedInvite:
+    id: int
+    token: str
+    role: UserRole | None = None
+    expires_at: datetime | None = None
+
+
+def _token_digest(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
 
 
 async def remember_registration_chat(session: AsyncSession, owner_user_id: int, chat) -> ConnectedRegistrationChat:
@@ -43,23 +56,24 @@ async def get_registration_chats(session: AsyncSession, owner_user_id: int) -> l
     return list(result.scalars())
 
 
-async def create_checkin_invite(session: AsyncSession, show_id: int, ttl_hours: int = 24) -> CheckinInviteToken:
+async def create_checkin_invite(session: AsyncSession, show_id: int, ttl_hours: int = 24) -> IssuedInvite:
+    raw_token = secrets.token_urlsafe(24)
     invite = CheckinInviteToken(
-        token=secrets.token_urlsafe(24),
+        token=_token_digest(raw_token),
         show_id=show_id,
         expires_at=_utcnow() + timedelta(hours=ttl_hours),
     )
     session.add(invite)
     await session.commit()
     await session.refresh(invite)
-    return invite
+    return IssuedInvite(invite.id, raw_token, expires_at=invite.expires_at)
 
 
 async def consume_checkin_invite(session: AsyncSession, token: str, user_id: int) -> int | None:
     result = await session.execute(
         select(CheckinInviteToken)
         .where(
-            CheckinInviteToken.token == token,
+            CheckinInviteToken.token == _token_digest(token),
             CheckinInviteToken.used_at.is_(None),
             CheckinInviteToken.expires_at > _utcnow(),
         )
@@ -222,10 +236,11 @@ async def get_all_organizers(session: AsyncSession) -> list[User]:
 
 # ── Invite tokens ──────────────────────────────────────────────────────────
 
-async def create_invite_token(session: AsyncSession, role: UserRole = UserRole.organizer) -> InviteToken:
+async def create_invite_token(session: AsyncSession, role: UserRole = UserRole.organizer) -> IssuedInvite:
     from config import settings
+    raw_token = secrets.token_urlsafe(32)
     invite = InviteToken(
-        token=secrets.token_urlsafe(32),
+        token=_token_digest(raw_token),
         role=role,
         expires_at=_utcnow() + timedelta(hours=settings.INVITE_TTL_HOURS),
     )
@@ -233,14 +248,14 @@ async def create_invite_token(session: AsyncSession, role: UserRole = UserRole.o
     await session.commit()
     await session.refresh(invite)
     logger.info("created invite token id=%s role=%s", invite.id, invite.role)
-    return invite
+    return IssuedInvite(invite.id, raw_token, role=invite.role, expires_at=invite.expires_at)
 
 
 async def consume_invite_token(session: AsyncSession, token: str, user_id: int) -> InviteToken | None:
     result = await session.execute(
         select(InviteToken)
         .where(
-            InviteToken.token == token,
+            InviteToken.token == _token_digest(token),
             InviteToken.used_at.is_(None),
             InviteToken.expires_at.is_not(None),
             InviteToken.expires_at > _utcnow(),

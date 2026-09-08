@@ -1,6 +1,6 @@
 import { MantineProvider } from "@mantine/core";
 import type { ReactNode } from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { Show } from "../types";
 import { AppearanceSettings } from "./AppearanceSettings";
@@ -90,5 +90,8 @@ describe("AppearanceSettings", () => {
     fireEvent.click(screen.getByRole("button", { name: "Сбросить локальные данные" }));
     fireEvent.click(await screen.findByRole("button", { name: "Сбросить" }));
     expect(onReset).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Сбросить локальные данные" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Отмена" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Сбросить Mini App?" })).not.toBeInTheDocument());
   });
 });

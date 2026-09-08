@@ -17,5 +17,5 @@ fi
 "$PROJECT_PYTHON" -m pytest -q \
   --cov=admin_bot --cov=public_bot --cov=scheduler --cov=db \
   --cov=main --cov=miniapp_api --cov=config --cov=time_utils --cov=html_utils \
-  --cov-report=term-missing --cov-fail-under=30 \
+  --cov-report=term-missing --cov-fail-under=60 \
   "$@"

@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import base64
+import sys
 from datetime import timedelta
 from types import SimpleNamespace
 from urllib.parse import urlencode
@@ -15,6 +17,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 import miniapp_api
 from admin_bot.keyboards import reply as reply_keyboards
 from db.base import Base
+from db import crud
 from db.models import AuditLog, AnnouncementLog, ManualAttendee, Registration, Show, ShowFeedback, User, UserRole
 from miniapp_api import (
     MiniAppAuthError, _audit_details, _csv_value, _require_admin, _set_miniapp_security_headers,
@@ -58,10 +61,16 @@ def test_miniapp_rejects_tampered_user():
         validate_telegram_init_data(init_data, BOT_TOKEN, now=NOW)
 
 
-@pytest.mark.parametrize("auth_date", [NOW - 3601, NOW + 31])
+@pytest.mark.parametrize("auth_date", [NOW - 901, NOW + 31])
 def test_miniapp_rejects_expired_or_future_auth_data(auth_date):
     with pytest.raises(MiniAppAuthError, match="expired"):
         validate_telegram_init_data(_signed_init_data(auth_date=auth_date), BOT_TOKEN, now=NOW)
+
+
+def test_miniapp_accepts_init_data_at_replay_window_boundary():
+    assert validate_telegram_init_data(
+        _signed_init_data(auth_date=NOW - 900), BOT_TOKEN, now=NOW,
+    ).telegram_id == 42
 
 
 def test_miniapp_rejects_duplicate_fields():
@@ -135,6 +144,38 @@ def test_miniapp_admin_resources_require_admin_role():
 
 
 @pytest.mark.asyncio
+async def test_miniapp_rate_limit_uses_authenticated_user_and_retry_after(monkeypatch):
+    request = type(
+        "Request", (dict,), {"path": "/api/miniapp/shows/1/poster", "method": "POST"},
+    )(miniapp_user_id=42)
+    request.app = {
+        miniapp_api.MINIAPP_RATE_LIMITER_KEY: miniapp_api.MiniAppRateLimiter(),
+        miniapp_api.MINIAPP_CONCURRENCY_KEY: __import__("asyncio").Semaphore(1),
+        miniapp_api.MINIAPP_UPLOAD_CONCURRENCY_KEY: __import__("asyncio").Semaphore(1),
+    }
+    monkeypatch.setattr(miniapp_api.time, "monotonic", lambda: 100.0)
+    handler = AsyncMock(return_value=web.json_response({"ok": True}))
+
+    for _ in range(3):
+        assert (await miniapp_api.miniapp_rate_limit_middleware(request, handler)).status == 200
+    with pytest.raises(web.HTTPTooManyRequests) as exc_info:
+        await miniapp_api.miniapp_rate_limit_middleware(request, handler)
+    assert exc_info.value.headers["Retry-After"] == "60"
+    assert json.loads(exc_info.value.text)["bucket"] == "poster_upload"
+
+
+def test_miniapp_rate_policies_prioritize_expensive_operations():
+    request = SimpleNamespace(path="/api/miniapp/shows/1/publish", method="POST")
+    assert miniapp_api._miniapp_rate_policy(request) == ("telegram_send", 5, 60)
+    request.path = "/api/miniapp/shows/1/export.csv"; request.method = "GET"
+    assert miniapp_api._miniapp_rate_policy(request) == ("csv_export", 5, 60)
+    request.path = "/api/miniapp/shows"; request.method = "PATCH"
+    assert miniapp_api._miniapp_rate_policy(request) == ("mutation", 30, 60)
+    request.method = "GET"
+    assert miniapp_api._miniapp_rate_policy(request) is None
+
+
+@pytest.mark.asyncio
 async def test_test_announcement_is_sent_only_to_current_miniapp_user(monkeypatch):
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     try:
@@ -191,6 +232,9 @@ def test_miniapp_security_headers(path, expected_header):
     assert expected in response.headers[name]
     assert response.headers["X-Content-Type-Options"] == "nosniff"
     assert response.headers["Referrer-Policy"] == "no-referrer"
+    assert "max-age=31536000" in response.headers["Strict-Transport-Security"]
+    if path.startswith("/app"):
+        assert "object-src 'none'" in response.headers["Content-Security-Policy"]
 
 
 def test_miniapp_button_url_is_versioned_per_render_deploy(monkeypatch):
@@ -968,5 +1012,366 @@ async def test_registration_mutations_validate_show_and_capacity(monkeypatch):
 
         request.match_info = {"show_id": str(show_id), "registration_id": str(registration_id)}
         assert (await miniapp_api.miniapp_cancel_registration(request)).status == 200
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_admin_dictionary_api_full_lifecycle(monkeypatch):
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        async with sessions() as session:
+            admin = User(telegram_id=9001, role=UserRole.admin, first_name="Admin")
+            session.add(admin)
+            await session.commit()
+            admin_id = admin.id
+        monkeypatch.setattr(miniapp_api, "AsyncSessionLocal", sessions)
+
+        def request(body=None, **match_info):
+            value = _Request(show_id=0, user_id=admin_id, is_admin=True, body=body)
+            value.match_info.update({key: str(item) for key, item in match_info.items()})
+            return value
+
+        response = await miniapp_api.miniapp_create_team(request({"name": " Новая ", "members": "@annie, @bobby"}))
+        team_id = json.loads(response.text)["id"]
+        assert response.status == 201
+        response = await miniapp_api.miniapp_update_team(request({"name": "Обновлённая", "members": "@katie"}, team_id=team_id))
+        assert response.status == 200
+
+        response = await miniapp_api.miniapp_create_venue(request({
+            "name": "Театр", "city": "Лимасол", "mapsUrl": "https://maps.example/v", "defaultSeats": 80,
+        }))
+        venue_id = json.loads(response.text)["id"]
+        response = await miniapp_api.miniapp_update_venue(request({
+            "name": "Новый театр", "city": "Пафос", "mapsUrl": "", "defaultSeats": 60,
+        }, venue_id=venue_id))
+        assert response.status == 200
+
+        response = await miniapp_api.miniapp_create_ad_channel(request({"username": "@improv_news"}))
+        channel_id = json.loads(response.text)["id"]
+        toggled = await miniapp_api.miniapp_toggle_ad_channel(request({}, channel_id=channel_id))
+        assert json.loads(toggled.text)["isActive"] is False
+
+        options = await miniapp_api.miniapp_options(request())
+        payload = json.loads(options.text)
+        assert payload["teams"][0]["name"] == "Обновлённая"
+        assert payload["venues"][0]["defaultSeats"] == 60
+        assert payload["adChannels"][0]["username"] == "@improv_news"
+
+        assert (await miniapp_api.miniapp_delete_ad_channel(request({}, channel_id=channel_id))).status == 200
+        assert (await miniapp_api.miniapp_delete_venue(request({}, venue_id=venue_id))).status == 200
+        assert (await miniapp_api.miniapp_delete_team(request({}, team_id=team_id))).status == 200
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_miniapp_me_create_update_restore_and_delete_show(monkeypatch):
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        async with sessions() as session:
+            owner = User(telegram_id=9002, role=UserRole.organizer, first_name="Owner", username="owner")
+            session.add(owner)
+            await session.commit()
+            owner_id = owner.id
+        monkeypatch.setattr(miniapp_api, "AsyncSessionLocal", sessions)
+        monkeypatch.setattr(miniapp_api, "_record_audit", AsyncMock())
+        request = _Request(show_id=0, user_id=owner_id, body=_valid_show_payload())
+        request.app = {miniapp_api.PUBLIC_BOT_KEY: AsyncMock(), miniapp_api.ADMIN_BOT_KEY: AsyncMock()}
+
+        me = json.loads((await miniapp_api.miniapp_me(request)).text)
+        assert me["telegramId"] == 9002 and me["role"] == "organizer"
+        created = await miniapp_api.miniapp_create_show(request)
+        show_id = json.loads(created.text)["id"]
+        assert created.status == 201
+
+        request.match_info["show_id"] = str(show_id)
+        request._body = {"title": "Изменённое шоу", "notify": False}
+        updated = await miniapp_api.miniapp_update_show(request)
+        assert json.loads(updated.text) == {"id": show_id, "notified": 0, "failed": 0}
+
+        async with sessions() as session:
+            show = await session.get(Show, show_id)
+            show.is_active = False
+            await session.commit()
+        restored = await miniapp_api.miniapp_restore_show(request)
+        assert json.loads(restored.text)["isActive"] is True
+
+        request._body = {"confirmed": True}
+        cancelled = await miniapp_api.miniapp_cancel_show(request)
+        assert json.loads(cancelled.text)["sent"] == 0
+        deleted = await miniapp_api.miniapp_delete_show(request)
+        assert json.loads(deleted.text)["id"] == show_id
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_dictionary_api_rejects_invalid_and_missing_resources(monkeypatch):
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        async with sessions() as session:
+            admin = User(telegram_id=9003, role=UserRole.admin)
+            session.add(admin); await session.commit(); admin_id = admin.id
+        monkeypatch.setattr(miniapp_api, "AsyncSessionLocal", sessions)
+        request = _Request(show_id=0, user_id=admin_id, is_admin=True, body={"unexpected": True})
+        request.match_info.update(team_id="bad", venue_id="999", channel_id="999")
+        with pytest.raises(web.HTTPBadRequest):
+            await miniapp_api.miniapp_create_team(request)
+        with pytest.raises(web.HTTPNotFound):
+            await miniapp_api.miniapp_update_team(request)
+        request._body = {"name": "V", "city": "C", "mapsUrl": "bad", "defaultSeats": 10}
+        with pytest.raises(web.HTTPBadRequest):
+            await miniapp_api.miniapp_create_venue(request)
+        with pytest.raises(web.HTTPNotFound):
+            await miniapp_api.miniapp_delete_venue(request)
+        with pytest.raises(web.HTTPNotFound):
+            await miniapp_api.miniapp_toggle_ad_channel(request)
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_export_and_poster_endpoints_return_real_content(monkeypatch):
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        async with sessions() as session:
+            owner = User(telegram_id=9100, role=UserRole.organizer)
+            viewer = User(telegram_id=9101, username="viewer", role=UserRole.user)
+            session.add_all([owner, viewer]); await session.flush()
+            show = Show(title="CSV", team_name="T", show_date=utc_now() + timedelta(days=1), location="V", city="C", max_seats=20, creator_id=owner.id, poster_file_id="poster-id")
+            session.add(show); await session.flush()
+            registration = Registration(show_id=show.id, user_id=viewer.id, attendee_name="=FORMULA", guests=1, source="instagram", confirmed=True, checked_in_count=2)
+            manual = ManualAttendee(show_id=show.id, name="Manual", contact="@contact", guests=2, source="social")
+            session.add_all([registration, manual]); await session.flush()
+            session.add(ShowFeedback(show_id=show.id, user_id=viewer.id, rating=5, comment="Отлично"))
+            await session.commit(); owner_id, show_id = owner.id, show.id
+        monkeypatch.setattr(miniapp_api, "AsyncSessionLocal", sessions)
+        request = _Request(show_id=show_id, user_id=owner_id)
+        bot = AsyncMock()
+        request.app = {miniapp_api.ADMIN_BOT_KEY: bot}
+
+        exported = await miniapp_api.miniapp_export_show_csv(request)
+        csv_text = exported.body.decode("utf-8-sig")
+        assert "'=FORMULA" in csv_text
+        assert "Instagram" in csv_text and "Другие соцсети" in csv_text
+        assert exported.headers["Content-Disposition"].endswith('attendees.csv"')
+
+        bot.get_file.return_value = SimpleNamespace(file_path="photos/poster.png")
+        async def download(_path, destination):
+            destination.write(b"PNG-content")
+        bot.download_file.side_effect = download
+        poster = await miniapp_api.miniapp_poster(request)
+        assert poster.body == b"PNG-content" and poster.content_type == "image/png"
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_valid_poster_upload_is_checked_sent_and_saved(monkeypatch):
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        async with sessions() as session:
+            owner = User(telegram_id=9200, role=UserRole.organizer)
+            session.add(owner); await session.flush()
+            show = Show(title="Poster", team_name="T", show_date=utc_now() + timedelta(days=1), location="V", city="C", max_seats=20, creator_id=owner.id)
+            session.add(show); await session.commit(); owner_id, show_id = owner.id, show.id
+        monkeypatch.setattr(miniapp_api, "AsyncSessionLocal", sessions)
+        # A valid 1x1 PNG keeps the test independent of filesystem fixtures.
+        png = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+
+        class Part:
+            name = "poster"
+            filename = "poster.png"
+            headers = {"Content-Type": "image/png"}
+            chunks = [png, b""]
+            async def read_chunk(self, size):
+                return self.chunks.pop(0)
+
+        part = Part()
+        reader = AsyncMock()
+        reader.next.return_value = part
+        request = _Request(show_id=show_id, user_id=owner_id)
+        request.multipart = AsyncMock(return_value=reader)
+        bot = AsyncMock()
+        bot.send_photo.return_value = SimpleNamespace(message_id=5, photo=[SimpleNamespace(file_id="new-file")])
+        request.app = {miniapp_api.ADMIN_BOT_KEY: bot}
+
+        class FakeImage:
+            format = "PNG"
+            width = height = 1
+            DecompressionBombError = RuntimeError
+            def __enter__(self): return self
+            def __exit__(self, *_args): return None
+            def verify(self): return None
+            @classmethod
+            def open(cls, _stream): return cls()
+
+        fake_pil = SimpleNamespace(Image=FakeImage, UnidentifiedImageError=ValueError)
+        monkeypatch.setitem(sys.modules, "PIL", fake_pil)
+
+        response = await miniapp_api.miniapp_upload_poster(request)
+        assert json.loads(response.text) == {"hasPoster": True}
+        async with sessions() as session:
+            assert (await session.get(Show, show_id)).poster_file_id == "new-file"
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_show_operational_endpoints_work_together(monkeypatch):
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        async with sessions() as session:
+            owner = User(telegram_id=9500, role=UserRole.organizer)
+            viewer = User(telegram_id=9501, username="viewer", role=UserRole.user)
+            session.add_all([owner, viewer]); await session.flush()
+            show = Show(
+                title="Operations", team_name="Team", show_date=utc_now() + timedelta(days=2),
+                location="Venue", city="City", max_seats=20, max_guests=6,
+                creator_id=owner.id, poster_text="Poster text", registration_chat_id=-100,
+                registration_chat_title="Working chat", checkin_enabled=True,
+            )
+            session.add(show); await session.flush()
+            registration = Registration(show_id=show.id, user_id=viewer.id, attendee_name="Viewer", guests=1)
+            session.add(registration); await session.commit()
+            owner_id, show_id, registration_id = owner.id, show.id, registration.id
+        monkeypatch.setattr(miniapp_api, "AsyncSessionLocal", sessions)
+        monkeypatch.setattr(miniapp_api, "_record_audit", AsyncMock())
+        request = _Request(show_id=show_id, user_id=owner_id)
+        public_bot = AsyncMock()
+        admin_bot = AsyncMock()
+        request.app = {miniapp_api.PUBLIC_BOT_KEY: public_bot, miniapp_api.ADMIN_BOT_KEY: admin_bot}
+
+        detail = json.loads((await miniapp_api.miniapp_show_detail(request)).text)
+        assert detail["title"] == "Operations" and detail["occupiedSeats"] == 2
+        preview = json.loads((await miniapp_api.miniapp_announcement_preview(request)).text)
+        assert "Свободных мест: 18/20" in preview["html"]
+        promotion = json.loads((await miniapp_api.miniapp_promotion(request)).text)
+        assert promotion["registrationUrl"].endswith(f"show_{show_id}")
+
+        class FakeQrImage:
+            def save(self, output, format): output.write(b"\x89PNG-fake")
+        class FakeQr:
+            def __init__(self, **_kwargs): pass
+            def add_data(self, value): self.value = value
+            def make(self, **_kwargs): pass
+            def make_image(self, **_kwargs): return FakeQrImage()
+        monkeypatch.setitem(sys.modules, "qrcode", SimpleNamespace(QRCode=FakeQr))
+        qr = await miniapp_api.miniapp_show_qr(request)
+        assert qr.content_type == "image/png" and qr.body.startswith(b"\x89PNG")
+
+        tasks = json.loads((await miniapp_api.miniapp_show_tasks(request)).text)
+        assert any(item["key"] == "announcement" for item in tasks["items"])
+        assert tasks["registeredUsers"] == 1
+        reminder = json.loads((await miniapp_api.miniapp_remind_viewers(request)).text)
+        assert reminder == {"sent": 1, "failed": 0}
+
+        request.query = {"search": "view"}
+        attendees = json.loads((await miniapp_api.miniapp_attendees(request)).text)
+        assert attendees["occupied"] == 2
+        assert attendees["registrations"][0]["username"] == "viewer"
+
+        request.match_info["registration_id"] = str(registration_id)
+        request._body = {"guests": 2}
+        assert (await miniapp_api.miniapp_update_registration(request)).status == 200
+        request._body = {"checkedInCount": 2}
+        assert (await miniapp_api.miniapp_update_registration(request)).status == 200
+
+        cleared = json.loads((await miniapp_api.miniapp_clear_registration_chat(request)).text)
+        assert cleared["notified"] is True
+        cancelled = await miniapp_api.miniapp_cancel_registration(request)
+        assert json.loads(cancelled.text)["id"] == registration_id
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_admin_dashboard_publish_and_cancel_flow(monkeypatch):
+    from scheduler import jobs
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        async with sessions() as session:
+            admin = User(telegram_id=9600, username="admin", first_name="Admin", role=UserRole.admin)
+            viewer = User(telegram_id=9601, username="viewer", role=UserRole.user)
+            session.add_all([admin, viewer]); await session.flush()
+            show = Show(
+                title="Publish", team_name="Team", show_date=utc_now() + timedelta(days=2),
+                location="Venue", city="City", max_seats=20, creator_id=admin.id,
+                poster_text="Ready to publish", registrar_username="admin",
+            )
+            session.add(show); await session.flush()
+            session.add(Registration(show_id=show.id, user_id=viewer.id, attendee_name="Viewer"))
+            session.add(AuditLog(actor_user_id=admin.id, action="show.created", entity_type="show", entity_id=show.id, details='{"ok":true}'))
+            await crud.remember_registration_chat(
+                session, admin.id,
+                SimpleNamespace(id=-300, title="Admin chat", username=None, type=SimpleNamespace(value="supergroup")),
+            )
+            await session.commit(); admin_id, show_id = admin.id, show.id
+        monkeypatch.setattr(miniapp_api, "AsyncSessionLocal", sessions)
+        audit = AsyncMock()
+        monkeypatch.setattr(miniapp_api, "_record_audit", audit)
+        send_channel = AsyncMock(return_value=777)
+        monkeypatch.setattr(jobs, "send_to_channel", send_channel)
+        request = _Request(show_id=show_id, user_id=admin_id, is_admin=True, body={})
+        request.query = {}
+        public_bot = AsyncMock()
+        admin_bot = AsyncMock()
+        request.app = {miniapp_api.PUBLIC_BOT_KEY: public_bot, miniapp_api.ADMIN_BOT_KEY: admin_bot}
+
+        access = json.loads((await miniapp_api.miniapp_access_users(request)).text)
+        assert access["items"][0]["isCurrent"] is True
+        log = json.loads((await miniapp_api.miniapp_audit_log(request)).text)
+        assert log["items"][0]["details"] == {"ok": True}
+        attention = json.loads((await miniapp_api.miniapp_attention(request)).text)
+        assert any(item["kind"] == "announcement" for item in attention["items"])
+        chats = json.loads((await miniapp_api.miniapp_registration_chats(request)).text)
+        assert chats["items"][0]["title"] == "Admin chat"
+
+        admin_bot.get_chat.return_value = SimpleNamespace(id=-300, title="Admin chat", username=None, type="supergroup")
+        admin_bot.get_me.return_value = SimpleNamespace(id=9600)
+        admin_bot.get_chat_member.return_value = SimpleNamespace(status="administrator", can_post_messages=True)
+        request._body = {"target": "-300"}
+        verified = json.loads((await miniapp_api.miniapp_verify_registration_chat(request)).text)
+        assert verified == {"id": -300, "title": "Admin chat"}
+        request._body = {"target": "-300", "nameMode": "full"}
+        connected = json.loads((await miniapp_api.miniapp_registration_chat(request)).text)
+        assert connected["nameMode"] == "full"
+
+        request._body = {}
+        published = json.loads((await miniapp_api.miniapp_publish(request)).text)
+        assert published == {"messageId": 777, "announcementType": "manual"}
+        with pytest.raises(web.HTTPConflict) as exc_info:
+            await miniapp_api.miniapp_publish(request)
+        assert "already_published" in exc_info.value.text
+
+        request._body = {"confirmed": True}
+        cancelled = json.loads((await miniapp_api.miniapp_cancel_show(request)).text)
+        assert cancelled == {"id": show_id, "sent": 1, "failed": 0}
+        assert send_channel.await_count == 2
+        public_bot.send_message.assert_awaited_once()
+        assert audit.await_count == 2
     finally:
         await engine.dispose()
