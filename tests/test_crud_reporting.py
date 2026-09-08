@@ -56,6 +56,7 @@ async def test_registration_chats_checkin_access_and_finished_show_reporting():
                 "registered": 5, "cancelled": 0, "arrived": 3,
                 "feedback_count": 1, "average_rating": 4.0,
             }
+            assert await crud.get_show_outcomes(session, []) == {}
             assert await crud.mark_registration_chat_summary_sent(session, show.id, -100)
             assert not await crud.mark_registration_chat_summary_sent(session, show.id, -100)
             assert await crud.clear_registration_chat_if_matches(session, show.id, -100)

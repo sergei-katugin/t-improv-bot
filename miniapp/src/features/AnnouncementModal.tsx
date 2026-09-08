@@ -8,6 +8,7 @@ import { AppearanceSettings } from "../components/AppearanceSettings";
 import { ShowStepper } from "../components/ShowStepper";
 import { api, authenticatedBlob } from "../lib/api";
 import { telegramConfirm, telegramHaptic } from "../lib/telegram";
+import { sanitizeTelegramHtml } from "../lib/sanitizeTelegramHtml";
 import { useAppResume } from "../hooks/useAppResume";
 import type { AccessUser, Attendees, AuditItem, Me, Options, Promotion, RegistrationChatOption, Show, ShowFormValue, ThemePreference } from "../types";
 
@@ -26,12 +27,12 @@ export function AnnouncementModal({ opened, onClose, show, demo, onEdit, onAnaly
     try {
       if (demo) {
         const demoHtml = `🎭 <b>${show.title}</b><br>👥 Команда: ${show.teamName}<br><br>📅 ${show.showDateLabel}<br>📍 ${show.location}, ${show.city}<br><br>👥 Записаться тут: <b>через бота</b> или у @${show.registrarUsername ?? "ответственного"}`;
-        setHtml(demoHtml);
+        setHtml(sanitizeTelegramHtml(demoHtml));
         setPromotion({ html: demoHtml, text: `${show.title}\n${show.showDateLabel}\nhttps://t.me/ImprovCypEventBot?start=show_${show.id}`, registrationUrl: `https://t.me/ImprovCypEventBot?start=show_${show.id}`, hasPoster: false, hasPublished: false, channels: [{ id: 1, username: "limassol_events", url: "https://t.me/limassol_events" }] });
       } else {
         const preview = await api<Promotion>(`/api/miniapp/shows/${show.id}/promotion`);
         setPromotion(preview);
-        setHtml(preview.html.split("\n").join("<br>"));
+        setHtml(sanitizeTelegramHtml(preview.html.split("\n").join("<br>")));
       }
     } catch (reason) { notifications.show({ color: "red", title: "Не удалось открыть предпросмотр", message: (reason as Error).message }); }
     finally { setLoading(false); }

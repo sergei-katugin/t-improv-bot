@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from public_bot.handlers import registration
+from public_bot.handlers import registration_flow
 from time_utils import utc_now
 
 
@@ -142,7 +143,7 @@ async def test_confirm_registration_handles_stale_capacity_and_success(monkeypat
         registration.crud, "register_user_safe", AsyncMock(return_value=SimpleNamespace(id=77)),
     )
     notify = AsyncMock()
-    monkeypatch.setattr(registration, "_notify_registration_chat", notify)
+    monkeypatch.setattr(registration_flow, "_notify_registration_chat", notify)
     await registration.confirm_registration(
         callback, SimpleNamespace(show_id=10), state, user, AsyncMock(), admin_bot,
     )

@@ -45,7 +45,7 @@ function App({ themePreference, onThemePreferenceChange, onResetLocalData }: { t
   const [yearFilter, setYearFilter] = React.useState<string | null>(null);
   const [filtersOpened, setFiltersOpened] = React.useState(false);
   const [showsHasMore, setShowsHasMore] = React.useState(false);
-  const [showsNextOffset, setShowsNextOffset] = React.useState(0);
+  const [showsNextCursor, setShowsNextCursor] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(!isPreview);
   const [loadingMore, setLoadingMore] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -117,7 +117,7 @@ function App({ themePreference, onThemePreferenceChange, onResetLocalData }: { t
     else setOptions({ teams: [{ id: 1, name: "T·IMPRO", members: "@sergey, @anna_impro" }, { id: 2, name: "Импровизаторы Кипра", members: null }], venues: [{ id: 1, name: "Ravens Music Hall", city: "Лимасол", mapsUrl: "https://maps.example", defaultSeats: 50 }], adChannels: [{ id: 1, username: "@afisha_cyprus", isActive: true }] });
   }, [isPreview]);
 
-  function reloadShows(offset = 0, append = false) {
+  function reloadShows(cursor: string | null = null, append = false) {
     if (isPreview) return;
     const requestId = ++showsRequestRef.current;
     if (append) setLoadingMore(true);
@@ -127,14 +127,15 @@ function App({ themePreference, onThemePreferenceChange, onResetLocalData }: { t
       setShowsHasMore(false);
     }
     setError(null);
-    const query = new URLSearchParams({ status, offset: String(offset) });
+    const query = new URLSearchParams({ status });
+    if (cursor) query.set("cursor", cursor);
     if (teamFilter) query.set("team", teamFilter);
     if (yearFilter) query.set("year", yearFilter);
-    api<{ items: Show[]; hasMore: boolean; nextOffset: number }>(`/api/miniapp/shows?${query}`)
-      .then(({ items, hasMore, nextOffset }) => {
+    api<{ items: Show[]; hasMore: boolean; nextCursor: string | null }>(`/api/miniapp/shows?${query}`)
+      .then(({ items, hasMore, nextCursor }) => {
         if (requestId !== showsRequestRef.current) return;
         setShows((current) => append ? [...current, ...items] : items);
-        setShowsHasMore(hasMore); setShowsNextOffset(nextOffset);
+        setShowsHasMore(hasMore); setShowsNextCursor(nextCursor);
       })
       .catch((reason: Error) => {
         if (requestId === showsRequestRef.current) setError(reason.message);
@@ -253,7 +254,7 @@ function App({ themePreference, onThemePreferenceChange, onResetLocalData }: { t
     {!loading && <section className="show-list">
       {shows.map((show) => <ShowCard key={show.id} show={show} onClick={() => { telegramHaptic("selection"); void openShow(show); }} onCopyLink={() => { const url = show.registrationUrl ?? `https://t.me/ImprovCypEventBot?start=show_${show.id}`; void navigator.clipboard.writeText(url).then(() => notifications.show({ color: "green", title: "Ссылка скопирована", message: show.title })).catch(() => notifications.show({ color: "red", title: "Не удалось скопировать", message: url })); }} onAnnouncement={() => { setSelected(show); setAnnouncementOpened(true); }} />)}
     </section>}
-    {showsHasMore && <Button fullWidth mt="md" variant="default" loading={loadingMore} onClick={() => reloadShows(showsNextOffset, true)}>Показать ещё</Button>}
+    {showsHasMore && <Button fullWidth mt="md" variant="default" loading={loadingMore} onClick={() => reloadShows(showsNextCursor, true)}>Показать ещё</Button>}
     <RootNavigation onShows={() => setSelected(null)} onCreate={() => { telegramHaptic("light"); setEditing(null); setFormOpened(true); }} onAdministration={() => { telegramHaptic("selection"); setManagementOpened(true); }} onSettings={() => { telegramHaptic("selection"); setSettingsOpened(true); }} />
     <ShowForm opened={formOpened} initial={editing} options={options} me={me} reloadOptions={reloadOptions} onClose={() => setFormOpened(false)} onSaved={() => { setFormOpened(false); reloadShows(); }} />
     <ManagementModal opened={managementOpened} onClose={() => setManagementOpened(false)} onCreate={() => { setManagementOpened(false); setEditing(null); setFormOpened(true); }} onSettings={() => { setManagementOpened(false); setSettingsOpened(true); }} me={me} options={options} reload={reloadOptions} themePreference={themePreference} onThemePreferenceChange={onThemePreferenceChange} onResetLocalData={onResetLocalData} backHandlerRef={managementBackRef} />

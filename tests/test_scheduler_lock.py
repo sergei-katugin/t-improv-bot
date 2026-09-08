@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from scheduler import jobs
+from scheduler import cleanup
 from time_utils import utc_now
 
 
@@ -63,13 +64,13 @@ async def test_finished_show_registration_chat_is_notified_and_disconnected(monk
         async def __aexit__(self, exc_type, exc, tb):
             return False
 
-    monkeypatch.setattr(jobs, "AsyncSessionLocal", lambda: SessionContext())
+    monkeypatch.setattr(cleanup, "AsyncSessionLocal", lambda: SessionContext())
     monkeypatch.setattr(
         jobs.crud,
         "list_finished_shows_with_registration_chat",
         AsyncMock(return_value=[SimpleNamespace(id=12, title="Finished", registration_chat_id=-10012, max_seats=80)]),
     )
-    monkeypatch.setattr(jobs.crud, "get_show_outcome", AsyncMock(return_value={"registered": 50, "arrived": 42, "cancelled": 3, "feedback_count": 10, "average_rating": 4.8}))
+    monkeypatch.setattr(jobs.crud, "get_show_outcomes", AsyncMock(return_value={12: {"registered": 50, "arrived": 42, "cancelled": 3, "feedback_count": 10, "average_rating": 4.8}}))
     monkeypatch.setattr(jobs.crud, "mark_registration_chat_summary_sent", AsyncMock(return_value=True))
     clear = AsyncMock(return_value=True)
     monkeypatch.setattr(jobs.crud, "clear_registration_chat_if_matches", clear)

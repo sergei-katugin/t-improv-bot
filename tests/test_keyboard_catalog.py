@@ -93,6 +93,8 @@ def test_public_keyboards_cover_registration_capacity_and_reminders():
     assert public.registrar_username(show) == "registrar"
     assert public.registrar_username(_show(registrar=None, registrar_username="@fallback")) == "fallback"
     _assert_valid(public.shows_list_kb([show], {show.id}))
+    page_buttons = _buttons(public.shows_list_kb([show], page=2, has_more=True))
+    assert {button.text for button in page_buttons} >= {"⬅️ Назад", "Далее ➡️"}
     _assert_valid(public.show_detail_kb(show, True, 4))
     _assert_valid(public.show_detail_kb(show, False, 4))
     _assert_valid(public.show_detail_kb(_show(registration_closes_at=utc_now() - timedelta(minutes=1)), False, 4))

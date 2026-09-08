@@ -17,5 +17,9 @@ fi
 "$PROJECT_PYTHON" -m pytest -q \
   --cov=admin_bot --cov=public_bot --cov=scheduler --cov=db \
   --cov=main --cov=miniapp_api --cov=config --cov=time_utils --cov=html_utils \
+  --cov=miniapp_common --cov=miniapp_helpers --cov=miniapp_security \
+  --cov=miniapp_core --cov=miniapp_shows --cov=miniapp_promotion \
+  --cov=miniapp_analytics --cov=miniapp_media --cov=miniapp_catalog \
+  --cov=miniapp_show_write --cov=miniapp_tasks_chat --cov=miniapp_attendees --cov=miniapp_routes \
   --cov-report=term-missing --cov-fail-under=60 \
   "$@"

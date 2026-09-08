@@ -39,7 +39,7 @@ export type AuditItem = { id: number; action: string; entityType: string; entity
 export type ThemePreference = "system" | "light" | "dark";
 
 export type Attendees = {
-  occupied: number; maxSeats: number; arrived: number; hasMore: boolean; nextOffset: number;
+  occupied: number; maxSeats: number; arrived: number; hasMore: boolean; nextOffset: number; nextCursor?: string | null;
   registrations: { id: number; name: string; guests: number; username: string | null; confirmed: boolean | null; checkedInCount: number; source: string | null }[];
   manual: { id: number; name: string; contact: string | null; guests: number; checkedInCount: number; source: string | null }[];
   waitlist: { id: number; name: string; username: string | null; position: number }[];

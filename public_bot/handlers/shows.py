@@ -10,11 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db import crud
 from db.models import User
 from public_bot.keyboards.inline import shows_list_kb, show_detail_kb
-from public_bot.callbacks import ShowCb
+from public_bot.callbacks import ShowCb, ShowsPageCb
 from public_bot.show_utils import NO_LINK_PREVIEW, show_text
 from html_utils import h
 
 router = Router()
+SHOWS_PAGE_SIZE = 10
 
 
 class FilterFSM(StatesGroup):
@@ -32,7 +33,24 @@ async def cmd_shows(event, state: FSMContext, db_user: User, session: AsyncSessi
     if isinstance(event, CallbackQuery):
         await event.answer()
 
-    shows = await crud.list_upcoming_shows(session)
+    await _show_catalog_page(event, db_user, session, page=0)
+
+
+@router.callback_query(ShowsPageCb.filter())
+async def paginate_shows(
+    callback: CallbackQuery, callback_data: ShowsPageCb,
+    db_user: User, session: AsyncSession,
+):
+    await callback.answer()
+    await _show_catalog_page(callback, db_user, session, page=max(0, callback_data.page))
+
+
+async def _show_catalog_page(event, db_user: User, session: AsyncSession, *, page: int) -> None:
+    msg = event if isinstance(event, Message) else event.message
+    rows = await crud.list_upcoming_shows(
+        session, limit=SHOWS_PAGE_SIZE + 1, offset=page * SHOWS_PAGE_SIZE,
+    )
+    shows = rows[:SHOWS_PAGE_SIZE]
     my_regs = await crud.get_user_registrations(session, db_user.id)
 
     registered_ids = {r.show_id for r in my_regs}
@@ -48,7 +66,7 @@ async def cmd_shows(event, state: FSMContext, db_user: User, session: AsyncSessi
         return
 
     text = "🎭 <b>Предстоящие шоу</b>\nВыбери интересующее:"
-    kb = shows_list_kb(shows, registered_ids)
+    kb = shows_list_kb(shows, registered_ids, page=page, has_more=len(rows) > SHOWS_PAGE_SIZE)
     if isinstance(event, Message):
         await msg.answer(text, reply_markup=kb)
     elif msg.photo:

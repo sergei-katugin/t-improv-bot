@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from admin_bot.handlers import shows
+from admin_bot.handlers import shows_entry
 
 
 def _message(text: str | None = None):
@@ -31,7 +32,7 @@ async def test_basic_navigation_clears_state_and_answers(monkeypatch):
     await shows.quick_cancel(message, state)
     assert "нет активного" in message.answer.await_args.args[0]
 
-    monkeypatch.setattr(shows, "miniapp_launch_kb", lambda: None)
+    monkeypatch.setattr(shows_entry, "miniapp_launch_kb", lambda: None)
     await shows.cmd_miniapp(message, state)
     assert "не настроен" in message.answer.await_args.args[0]
 

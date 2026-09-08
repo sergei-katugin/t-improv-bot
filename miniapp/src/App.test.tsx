@@ -121,9 +121,9 @@ describe("AppRoot preview flow", () => {
       if (path.includes("/me")) return response({ id: 1, firstName: "Test", role: "admin" });
       if (path.includes("/attention")) return response({ items: [] });
       if (/\/shows\/1$/.test(path)) return response({}, false);
-      if (path.includes("offset=1")) return response({ items: [{ id: 2, title: "Вторая афиша", teamName: "Команда", showDateLabel: "Позже", location: "Зал", city: "Город", isActive: true, maxSeats: 10, occupiedSeats: 4 }], hasMore: false, nextOffset: 2 });
+      if (path.includes("cursor=next")) return response({ items: [{ id: 2, title: "Вторая афиша", teamName: "Команда", showDateLabel: "Позже", location: "Зал", city: "Город", isActive: true, maxSeats: 10, occupiedSeats: 4 }], hasMore: false, nextCursor: null });
       showRequests += 1;
-      return response({ items: [{ id: 1, title: "Первая афиша", teamName: "Команда", showDateLabel: "Скоро", location: "Зал", city: "Город", isActive: true, maxSeats: 10, occupiedSeats: 2 }], hasMore: true, nextOffset: 1 });
+      return response({ items: [{ id: 1, title: "Первая афиша", teamName: "Команда", showDateLabel: "Скоро", location: "Зал", city: "Город", isActive: true, maxSeats: 10, occupiedSeats: 2 }], hasMore: true, nextCursor: "next" });
     }));
 
     render(<AppRoot />);

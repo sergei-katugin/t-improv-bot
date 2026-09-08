@@ -30,5 +30,7 @@ services:
         sync: false  # optional private admin chat for error alerts
       - key: MAX_CONCURRENT_MINIAPP_REQUESTS
         value: 16
+      - key: MAX_CONCURRENT_MINIAPP_AUTH
+        value: 32
       - key: MAX_CONCURRENT_POSTER_UPLOADS
         value: 2

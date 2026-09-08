@@ -1,41 +1,12 @@
-import enum
-from datetime import datetime
 from sqlalchemy import (
     BigInteger, Boolean, Column, DateTime, Enum, ForeignKey,
     Index, Integer, String, Text, UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
 from db.base import Base
-from time_utils import utc_now
-
-
-def _utcnow() -> datetime:
-    return utc_now()
-
-
-class UserRole(str, enum.Enum):
-    admin = "admin"
-    organizer = "organizer"
-    user = "user"
-
-
-class AuditLog(Base):
-    __tablename__ = "audit_logs"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    actor_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    action = Column(String(64), nullable=False)
-    entity_type = Column(String(32), nullable=False)
-    entity_id = Column(Integer, nullable=True)
-    details = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=_utcnow, nullable=False)
-
-    actor = relationship("User")
-
-    __table_args__ = (
-        Index("ix_audit_logs_created_at", "created_at"),
-        Index("ix_audit_logs_entity", "entity_type", "entity_id"),
-    )
+from db.audit_model import AuditLog
+from db.fsm_model import FSMStorageRecord
+from db.model_types import UserRole, utc_default as _utcnow
 
 
 class User(Base):
@@ -108,6 +79,7 @@ class Show(Base):
 
     __table_args__ = (
         Index("ix_shows_active_date", "is_active", "show_date"),
+        Index("ix_shows_creator_date", "creator_id", "show_date"),
     )
 
 
@@ -202,6 +174,10 @@ class ManualAttendee(Base):
 
     show = relationship("Show")
 
+    __table_args__ = (
+        Index("ix_manual_attendees_show", "show_id"),
+    )
+
 
 class ShowCheckinStaff(Base):
     __tablename__ = "show_checkin_staff"
@@ -247,6 +223,10 @@ class Team(Base):
     created_at = Column(DateTime, default=_utcnow)
 
     creator = relationship("User")
+
+    __table_args__ = (
+        Index("ix_teams_creator_active", "creator_id", "is_active"),
+    )
 
 
 class Venue(Base):
@@ -310,18 +290,3 @@ class AnnouncementLog(Base):
 
     show = relationship("Show", back_populates="announcement_logs")
 
-
-class FSMStorageRecord(Base):
-    """Persistent aiogram FSM data, shared by both bot processes."""
-
-    __tablename__ = "fsm_storage"
-
-    bot_id = Column(BigInteger, primary_key=True)
-    chat_id = Column(BigInteger, primary_key=True)
-    user_id = Column(BigInteger, primary_key=True)
-    thread_id = Column(BigInteger, primary_key=True, default=0)
-    business_connection_id = Column(String(128), primary_key=True, default="")
-    destiny = Column(String(64), primary_key=True, default="default")
-    state = Column(String(256), nullable=True)
-    data = Column(Text, nullable=False, default="{}")
-    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow, nullable=False)

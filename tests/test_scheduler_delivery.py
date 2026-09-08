@@ -8,6 +8,7 @@ import pytest
 from aiogram.exceptions import TelegramBadRequest
 
 from scheduler import jobs
+from scheduler import delivery
 from time_utils import utc_now
 
 
@@ -36,7 +37,7 @@ async def test_channel_delivery_text_photo_caption_and_long_text(monkeypatch):
     async def photo(*_args):
         yield b"photo"
 
-    monkeypatch.setattr(jobs, "_download_photo", photo)
+    monkeypatch.setattr(delivery, "_download_photo", photo)
     poster_show = _show(poster_file_id="file")
     assert await jobs._send_to_channel_once(public, admin, poster_show, "short", None, 4) == 12
     assert public.send_photo.await_args.kwargs["reply_to_message_id"] == 4
@@ -57,14 +58,14 @@ async def test_channel_delivery_falls_back_when_photo_or_reply_fails(monkeypatch
         raise RuntimeError("download")
         yield
 
-    monkeypatch.setattr(jobs, "_download_photo", broken_photo)
+    monkeypatch.setattr(delivery, "_download_photo", broken_photo)
     assert await jobs._send_to_channel_once(public, admin, _show(poster_file_id="bad"), "text", None, None) == 21
 
     original = AsyncMock(side_effect=[
         TelegramBadRequest(method=SimpleNamespace(), message="message to be replied not found"),
         22,
     ])
-    monkeypatch.setattr(jobs, "_send_to_channel_once", original)
+    monkeypatch.setattr(delivery, "_send_to_channel_once", original)
     assert await jobs.send_to_channel(public, admin, _show(), "text", reply_to_message_id=99) == 22
     assert original.await_args_list[-1].args[-1] is None
 
@@ -81,7 +82,7 @@ async def test_cache_poster_success_delete_failure_and_download_failure(monkeypa
     async def photo(*_args):
         yield b"photo"
 
-    monkeypatch.setattr(jobs, "_download_photo", photo)
+    monkeypatch.setattr(delivery, "_download_photo", photo)
     assert await jobs.cache_poster_for_public_bot(admin, public, "admin-file", 42) == "public-file"
     public.delete_message.side_effect = RuntimeError("cannot delete")
     assert await jobs.cache_poster_for_public_bot(admin, public, "admin-file", 42) == "public-file"
@@ -91,7 +92,7 @@ async def test_cache_poster_success_delete_failure_and_download_failure(monkeypa
         raise RuntimeError("cannot download")
         yield
 
-    monkeypatch.setattr(jobs, "_download_photo", broken)
+    monkeypatch.setattr(delivery, "_download_photo", broken)
     assert await jobs.cache_poster_for_public_bot(admin, public, "admin-file", 42) is None
 
 

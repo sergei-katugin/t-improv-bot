@@ -7,6 +7,10 @@ class ShowCb(CallbackData, prefix="pub_show"):
     show_id: int
 
 
+class ShowsPageCb(CallbackData, prefix="pub_shows"):
+    page: int
+
+
 class RegisterCb(CallbackData, prefix="pub_register"):
     show_id: int
 
