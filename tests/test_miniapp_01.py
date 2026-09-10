@@ -148,7 +148,7 @@ async def test_test_announcement_is_sent_only_to_current_miniapp_user(monkeypatc
         async with sessions() as session:
             owner = User(telegram_id=4242, role=UserRole.organizer)
             session.add(owner); await session.flush()
-            show = Show(title="Test announcement", team_name="T", show_date=utc_now() + timedelta(days=1), location="V", city="C", max_seats=10, creator_id=owner.id, poster_text="Text")
+            show = Show(title="Test announcement", team_name="T", show_date=utc_now() + timedelta(days=1), location="V", city="C", max_seats=10, creator_id=owner.id, poster_text="Text", poster_file_id="saved-poster")
             session.add(show); await session.commit(); show_id, owner_id = show.id, owner.id
         monkeypatch.setattr(miniapp_api, "AsyncSessionLocal", sessions)
         bot = AsyncMock()
@@ -159,9 +159,10 @@ async def test_test_announcement_is_sent_only_to_current_miniapp_user(monkeypatc
         response = await miniapp_api.miniapp_send_test_announcement(request)
 
         assert response.status == 200
-        assert bot.send_message.await_args.args[0] == 4242
-        assert "Тестовый анонс" in bot.send_message.await_args.args[1]
-        assert bot.send_message.await_args.kwargs["reply_markup"].inline_keyboard[0][0].url.endswith(f"show_{show_id}")
+        assert bot.send_photo.await_args.args == (4242, "saved-poster")
+        assert "Тестовый анонс" in bot.send_photo.await_args.kwargs["caption"]
+        assert bot.send_photo.await_args.kwargs["reply_markup"].inline_keyboard[0][0].url.endswith(f"show_{show_id}")
+        bot.send_message.assert_not_awaited()
     finally:
         await engine.dispose()
 

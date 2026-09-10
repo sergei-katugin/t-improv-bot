@@ -47,6 +47,18 @@ describe("ShowForm", () => {
     history.replaceState({}, "", "/");
   });
 
+  it("saves an unpublished draft without asking about viewer notifications", async () => {
+    history.replaceState({}, "", "/?preview=1");
+    const onSaved = vi.fn();
+    render(<ShowForm opened initial={{ ...show, hasPublished: false }} options={options} me={me} reloadOptions={async () => undefined} onClose={vi.fn()} onSaved={onSaved} />, { wrapper });
+    fireEvent.click(screen.getByRole("button", { name: "Шаг 4: Афиша" }));
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить изменения" }));
+
+    expect(screen.queryByRole("dialog", { name: "Уведомить зрителей?" })).not.toBeInTheDocument();
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    history.replaceState({}, "", "/");
+  });
+
   it("edits custom venue, registration controls and poster preview", async () => {
     history.replaceState({}, "", "/?preview=1");
     const custom = { ...show, location: "Двор", city: "Пафос", locationUrl: "", maxGuests: 3, checkinEnabled: false, feedbackEnabled: false };

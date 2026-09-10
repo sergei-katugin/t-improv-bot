@@ -113,11 +113,16 @@ describe("AnnouncementModal", () => {
     window.Telegram = { WebApp: { initData: "signed", initDataUnsafe: {}, colorScheme: "dark", onEvent: vi.fn(), offEvent: vi.fn() } } as unknown as typeof window.Telegram;
     const clipboard = { writeText: vi.fn(async () => undefined) };
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: clipboard });
-    const promotion = { html: "<b>Супер</b>", text: "Супер — запись", registrationUrl: "https://t.me/test", hasPoster: false, hasPublished: false, channels: [] };
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => new Response(JSON.stringify(String(input).includes("/promotion") && !String(input).includes("/test") ? promotion : { ok: true }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const promotion = { html: "<b>Супер</b>", text: "Супер — запись", registrationUrl: "https://t.me/test", hasPoster: true, hasPublished: false, channels: [] };
+    const createUrl = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:announcement-poster");
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/poster")
+      ? new Response(new Blob(["image"], { type: "image/jpeg" }), { status: 200 })
+      : new Response(JSON.stringify(String(input).includes("/promotion") && !String(input).includes("/test") ? promotion : { ok: true }), { status: 200, headers: { "Content-Type": "application/json" } }));
     const onPublished = vi.fn();
     render(<AnnouncementModal opened onClose={vi.fn()} show={show} demo={false} onEdit={vi.fn()} onAnalytics={vi.fn()} onRegistration={vi.fn()} onMore={vi.fn()} onPublished={onPublished} />, { wrapper });
     expect(await screen.findByText("Активные рекламные каналы пока не добавлены.")).toBeInTheDocument();
+    expect(await screen.findByRole("img", { name: "Изображение афиши в предпросмотре" })).toHaveAttribute("src", "blob:announcement-poster");
+    expect(createUrl).toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Скопировать текст и ссылку" }));
     await waitFor(() => expect(clipboard.writeText).toHaveBeenCalledWith("Супер — запись"));
     fireEvent.click(screen.getByRole("button", { name: "Отправить тест себе" }));

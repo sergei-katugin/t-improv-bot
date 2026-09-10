@@ -57,12 +57,17 @@ async def miniapp_send_test_announcement(request: web.Request) -> web.Response:
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="📝 Записаться на шоу", url=registration_url),
     ]])
-    await send_with_retry(
-        request.app[ADMIN_BOT_KEY].send_message,
-        request["miniapp_telegram_id"],
-        text,
-        reply_markup=keyboard,
-    )
+    bot = request.app[ADMIN_BOT_KEY]
+    chat_id = request["miniapp_telegram_id"]
+    if show.poster_file_id and len(text) <= 1024:
+        await send_with_retry(
+            bot.send_photo, chat_id, show.poster_file_id,
+            caption=text, reply_markup=keyboard,
+        )
+    else:
+        if show.poster_file_id:
+            await send_with_retry(bot.send_photo, chat_id, show.poster_file_id)
+        await send_with_retry(bot.send_message, chat_id, text, reply_markup=keyboard)
     return web.json_response({"sent": True})
 
 
