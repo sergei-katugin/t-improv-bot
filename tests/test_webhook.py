@@ -27,6 +27,18 @@ def test_webhook_secret_keeps_valid_configured_value(monkeypatch):
     assert get_webhook_secret("123456:TOKEN") == "Valid_secret-123"
 
 
+def test_production_webhook_secret_is_required_and_long(monkeypatch):
+    monkeypatch.setattr(settings, "REQUIRE_WEBHOOK_SECRET", True)
+    monkeypatch.setattr(settings, "WEBHOOK_SECRET", "")
+    with pytest.raises(RuntimeError, match="required"):
+        get_webhook_secret("123456:TOKEN")
+    monkeypatch.setattr(settings, "WEBHOOK_SECRET", "too-short")
+    with pytest.raises(RuntimeError, match="32"):
+        get_webhook_secret("123456:TOKEN")
+    monkeypatch.setattr(settings, "WEBHOOK_SECRET", "a" * 32)
+    assert get_webhook_secret("123456:TOKEN") == "a" * 32
+
+
 def _payload(update_id: int) -> dict:
     return {
         "update_id": update_id,

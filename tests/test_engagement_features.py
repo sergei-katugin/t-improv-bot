@@ -6,7 +6,7 @@ from admin_bot.keyboards.inline import confirm_with_back_kb, edit_show_fields_kb
 from admin_bot.keyboards.reply import flow_context_kb, show_context_kb, shows_context_kb
 from db.models import Show
 from public_bot.handlers.registration import _ics_escape, _registration_privacy_note
-from public_bot.keyboards.inline import calendar_kb, feedback_kb, registration_success_kb
+from public_bot.keyboards.inline import calendar_kb, feedback_kb, optional_feedback_comment_kb, registration_success_kb
 from public_bot.show_utils import show_text
 
 
@@ -16,8 +16,8 @@ def test_tracked_show_link_contains_source():
 
 
 def test_registration_discloses_name_visibility_before_confirmation():
-    assert "сокращённом виде" in _registration_privacy_note({"registration_chat_name_mode": "short"})
-    assert "полностью" in _registration_privacy_note({"registration_chat_name_mode": "full"})
+    assert "Telegram ID" in _registration_privacy_note({"registration_chat_name_mode": "short"})
+    assert "полное имя" in _registration_privacy_note({"registration_chat_name_mode": "full"})
     assert _registration_privacy_note({}) == ""
 
 
@@ -142,6 +142,8 @@ def test_feedback_keyboard_has_five_ratings():
     buttons = [button for row in feedback_kb(42).inline_keyboard for button in row]
     assert len(buttons) == 5
     assert {button.text for button in buttons} == {"1 ⭐", "2 ⭐", "3 ⭐", "4 ⭐", "5 ⭐"}
+    optional = optional_feedback_comment_kb(42, 5).inline_keyboard[0][0]
+    assert "необязательно" in optional.text
 
 
 def test_ics_escape_protects_special_characters():

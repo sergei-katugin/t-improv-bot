@@ -7,7 +7,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from config import settings
+from config import ADMIN_ID_LIST, settings
 from db import crud
 from db.models import UserRole
 from admin_bot.keyboards.inline import organizers_list_kb, roles_menu_kb
@@ -99,6 +99,18 @@ async def revoke_viewer(callback: CallbackQuery, callback_data: AdminRevokeCb, s
         return
     target_id = callback_data.telegram_id
     await callback.answer()
+
+    target = await crud.get_user_by_telegram_id(session, target_id)
+    if (
+        target is not None
+        and (
+            target.role == UserRole.admin
+            or target.telegram_id in ADMIN_ID_LIST
+            or (db_user is not None and target.id == db_user.id)
+        )
+    ):
+        await callback.answer("Нельзя отозвать доступ администратора или у самого себя.", show_alert=True)
+        return
 
     user = await crud.set_user_role(session, target_id, UserRole.user)
     logger.info("revoked organizer role for telegram_id=%s by admin=%s", target_id, callback.from_user.id)

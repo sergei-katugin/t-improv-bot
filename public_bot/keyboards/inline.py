@@ -9,7 +9,7 @@ from time_utils import format_local, utc_now, utc_to_local
 from public_bot.callbacks import (
     ShowCb, RegisterCb, ConfirmRegCb, CancelRegCb,
     EditGuestsCb, GuestsCb, GuestsCustomCb, RemindToggleCb, AttendanceCb,
-    CalendarCb, FeedbackCb, WaitlistCb,
+    CalendarCb, FeedbackCb, FeedbackCommentCb, WaitlistCb, ShowsPageCb,
 )
 
 
@@ -19,7 +19,10 @@ def registrar_username(show) -> str | None:
     return username.lstrip("@") if username else None
 
 
-def shows_list_kb(shows: list[Show], registered_ids: set[int] = None) -> InlineKeyboardMarkup:
+def shows_list_kb(
+    shows: list[Show], registered_ids: set[int] = None, *,
+    page: int = 0, has_more: bool = False,
+) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for show in shows:
         date_str = format_local(show.show_date, "%d.%m.%Y")
@@ -28,6 +31,10 @@ def shows_list_kb(shows: list[Show], registered_ids: set[int] = None) -> InlineK
             text=f"{mark}🎭 {show.title} ({show.team_name}) — {date_str}",
             callback_data=ShowCb(show_id=show.id).pack(),
         )
+    if page > 0:
+        builder.button(text="⬅️ Назад", callback_data=ShowsPageCb(page=page - 1).pack())
+    if has_more:
+        builder.button(text="Далее ➡️", callback_data=ShowsPageCb(page=page + 1).pack())
     builder.button(text="🔍 Фильтр по городу", callback_data="pub_filter_city")
     builder.button(text="🏛 Фильтр по площадке", callback_data="pub_filter_venue")
     builder.adjust(1)
@@ -177,6 +184,28 @@ def feedback_kb(show_id: int) -> InlineKeyboardMarkup:
     for rating in range(1, 6):
         builder.button(text=f"{rating} ⭐", callback_data=FeedbackCb(show_id=show_id, rating=rating).pack())
     builder.adjust(5)
+    return builder.as_markup()
+
+
+def optional_feedback_comment_kb(show_id: int, rating: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="✍️ Добавить комментарий (необязательно)",
+        callback_data=FeedbackCommentCb(
+            show_id=show_id, rating=rating, action="add",
+        ).pack(),
+    )
+    return builder.as_markup()
+
+
+def cancel_feedback_comment_kb(show_id: int, rating: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="Отмена",
+        callback_data=FeedbackCommentCb(
+            show_id=show_id, rating=rating, action="cancel",
+        ).pack(),
+    )
     return builder.as_markup()
 
 

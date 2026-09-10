@@ -86,6 +86,7 @@ async def cancel_registration(callback: CallbackQuery, callback_data: CancelRegC
             await _notify_registration_chat(
                 admin_bot, show, promoted_registration.attendee_name,
                 promoted_registration.guests or 0, "waitlist", promoted_occupied,
+                promoted_user,
             )
 
     show_title = show.title if show else "шоу"

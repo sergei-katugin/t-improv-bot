@@ -7,6 +7,10 @@ class ShowCb(CallbackData, prefix="pub_show"):
     show_id: int
 
 
+class ShowsPageCb(CallbackData, prefix="pub_shows"):
+    page: int
+
+
 class RegisterCb(CallbackData, prefix="pub_register"):
     show_id: int
 
@@ -54,3 +58,9 @@ class CalendarCb(CallbackData, prefix="calendar"):
 class FeedbackCb(CallbackData, prefix="feedback"):
     show_id: int
     rating: int
+
+
+class FeedbackCommentCb(CallbackData, prefix="feedback_text"):
+    show_id: int
+    rating: int
+    action: str

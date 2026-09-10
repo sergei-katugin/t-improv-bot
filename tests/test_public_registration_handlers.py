@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from public_bot.handlers import registration
+from public_bot.handlers import registration_flow
 from time_utils import utc_now
 
 
@@ -142,13 +143,14 @@ async def test_confirm_registration_handles_stale_capacity_and_success(monkeypat
         registration.crud, "register_user_safe", AsyncMock(return_value=SimpleNamespace(id=77)),
     )
     notify = AsyncMock()
-    monkeypatch.setattr(registration, "_notify_registration_chat", notify)
+    monkeypatch.setattr(registration_flow, "_notify_registration_chat", notify)
     await registration.confirm_registration(
         callback, SimpleNamespace(show_id=10), state, user, AsyncMock(), admin_bot,
     )
     assert "Ты записан" in callback.message.answer.await_args.args[0]
     notify.assert_awaited_once()
-    assert notify.await_args.args[-1] == 9
+    assert notify.await_args.args[-2] == 9
+    assert notify.await_args.args[-1] is user
 
 
 @pytest.mark.asyncio
@@ -157,10 +159,15 @@ async def test_registration_chat_notification_includes_total_occupancy():
     show = _show(registration_chat_id=-100123, max_seats=80)
 
     await registration._notify_registration_chat(
-        admin_bot, show, "Sergey Katugin", 1, None, 17
+        admin_bot, show, "Sergey Katugin", 1, "public_bot", 17,
+        SimpleNamespace(username="sergey", telegram_id=123456),
     )
 
     message = admin_bot.send_message.await_args.args[1]
+    assert "Полное имя: <b>Sergey Katugin</b>" in message
+    assert 'href="https://t.me/sergey"' in message
+    assert "Telegram ID: <code>123456</code>" in message
+    assert "Источник: public_bot" in message
     assert "Мест в записи: 2" in message
     assert "Заполнено: <b>17 / 80</b>" in message
     markup = admin_bot.send_message.await_args.kwargs["reply_markup"]
@@ -206,7 +213,20 @@ async def test_feedback_rating_and_comment_validation(monkeypatch):
         callback, SimpleNamespace(show_id=10, rating=5), state, user, AsyncMock(),
     )
     save.assert_awaited_once()
+    state.clear.assert_awaited_once()
+    assert "на этом всё" in callback.message.edit_text.await_args.args[0]
+    optional_button = callback.message.edit_text.await_args.kwargs[
+        "reply_markup"
+    ].inline_keyboard[0][0]
+    assert "необязательно" in optional_button.text
+
+    state.reset_mock()
+    callback = _callback()
+    await registration.start_feedback_comment(
+        callback, SimpleNamespace(show_id=10, rating=5), state, user, AsyncMock(),
+    )
     assert state.set_state.await_args.args[0] == registration.RegisterFSM.feedback_comment
+    assert "необязателен" in callback.message.edit_text.await_args.args[0]
 
     state.get_data.return_value = {"feedback_show_id": 10, "feedback_rating": 5}
     message = SimpleNamespace(text="x" * 1200, answer=AsyncMock())

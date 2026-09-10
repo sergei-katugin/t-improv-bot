@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from scheduler import jobs
+from scheduler import cleanup
 from time_utils import utc_now
 
 
@@ -63,13 +64,13 @@ async def test_finished_show_registration_chat_is_notified_and_disconnected(monk
         async def __aexit__(self, exc_type, exc, tb):
             return False
 
-    monkeypatch.setattr(jobs, "AsyncSessionLocal", lambda: SessionContext())
+    monkeypatch.setattr(cleanup, "AsyncSessionLocal", lambda: SessionContext())
     monkeypatch.setattr(
         jobs.crud,
         "list_finished_shows_with_registration_chat",
         AsyncMock(return_value=[SimpleNamespace(id=12, title="Finished", registration_chat_id=-10012, max_seats=80)]),
     )
-    monkeypatch.setattr(jobs.crud, "get_show_outcome", AsyncMock(return_value={"registered": 50, "arrived": 42, "cancelled": 3, "feedback_count": 10, "average_rating": 4.8}))
+    monkeypatch.setattr(jobs.crud, "get_show_outcomes", AsyncMock(return_value={12: {"registered": 50, "arrived": 42, "cancelled": 3, "feedback_count": 10, "average_rating": 4.8}}))
     monkeypatch.setattr(jobs.crud, "mark_registration_chat_summary_sent", AsyncMock(return_value=True))
     clear = AsyncMock(return_value=True)
     monkeypatch.setattr(jobs.crud, "clear_registration_chat_if_matches", clear)
@@ -184,35 +185,6 @@ async def test_channel_announcement_is_not_sent_twice(monkeypatch):
 
     send.assert_awaited_once()
     mark.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_reminders_mark_only_successful_deliveries(monkeypatch):
-    show = SimpleNamespace(id=42, title="Show", show_date=utc_now() + timedelta(days=1),
-                           location="Venue", city="City", location_url=None)
-    good = SimpleNamespace(id=1, user=SimpleNamespace(telegram_id=100))
-    blocked = SimpleNamespace(id=2, user=SimpleNamespace(telegram_id=200))
-    monkeypatch.setattr(
-        jobs.crud, "get_registrations_for_reminder",
-        AsyncMock(side_effect=[[good, blocked], []]),
-    )
-    monkeypatch.setattr(jobs.crud, "get_last_channel_message_id", AsyncMock(return_value=None))
-    mark = AsyncMock()
-    monkeypatch.setattr(jobs.crud, "mark_reminded_many", mark)
-    bot = AsyncMock()
-
-    async def send_message(chat_id, *args, **kwargs):
-        if chat_id == 200:
-            raise RuntimeError("bot blocked")
-
-    bot.send_message.side_effect = send_message
-    await jobs._maybe_send_personal(AsyncMock(), bot, show, 1)
-
-    assert mark.await_args.args[1] == [1]
-    reminder_markup = bot.send_message.await_args_list[0].kwargs["reply_markup"]
-    cancel_button = reminder_markup.inline_keyboard[0][0]
-    assert cancel_button.text == "Не получается — отменить запись"
-    assert cancel_button.callback_data == "pub_cancel:42"
 
 
 @pytest.mark.asyncio

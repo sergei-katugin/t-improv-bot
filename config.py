@@ -14,10 +14,14 @@ class Settings(BaseSettings):
     ADMIN_BOT_DISPLAY_NAME: str = "T·IMPRO"
     WEBHOOK_BASE_URL: str = ""
     WEBHOOK_SECRET: str = ""
+    REQUIRE_WEBHOOK_SECRET: bool = False
     INVITE_TTL_HOURS: int = 24
     APP_TIMEZONE: str = "Europe/Nicosia"
     REMINDER_HOUR_LOCAL: int = 9
     MAX_CONCURRENT_UPDATES: int = 20
+    MAX_CONCURRENT_MINIAPP_AUTH: int = 32
+    MAX_CONCURRENT_MINIAPP_REQUESTS: int = 16
+    MAX_CONCURRENT_POSTER_UPLOADS: int = 2
     FSM_TTL_DAYS: int = 30
     ERROR_ALERT_CHAT_ID: Optional[int] = None
     ALLOW_SQLITE_FOR_TESTS: bool = False
@@ -35,6 +39,12 @@ class Settings(BaseSettings):
             raise ValueError("REMINDER_HOUR_LOCAL must be between 0 and 23")
         if self.MAX_CONCURRENT_UPDATES < 1:
             raise ValueError("MAX_CONCURRENT_UPDATES must be positive")
+        if self.MAX_CONCURRENT_MINIAPP_AUTH < 1:
+            raise ValueError("MAX_CONCURRENT_MINIAPP_AUTH must be positive")
+        if self.MAX_CONCURRENT_MINIAPP_REQUESTS < 1:
+            raise ValueError("MAX_CONCURRENT_MINIAPP_REQUESTS must be positive")
+        if self.MAX_CONCURRENT_POSTER_UPLOADS < 1:
+            raise ValueError("MAX_CONCURRENT_POSTER_UPLOADS must be positive")
         return self
 
 

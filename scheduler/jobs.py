@@ -1,18 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-import re
-import tempfile
-from contextlib import asynccontextmanager
-from pathlib import Path
-
 from app_logging import get_project_logger
-from datetime import datetime, date, time, timedelta, timezone
+from datetime import datetime, time, timedelta
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.interval import IntervalTrigger
 from aiogram import Bot
-from aiogram.types import FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
+from aiogram.types import LinkPreviewOptions
 from sqlalchemy import func, select
 from public_bot.keyboards.inline import attendance_kb, feedback_kb, reminder_cancel_kb
 
@@ -21,133 +15,35 @@ from db.base import AsyncSessionLocal, engine, is_sqlite
 from db import crud
 from html_utils import h
 from telegram_delivery import send_with_retry
-from time_utils import format_local, local_date, local_naive_to_utc, local_now, utc_to_local
+from time_utils import format_local, local_date, local_naive_to_utc, local_now
+from scheduler.setup import configure_scheduler
+from scheduler.reminder_failures import (
+    _maybe_remind_manual_attendees,
+    needs_failure_report,
+    report_failed_personal_reminders,
+)
 
 logger = get_project_logger(__name__)
 
 scheduler = AsyncIOScheduler(timezone=settings.APP_TIMEZONE)
 
-DAYS_MAP = {
-    "7d": 7,
-    "2d": 2,
-    "1d": 1,
-    "0d": 0,
-}
-
-
-@asynccontextmanager
-async def _download_photo(bot: Bot, file_id: str):
-    """Download a Telegram file to disk so it is not duplicated in process memory."""
-    temporary = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
-    temporary_path = Path(temporary.name)
-    temporary.close()
-    try:
-        file = await bot.get_file(file_id)
-        await bot.download_file(file.file_path, destination=temporary_path)
-        yield FSInputFile(temporary_path, filename="poster.jpg")
-    finally:
-        temporary_path.unlink(missing_ok=True)
 
 
 def setup_scheduler(public_bot: Bot, admin_bot: Bot) -> None:
-    scheduler.add_job(
-        check_and_send_announcements,
-        # Reconcile throughout the day instead of relying on one exact minute.
-        # This catches reminders after deploys and short service outages; the
-        # per-registration and announcement flags keep repeated runs idempotent.
-        IntervalTrigger(minutes=15, timezone=settings.APP_TIMEZONE),
-        args=[public_bot, admin_bot],
-        id="daily_announcement_check",
-        replace_existing=True,
-        next_run_time=datetime.now(timezone.utc),
-        coalesce=True,
-        max_instances=1,
+    configure_scheduler(
+        scheduler, public_bot, admin_bot,
+        announcement_job=check_and_send_announcements,
+        feedback_job=request_post_show_feedback,
+        chat_cleanup_job=disconnect_finished_registration_chats,
+        fsm_cleanup_job=cleanup_stale_fsm,
     )
-    scheduler.add_job(
-        request_post_show_feedback,
-        IntervalTrigger(hours=1, timezone=settings.APP_TIMEZONE),
-        args=[public_bot],
-        id="post_show_feedback",
-        replace_existing=True,
-        coalesce=True,
-        max_instances=1,
-    )
-    scheduler.add_job(
-        disconnect_finished_registration_chats,
-        IntervalTrigger(hours=1, timezone=settings.APP_TIMEZONE),
-        args=[admin_bot],
-        id="disconnect_finished_registration_chats",
-        replace_existing=True,
-        coalesce=True,
-        max_instances=1,
-    )
-    scheduler.add_job(
-        cleanup_stale_fsm,
-        IntervalTrigger(hours=24, timezone=settings.APP_TIMEZONE),
-        id="fsm_storage_cleanup",
-        replace_existing=True,
-        next_run_time=datetime.now(timezone.utc),
-        coalesce=True,
-        max_instances=1,
-    )
-    scheduler.start()
     logger.info("Scheduler started")
 
 
-async def cleanup_stale_fsm() -> None:
-    from db.fsm_storage import SQLAlchemyStorage
-
-    deleted = await SQLAlchemyStorage.cleanup_stale(settings.FSM_TTL_DAYS)
-    if deleted:
-        logger.info("Deleted %d stale FSM storage records", deleted)
 
 
-async def disconnect_finished_registration_chats(admin_bot: Bot) -> None:
-    """Notify and detach working chats two hours after a show starts."""
-    if is_sqlite:
-        await _run_registration_chat_cleanup(admin_bot)
-        return
-    lock_id = 0x54494D504348
-    async with engine.connect() as lock_connection:
-        acquired = bool((await lock_connection.execute(
-            select(func.pg_try_advisory_lock(lock_id))
-        )).scalar())
-        if not acquired:
-            return
-        try:
-            await _run_registration_chat_cleanup(admin_bot)
-        finally:
-            await lock_connection.execute(select(func.pg_advisory_unlock(lock_id)))
 
 
-async def _run_registration_chat_cleanup(admin_bot: Bot) -> None:
-    async with AsyncSessionLocal() as session:
-        shows = await crud.list_finished_shows_with_registration_chat(session)
-        targets = []
-        for show in shows:
-            targets.append((show, await crud.get_show_outcome(session, show.id)))
-    for show, outcome in targets:
-        show_id, title, chat_id, capacity = show.id, show.title, show.registration_chat_id, show.max_seats
-        registered, arrived, cancelled = outcome["registered"], outcome["arrived"], outcome["cancelled"]
-        feedback_count, average_rating = outcome["feedback_count"], outcome["average_rating"]
-        try:
-            await send_with_retry(
-                admin_bot.send_message,
-                chat_id,
-                f"📊 <b>Итоги шоу «{h(title)}»</b>\n\n"
-                f"Записались: <b>{registered} / {capacity}</b>\n"
-                f"Пришли: <b>{arrived}</b>\n"
-                f"Отменили запись: <b>{cancelled}</b>\n"
-                f"Отзывы: <b>{feedback_count}</b>"
-                f"{f' · ★ {average_rating:.1f}' if feedback_count else ''}\n\n"
-                "Чат автоматически отключён от завершённого шоу.",
-            )
-        except Exception:
-            logger.exception("failed to send registration chat summary show_id=%s", show_id)
-            continue
-        async with AsyncSessionLocal() as session:
-            if await crud.mark_registration_chat_summary_sent(session, show_id, chat_id) and await crud.clear_registration_chat_if_matches(session, show_id, chat_id):
-                logger.info("automatically disconnected registration chat show_id=%s chat_id=%s", show_id, chat_id)
 
 
 async def request_post_show_feedback(public_bot: Bot) -> None:
@@ -208,77 +104,10 @@ async def _run_post_show_feedback(public_bot: Bot) -> None:
             await crud.mark_feedback_requested(session, sent_ids)
 
 
-async def cache_poster_for_public_bot(
-    admin_bot: Bot, public_bot: Bot, poster_file_id: str, target_chat_id: int
-) -> str | None:
-    """Download poster via admin_bot, re-upload via public_bot to get a public-bot file_id.
-    Uses the main admin's chat and immediately deletes the message so it's invisible."""
-    from config import ADMIN_ID_LIST
-    cache_chat = ADMIN_ID_LIST[0] if ADMIN_ID_LIST else target_chat_id
-    try:
-        async with _download_photo(admin_bot, poster_file_id) as photo:
-            msg = await public_bot.send_photo(cache_chat, photo=photo)
-        pub_file_id = msg.photo[-1].file_id
-        try:
-            await public_bot.delete_message(cache_chat, msg.message_id)
-        except Exception:
-            pass
-        return pub_file_id
-    except Exception:
-        logger.warning("Could not cache poster for public bot (file_id=%s)", poster_file_id)
-        return None
 
 
-def _register_button(show) -> InlineKeyboardMarkup | None:
-    if show is None or not show.id:
-        return None
-    url = f"https://t.me/{settings.PUBLIC_BOT_USERNAME}?start=show_{show.id}"
-    return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="📝 Записаться на шоу", url=url)
-    ]])
 
 
-async def _send_to_channel_once(
-    public_bot: Bot, admin_bot: Bot, show, text: str,
-    kb, reply_to_message_id: int | None,
-) -> int:
-    logger.info("_send_to_channel_once start show_id=%s reply_to=%s", getattr(show, 'id', None), reply_to_message_id)
-    kwargs = {"reply_to_message_id": reply_to_message_id} if reply_to_message_id else {}
-    if show.poster_file_id:
-        try:
-            async with _download_photo(admin_bot, show.poster_file_id) as photo:
-                if len(text) <= 1024:
-                    msg = await public_bot.send_photo(
-                        settings.ANNOUNCEMENT_CHANNEL_ID, photo=photo, caption=text, reply_markup=kb, **kwargs
-                    )
-                    return msg.message_id
-                await public_bot.send_photo(settings.ANNOUNCEMENT_CHANNEL_ID, photo=photo, **kwargs)
-            msg = await public_bot.send_message(
-                settings.ANNOUNCEMENT_CHANNEL_ID, text, reply_markup=kb, **kwargs
-            )
-            return msg.message_id
-        except Exception:
-            logger.warning("Could not download poster for show %s, sending text only", show.id)
-        msg = await public_bot.send_message(settings.ANNOUNCEMENT_CHANNEL_ID, text, reply_markup=kb, **kwargs)
-        logger.info("_send_to_channel_once sent text for show_id=%s msg_id=%s", getattr(show, 'id', None), msg.message_id)
-        return msg.message_id
-
-
-async def send_to_channel(
-    public_bot: Bot, admin_bot: Bot, show, text: str,
-    with_button: bool = True, reply_to_message_id: int | None = None,
-) -> int | None:
-    """Send announcement to channel via public_bot. Returns channel message_id."""
-    from aiogram.exceptions import TelegramBadRequest
-    kb = _register_button(show) if with_button else None
-    logger.info("send_to_channel attempting show_id=%s with_button=%s reply_to=%s", getattr(show, 'id', None), with_button, reply_to_message_id)
-    try:
-        return await _send_to_channel_once(public_bot, admin_bot, show, text, kb, reply_to_message_id)
-    except TelegramBadRequest as e:
-        if reply_to_message_id and "message to be replied not found" in str(e):
-            logger.warning("Reply message not found for show %s, sending without reply", show.id)
-            return await _send_to_channel_once(public_bot, admin_bot, show, text, kb, None)
-        raise
 
 
 async def check_and_send_announcements(public_bot: Bot, admin_bot: Bot) -> None:
@@ -320,17 +149,17 @@ async def _run_announcement_check(public_bot: Bot, admin_bot: Bot) -> None:
             days_left = (local_date(show.show_date) - today).days
             if days_left == 7:
                 await _maybe_send_channel(session, public_bot, admin_bot, show, "7d")
-                await _maybe_send_personal(session, public_bot, show, 7)
+                await _maybe_send_personal(session, public_bot, admin_bot, show, 7)
             elif days_left == 2:
                 await _maybe_send_channel(session, public_bot, admin_bot, show, "2d")
-                await _maybe_send_personal(session, public_bot, show, 2)
+                await _maybe_send_personal(session, public_bot, admin_bot, show, 2)
             elif days_left == 1:
                 await _maybe_send_channel(session, public_bot, admin_bot, show, "1d")
-                await _maybe_send_personal(session, public_bot, show, 1)
+                await _maybe_send_personal(session, public_bot, admin_bot, show, 1)
                 await _maybe_remind_manual_attendees(session, admin_bot, show)
             elif days_left == 0:
                 await _maybe_send_channel(session, public_bot, admin_bot, show, "0d")
-                await _maybe_send_personal(session, public_bot, show, 0)
+                await _maybe_send_personal(session, public_bot, admin_bot, show, 0)
 
 
 async def _maybe_send_channel(session, public_bot: Bot, admin_bot: Bot, show, ann_type: str) -> None:
@@ -346,7 +175,7 @@ async def _maybe_send_channel(session, public_bot: Bot, admin_bot: Bot, show, an
         logger.exception("Failed to send channel announcement for show %s", show.id)
 
 
-async def _maybe_send_personal(session, bot: Bot, show, days: int) -> None:
+async def _maybe_send_personal(session, bot: Bot, admin_bot: Bot, show, days: int) -> None:
     intros = {
         7: "🔔 До шоу осталась неделя!",
         2: "🔔 До шоу осталось два дня!",
@@ -393,6 +222,7 @@ async def _maybe_send_personal(session, bot: Bot, show, days: int) -> None:
             return None
 
     sent = 0
+    failed = []
     after_id = 0
     query_batch_size = 50
     send_batch_size = 5
@@ -414,153 +244,21 @@ async def _maybe_send_personal(session, bot: Bot, show, days: int) -> None:
             batch = regs[start:start + send_batch_size]
             results = await asyncio.gather(*(send_one(reg) for reg in batch))
             sent_ids.extend(reg_id for reg_id in results if reg_id is not None)
+            failed.extend(
+                reg for reg, result in zip(batch, results)
+                if result is None and needs_failure_report(reg, days)
+            )
         await crud.mark_reminded_many(session, sent_ids, days)
         sent += len(sent_ids)
+    try:
+        await report_failed_personal_reminders(session, admin_bot, show, failed, days)
+    except Exception:
+        logger.exception("Failed to report undelivered reminders for show %s", show.id)
     logger.info("Sent %dd personal reminders for show %s to %s users", days, show.id, sent)
 
 
-async def _maybe_remind_manual_attendees(session, admin_bot: Bot, show) -> None:
-    """Ask the organizer to contact attendees whom the public bot cannot message."""
-    if not getattr(show, "registration_chat_id", None):
-        return
-    attendees = await crud.get_pending_manual_attendees_for_reminder(
-        session, show.id, limit=100
-    )
-    if not attendees:
-        return
-    await session.commit()
-    names = "\n".join(
-        f"• {h(item.name)}" + (f" — {h(item.contact)}" if item.contact else " — контакт не указан")
-        for item in attendees
-    )
-    if len(names) > 3200:
-        names = names[:3200].rsplit("\n", 1)[0] + "\n• …остальные — в списке зрителей"
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(
-            text="✅ Уведомил(а) всех",
-            callback_data=f"adm_s:manual_notified:{show.id}",
-        )
-    ]])
-    try:
-        await send_with_retry(
-            admin_bot.send_message,
-            show.registration_chat_id,
-            f"📣 <b>Нужно уведомить вручную</b>\n\n"
-            f"Завтра шоу «{h(show.title)}». Бот не может написать этим зрителям, "
-            f"потому что они добавлены не через Telegram:\n\n{names}\n\n"
-            "Свяжись с ними в той соцсети, где они записались, затем отметь задачу выполненной.",
-            reply_markup=keyboard,
-        )
-        await crud.mark_manual_attendees_reminded(session, [item.id for item in attendees])
-    except Exception:
-        logger.exception("failed to remind organizer about manual attendees show_id=%s", show.id)
-        creator = getattr(show, "creator", None)
-        if creator is not None:
-            try:
-                await send_with_retry(
-                    admin_bot.send_message,
-                    creator.telegram_id,
-                    f"⚠️ Не удалось отправить задачу в чат записей шоу «{h(show.title)}». "
-                    "Проверь права бота в этом чате.",
-                )
-            except Exception:
-                logger.exception("failed to alert creator about registration chat show_id=%s", show.id)
+from scheduler.messages import DATE_RE, MAPS_RE, TIME_RE, _fmt_date, _location_line
+from scheduler.messages import _register_button, _registrar_line, build_announcement_text, build_personal_reminder
 
-
-MAPS_RE = re.compile(r'(maps\.google|goo\.gl/maps|maps\.app\.goo\.gl|google\.com/maps)', re.I)
-DATE_RE = re.compile(r'\d{1,2}[./-]\d{1,2}[./-]\d{2,4}')
-TIME_RE = re.compile(r'\b\d{1,2}:\d{2}\b')
-
-
-_MONTHS_GEN = [
-    "", "января", "февраля", "марта", "апреля", "мая", "июня",
-    "июля", "августа", "сентября", "октября", "ноября", "декабря",
-]
-_WEEKDAYS_RU = ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье"]
-
-
-def _fmt_date(dt) -> str:
-    dt = utc_to_local(dt)
-    return f"{dt.day} {_MONTHS_GEN[dt.month]}, {_WEEKDAYS_RU[dt.weekday()]}, {dt.strftime('%H:%M')}"
-
-
-def _location_line(show, plain: bool = False) -> str:
-    if show.location_url and not plain:
-        return f'📍 <a href="{h(show.location_url)}">{h(show.location)}</a>, {h(show.city)}'
-    return f"📍 {h(show.location)}, {h(show.city)}"
-
-
-def _registrar_line(show) -> str | None:
-    bot_username = settings.PUBLIC_BOT_USERNAME.lstrip("@")
-    bot_link = f'<a href="https://t.me/{bot_username}">@{h(bot_username)}</a>'
-    registrar = getattr(show, "registrar", None)
-    username = getattr(show, "registrar_username", None) or (registrar.username if registrar else None)
-    if username:
-        username = username.lstrip("@")
-        person_link = f'<a href="https://t.me/{username}">@{h(username)}</a>'
-        return f"👥 Записаться тут: <b>через бота</b> {bot_link} или у {person_link}"
-    return f"👥 Записаться тут: <b>через бота</b> {bot_link}"
-
-
-_ANN_HEADERS = {
-    "7d": "🎭 Через неделю:",
-    "2d": "🎭 Через два дня:",
-    "1d": "🎭 Завтра:",
-    "0d": "🎭 Сегодня!",
-}
-
-_REGISTER_NOTE = "👆 Нажми кнопку — и твоё место сразу запомнится!"
-
-
-def build_announcement_text(
-    show,
-    ann_type: str | None = None,
-    *,
-    seats_left: int | None = None,
-    attendee_line: str | None = None,
-    include_registration: bool = True,
-) -> str:
-    if ann_type is None:
-        header = f"🎭 <b>{h(show.title)}</b>"
-    else:
-        prefix = _ANN_HEADERS.get(ann_type, "🎭")
-        header = f"{prefix} <b>{h(show.title)}</b>"
-
-    poster = show.poster_text or ""
-    poster_has_date = bool(DATE_RE.search(poster))
-    poster_has_maps = bool(MAPS_RE.search(poster))
-
-    lines = [header]
-    if getattr(show, "team_name", None):
-        lines.append(f"👥 Команда: {h(show.team_name)}")
-    if not poster_has_date:
-        lines.append(f"📅 {_fmt_date(show.show_date)}")
-    lines.append(_location_line(show, plain=poster_has_maps))
-    if seats_left is not None:
-        lines.append(f"🪑 Свободных мест: {seats_left}/{show.max_seats}")
-    if include_registration:
-        registrar_line = _registrar_line(show)
-        if registrar_line:
-            lines.append(registrar_line)
-    if attendee_line:
-        lines.append(attendee_line)
-
-    if poster:
-        lines.append("")
-        lines.append(h(poster))
-
-    if ann_type is not None:
-        lines.append("")
-        lines.append(_REGISTER_NOTE)
-
-    return "\n".join(lines)
-
-
-def build_personal_reminder(
-    show, custom_intro: str | None = None
-) -> tuple[str, InlineKeyboardMarkup | None]:
-    intro = custom_intro or "👋 Напоминание! Завтра шоу, на которое ты записан(а):"
-    lines = [intro, "", build_announcement_text(show)]
-    text = "\n".join(lines)
-    kb = _register_button(show)
-    return text, kb
+from scheduler.delivery import _download_photo, cache_poster_for_public_bot, _send_to_channel_once, send_to_channel
+from scheduler.cleanup import cleanup_stale_fsm, disconnect_finished_registration_chats, _run_registration_chat_cleanup

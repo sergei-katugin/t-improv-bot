@@ -17,17 +17,19 @@ export function AttendeesModal({ opened, onClose, show, demo, backHandlerRef, on
   const [loading, setLoading] = React.useState(!demo);
   const [search, setSearch] = React.useState("");
 
-  const load = React.useCallback(async (offset = 0, append = false) => {
+  const load = React.useCallback(async (cursor: string | null = null, append = false) => {
     if (demo) { setData(previewAttendees); return; }
     setLoading(true);
     try {
-      const query = new URLSearchParams({ offset: String(offset) });
+      const query = new URLSearchParams();
+      if (cursor) query.set("cursor", cursor);
       if (search.trim()) query.set("search", search.trim());
       const next = await api<Attendees>(`/api/miniapp/shows/${show.id}/attendees?${query}`);
       setData((current) => append && current ? {
         ...next,
         registrations: [...current.registrations, ...next.registrations],
         manual: [...current.manual, ...next.manual],
+        waitlist: current.waitlist,
       } : next);
     }
     catch (reason) { notifications.show({ color: "red", title: "Не удалось загрузить записи", message: (reason as Error).message }); }
@@ -39,7 +41,7 @@ export function AttendeesModal({ opened, onClose, show, demo, backHandlerRef, on
     backHandlerRef.current = null;
     return () => { backHandlerRef.current = null; };
   }, [backHandlerRef]);
-  useAppResume(() => { void load(0); }, opened);
+  useAppResume(() => { void load(null); }, opened);
 
   return <Modal opened={opened} onClose={onClose} title={`Зрители · ${show.title}`} fullScreen classNames={{ close: "fullscreen-modal-close" }}>
     {loading && <Stack><Skeleton height={100} /><Skeleton height={100} /></Stack>}
@@ -49,7 +51,7 @@ export function AttendeesModal({ opened, onClose, show, demo, backHandlerRef, on
       <AttendeeList items={data.registrations} />
       {data.manual.length > 0 && <><Title order={3}>Добавлены вручную</Title><AttendeeList items={data.manual} /></>}
       {data.waitlist.length > 0 && <><Title order={3}>Лист ожидания · {data.waitlist.length}</Title><div className="attendee-list">{data.waitlist.map((item) => <div className="attendee-list-row" key={item.id}><div><Text fw={700}>{item.name}</Text>{item.username && <Anchor size="sm" href={`https://t.me/${item.username}`} target="_blank">@{item.username}</Anchor>}</div><Text size="sm" c="dimmed">№ {item.position}</Text></div>)}</div></>}
-      {data.hasMore && <Button variant="default" loading={loading} onClick={() => void load(data.nextOffset, true)}>Показать ещё</Button>}
+      {data.hasMore && <Button variant="default" loading={loading} onClick={() => void load(data.nextCursor ?? null, true)}>Показать ещё</Button>}
     </Stack>}
     {data && <ShowNavigation show={show} onShow={onClose} onEdit={onEdit} onAnnouncement={onAnnouncement} onAnalytics={onAnalytics} onRegistration={onRegistration} onMore={onMore} />}
   </Modal>;
