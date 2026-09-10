@@ -86,7 +86,8 @@ async def test_show_operational_endpoints_work_together(monkeypatch):
         detail = json.loads((await miniapp_api.miniapp_show_detail(request)).text)
         assert detail["title"] == "Operations" and detail["occupiedSeats"] == 2
         preview = json.loads((await miniapp_api.miniapp_announcement_preview(request)).text)
-        assert "Свободных мест: 18/20" in preview["html"]
+        assert "Свободных мест" not in preview["html"]
+        assert preview["html"].startswith("🎭 <b>Команда Team представляет шоу Operations</b>")
         promotion = json.loads((await miniapp_api.miniapp_promotion(request)).text)
         assert promotion["registrationUrl"].endswith(f"show_{show_id}")
 
@@ -178,7 +179,7 @@ async def test_admin_dashboard_publish_and_cancel_flow(monkeypatch):
         request._body = {"target": "-300"}
         verified = json.loads((await miniapp_api.miniapp_verify_registration_chat(request)).text)
         assert verified == {"id": -300, "title": "Admin chat"}
-        request._body = {"target": "-300", "nameMode": "full"}
+        request._body = {"target": "-300", "nameMode": "short"}
         connected = json.loads((await miniapp_api.miniapp_registration_chat(request)).text)
         assert connected["nameMode"] == "full"
 

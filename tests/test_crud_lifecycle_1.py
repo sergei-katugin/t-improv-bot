@@ -57,6 +57,12 @@ async def test_registration_respects_guest_limit_and_auto_close():
             await session.commit()
 
             assert await crud.register_user_safe(session, show.id, viewer.id, "Viewer", guests=2) is None
+            new_date = utc_now() + timedelta(days=2)
+            show = await crud.update_show(
+                session, show.id, show_date=new_date,
+                registration_closes_at=new_date - timedelta(hours=3),
+            )
+            assert show.registration_closes_at == new_date - timedelta(minutes=5)
             show.registration_closes_at = utc_now() - timedelta(minutes=1)
             await session.commit()
             assert await crud.register_user_safe(session, show.id, viewer.id, "Viewer", guests=1) is None

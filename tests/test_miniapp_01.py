@@ -54,7 +54,7 @@ def test_miniapp_show_payload_is_normalized_and_whitelisted():
     assert fields["registrar_username"] == "sergey"
     assert fields["max_seats"] == 50
     assert fields["max_guests"] == 6
-    assert fields["registration_closes_at"] == fields["show_date"] - timedelta(hours=1)
+    assert fields["registration_closes_at"] == fields["show_date"] - timedelta(minutes=5)
 
     with pytest.raises(web.HTTPBadRequest):
         _show_fields({**_valid_show_payload(), "creator_id": 999}, require_all=True)

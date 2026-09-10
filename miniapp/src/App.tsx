@@ -1,11 +1,11 @@
 import React from "react";
 import {
   Alert, Anchor, Autocomplete, Badge, Button, Collapse, FileInput, Group, Loader, MantineProvider, Modal, NumberInput,
-  Paper, Progress, Select, SimpleGrid, Skeleton, Stack, Switch, Tabs, Text,
-  Textarea, TextInput, Title,
+  Progress, Select, SimpleGrid, Skeleton, Stack, Switch, Tabs,
+  Textarea, TextInput,
 } from "@mantine/core";
 import { DateTimePicker, DatesProvider } from "@mantine/dates";
-import { Notifications, notifications } from "@mantine/notifications";
+import { Notifications } from "@mantine/notifications";
 import "dayjs/locale/ru";
 import { BottomActionBar, RootNavigation } from "./components/BottomActionBar";
 import { ShowNavigation } from "./components/ShowNavigation";
@@ -19,10 +19,12 @@ import { AppSettingsModal } from "./features/AppSettingsModal";
 import { ShowCard } from "./components/ShowCard";
 import { ShowDetails } from "./components/ShowDetails";
 import { ShowsHeader } from "./components/ShowsHeader";
+import { EmptyShowsState } from "./components/EmptyShowsState";
 import { ShowStepper } from "./components/ShowStepper";
 import { MiniAppOnboarding } from "./components/MiniAppOnboarding";
 import { AttentionCenter, type AttentionItem } from "./components/AttentionCenter";
 import { api, authenticatedBlob } from "./lib/api";
+import { showNotification } from "./lib/notifications";
 import { telegramConfirm, telegramHaptic } from "./lib/telegram";
 import { useAppTheme } from "./hooks/useAppTheme";
 import { useAppResume } from "./hooks/useAppResume";
@@ -234,7 +236,7 @@ function App({ themePreference, onThemePreferenceChange, onResetLocalData }: { t
         onPublished={() => setSelected((current) => current ? { ...current, hasPublished: true } : current)}
       />
       <AnalyticsModal opened={analyticsOpened} onClose={() => setAnalyticsOpened(false)} show={selected} demo={isPreview} onEdit={() => { setAnalyticsOpened(false); setEditing(selected); setFormOpened(true); }} onAnnouncement={() => { setAnalyticsOpened(false); setAnnouncementOpened(true); }} onRegistration={() => { setAnalyticsOpened(false); setToolsMode("registration"); setToolsOpened(true); }} onMore={() => { setAnalyticsOpened(false); setToolsMode("all"); setToolsOpened(true); }} />
-      <ShowToolsModal mode={toolsMode} opened={toolsOpened} onClose={() => setToolsOpened(false)} show={selected} registrationUrl={registrationUrl} demo={isPreview} backHandlerRef={toolsBackRef} onEdit={() => { setToolsOpened(false); setEditing(selected); setFormOpened(true); }} onAnalytics={() => { setToolsOpened(false); setAnalyticsOpened(true); }} onAnnouncement={() => { setToolsOpened(false); setAnnouncementOpened(true); }} onChanged={(next) => { setSelected(next); reloadShows(); }} onDeleted={() => { setToolsOpened(false); setSelected(null); reloadShows(); }} />
+      <ShowToolsModal mode={toolsMode} opened={toolsOpened} onClose={() => setToolsOpened(false)} show={selected} registrationUrl={registrationUrl} demo={isPreview} canDeleteActive={me?.isSuperAdmin} backHandlerRef={toolsBackRef} onEdit={() => { setToolsOpened(false); setEditing(selected); setFormOpened(true); }} onAnalytics={() => { setToolsOpened(false); setAnalyticsOpened(true); }} onAnnouncement={() => { setToolsOpened(false); setAnnouncementOpened(true); }} onChanged={(next) => { setSelected(next); reloadShows(); }} onDeleted={() => { setToolsOpened(false); setSelected(null); reloadShows(); }} />
       <ShowForm opened={formOpened} initial={editing} options={options} me={me} reloadOptions={reloadOptions} onClose={() => setFormOpened(false)} onSaved={() => { setFormOpened(false); setSelected(null); reloadShows(); }} />
     </main>;
   }
@@ -250,9 +252,9 @@ function App({ themePreference, onThemePreferenceChange, onResetLocalData }: { t
     {status === "upcoming" && <AttentionCenter items={attention} onOpen={(item) => void openAttention(item)} />}
     {loading && <Stack gap="sm" aria-label="Загружаем афиши"><Skeleton height={184} radius="md" /><Skeleton height={184} radius="md" /></Stack>}
     {error && <Alert color="red" title="Не удалось открыть панель">{error}</Alert>}
-    {!loading && !error && shows.length === 0 && <Paper className="state"><Title order={3}>Здесь пока пусто</Title><Text>{status === "upcoming" ? "Создай первую афишу прямо здесь или проверь прошедшие события." : "Прошедших афиш пока нет."}</Text></Paper>}
+    {!loading && !error && shows.length === 0 && <EmptyShowsState status={status} onCreate={() => { telegramHaptic("light"); setEditing(null); setFormOpened(true); }} />}
     {!loading && <section className="show-list">
-      {shows.map((show) => <ShowCard key={show.id} show={show} onClick={() => { telegramHaptic("selection"); void openShow(show); }} onCopyLink={() => { const url = show.registrationUrl ?? `https://t.me/ImprovCypEventBot?start=show_${show.id}`; void navigator.clipboard.writeText(url).then(() => notifications.show({ color: "green", title: "Ссылка скопирована", message: show.title })).catch(() => notifications.show({ color: "red", title: "Не удалось скопировать", message: url })); }} onAnnouncement={() => { setSelected(show); setAnnouncementOpened(true); }} />)}
+      {shows.map((show) => <ShowCard key={show.id} show={show} onClick={() => { telegramHaptic("selection"); void openShow(show); }} onCopyLink={() => { const url = show.registrationUrl ?? `https://t.me/ImprovCypEventBot?start=show_${show.id}`; void navigator.clipboard.writeText(url).then(() => showNotification({ color: "green", title: "Ссылка скопирована", message: show.title })).catch(() => showNotification({ color: "red", title: "Не удалось скопировать", message: url })); }} onAnnouncement={() => { setSelected(show); setAnnouncementOpened(true); }} />)}
     </section>}
     {showsHasMore && <Button fullWidth mt="md" variant="default" loading={loadingMore} onClick={() => reloadShows(showsNextCursor, true)}>Показать ещё</Button>}
     <RootNavigation onShows={() => setSelected(null)} onCreate={() => { telegramHaptic("light"); setEditing(null); setFormOpened(true); }} onAdministration={() => { telegramHaptic("selection"); setManagementOpened(true); }} onSettings={() => { telegramHaptic("selection"); setSettingsOpened(true); }} />

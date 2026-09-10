@@ -139,16 +139,12 @@ async def _notify_registration_cancellation(
     if not getattr(show, "registration_chat_id", None):
         return
     party = 1 + guests
-    display_name = attendee_name
-    if getattr(show, "registration_chat_name_mode", "short") != "full":
-        parts = attendee_name.split()
-        display_name = parts[0] + (f" {parts[1][0]}." if len(parts) > 1 and parts[1] else "")
     try:
         await admin_bot.send_message(
             show.registration_chat_id,
             f"↩️ <b>Запись отменена</b>\n"
             f"🎭 {h(show.title)}\n"
-            f"Имя: <b>{h(display_name)}</b>\n"
+            f"Полное имя: <b>{h(attendee_name)}</b>\n"
             f"Освободилось мест: {party}\n"
             f"Заполнено: <b>{occupied_seats} / {show.max_seats}</b>",
         )

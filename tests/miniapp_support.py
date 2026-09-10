@@ -60,8 +60,8 @@ def _valid_show_payload():
 
 
 class _Request(dict):
-    def __init__(self, *, show_id: int, user_id: int, is_admin: bool = False, body=None):
-        super().__init__(miniapp_user_id=user_id, miniapp_is_admin=is_admin)
+    def __init__(self, *, show_id: int, user_id: int, is_admin: bool = False, is_super_admin: bool = False, body=None):
+        super().__init__(miniapp_user_id=user_id, miniapp_is_admin=is_admin, miniapp_is_super_admin=is_super_admin)
         self.match_info = {"show_id": str(show_id)}
         self.query = {}
         self.content_length = None

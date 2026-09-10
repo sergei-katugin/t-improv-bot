@@ -17,12 +17,10 @@ export function useAppResume(callback: () => void, enabled = true) {
     const onVisibilityChange = () => { if (document.visibilityState === "visible") refresh(); };
     const telegram = window.Telegram?.WebApp;
     document.addEventListener("visibilitychange", onVisibilityChange);
-    window.addEventListener("focus", refresh);
     window.addEventListener("pageshow", refresh);
     telegram?.onEvent("activated", refresh);
     return () => {
       document.removeEventListener("visibilitychange", onVisibilityChange);
-      window.removeEventListener("focus", refresh);
       window.removeEventListener("pageshow", refresh);
       telegram?.offEvent("activated", refresh);
     };

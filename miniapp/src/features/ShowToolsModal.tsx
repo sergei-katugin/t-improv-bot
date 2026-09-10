@@ -1,18 +1,19 @@
 import React from "react";
 import { Alert, Anchor, Autocomplete, Badge, Button, Collapse, FileInput, Group, Loader, Modal, NumberInput, Paper, Progress, Select, SimpleGrid, Skeleton, Stack, Switch, Tabs, Text, Textarea, TextInput, Title } from "@mantine/core";
-import { DateTimePicker } from "@mantine/dates";
-import { notifications } from "@mantine/notifications";
 import { BottomActionBar, RootNavigation } from "../components/BottomActionBar";
 import { ShowNavigation } from "../components/ShowNavigation";
 import { AppearanceSettings } from "../components/AppearanceSettings";
 import { ShowStepper } from "../components/ShowStepper";
+import { AppDateTimePicker } from "../components/AppDateTimePicker";
 import { api, authenticatedBlob } from "../lib/api";
+import { showNotification } from "../lib/notifications";
 import { telegramConfirm, telegramHaptic } from "../lib/telegram";
 import { useAppResume } from "../hooks/useAppResume";
 import type { AccessUser, Attendees, AuditItem, Me, Options, Promotion, RegistrationChatOption, Show, ShowFormValue, ThemePreference } from "../types";
 
-export function ShowToolsModal({ mode, opened, onClose, show, registrationUrl, demo, backHandlerRef, onEdit, onAnalytics, onAnnouncement, onChanged, onDeleted }: {
+export function ShowToolsModal({ mode, opened, onClose, show, registrationUrl, demo, canDeleteActive = false, backHandlerRef, onEdit, onAnalytics, onAnnouncement, onChanged, onDeleted }: {
   mode: "all" | "chat" | "registration"; opened: boolean; onClose: () => void; show: Show; registrationUrl: string; demo: boolean;
+  canDeleteActive?: boolean;
   backHandlerRef: React.MutableRefObject<(() => boolean) | null>;
   onEdit: () => void; onAnalytics: () => void; onAnnouncement: () => void; onChanged: (show: Show) => void; onDeleted: () => void;
 }) {
@@ -27,7 +28,6 @@ export function ShowToolsModal({ mode, opened, onClose, show, registrationUrl, d
   const [disconnectChatConfirm, setDisconnectChatConfirm] = React.useState(false);
   const [chatTarget, setChatTarget] = React.useState("");
   const [savedChats, setSavedChats] = React.useState<RegistrationChatOption[]>([]);
-  const [chatNameMode, setChatNameMode] = React.useState<"short" | "full">(show.registrationChatNameMode ?? "short");
   const [tasks, setTasks] = React.useState<{ key: string; label: string; description?: string; count: number }[]>([]);
   const [section, setSection] = React.useState<"menu" | "chat" | "registration" | "clone">("menu");
 
@@ -58,8 +58,8 @@ export function ShowToolsModal({ mode, opened, onClose, show, registrationUrl, d
   async function copyLink() {
     try {
       await navigator.clipboard.writeText(registrationUrl);
-      notifications.show({ color: "green", title: "Ссылка скопирована", message: "Её можно вставить в любой пост или сообщение" });
-    } catch { notifications.show({ color: "red", title: "Не удалось скопировать", message: registrationUrl }); }
+      showNotification({ color: "green", title: "Ссылка скопирована", message: "Её можно вставить в любой пост или сообщение" });
+    } catch { showNotification({ color: "red", title: "Не удалось скопировать", message: registrationUrl }); }
   }
 
   async function downloadQr() {
@@ -71,8 +71,8 @@ export function ShowToolsModal({ mode, opened, onClose, show, registrationUrl, d
         const link = document.createElement("a"); link.href = url; link.download = `show-${show.id}-qr.png`; link.click();
         URL.revokeObjectURL(url);
       }
-      notifications.show({ color: "green", title: "QR-код готов", message: demo ? "В демо скачивание отключено" : "PNG сохранён на устройство" });
-    } catch (reason) { notifications.show({ color: "red", title: "Не удалось получить QR", message: (reason as Error).message }); }
+      showNotification({ color: "green", title: "QR-код готов", message: demo ? "В демо скачивание отключено" : "PNG сохранён на устройство" });
+    } catch (reason) { showNotification({ color: "red", title: "Не удалось получить QR", message: (reason as Error).message }); }
     finally { setBusy(null); }
   }
 
@@ -80,9 +80,9 @@ export function ShowToolsModal({ mode, opened, onClose, show, registrationUrl, d
     setBusy("clone");
     try {
       const result = await api<{ id: number }>(`/api/miniapp/shows/${show.id}/clone`, { method: "POST", body: JSON.stringify({ showDateLocal: cloneDate }) });
-      notifications.show({ color: "green", title: "Копия создана", message: `Новая афиша #${result.id} сохранена на выбранную дату` });
+      showNotification({ color: "green", title: "Копия создана", message: `Новая афиша #${result.id} сохранена на выбранную дату` });
       onClose();
-    } catch (reason) { notifications.show({ color: "red", title: "Не удалось создать копию", message: (reason as Error).message }); }
+    } catch (reason) { showNotification({ color: "red", title: "Не удалось создать копию", message: (reason as Error).message }); }
     finally { setBusy(null); }
   }
 
@@ -91,8 +91,8 @@ export function ShowToolsModal({ mode, opened, onClose, show, registrationUrl, d
     try {
       const result = demo ? { sent: 12, failed: 0 } : await api<{ sent: number; failed: number }>(`/api/miniapp/shows/${show.id}/cancel`, { method: "POST", body: JSON.stringify({ confirmed: true }) });
       onChanged({ ...show, isActive: false }); setCancelConfirm(false); onClose();
-      notifications.show({ color: result.failed ? "yellow" : "green", title: "Афиша отменена", message: `Уведомления: доставлено ${result.sent}, ошибок ${result.failed}` });
-    } catch (reason) { notifications.show({ color: "red", title: "Не удалось отменить афишу", message: (reason as Error).message }); }
+      showNotification({ color: result.failed ? "yellow" : "green", title: "Афиша отменена", message: `Уведомления: доставлено ${result.sent}, ошибок ${result.failed}` });
+    } catch (reason) { showNotification({ color: "red", title: "Не удалось отменить афишу", message: (reason as Error).message }); }
     finally { setBusy(null); }
   }
 
@@ -101,8 +101,8 @@ export function ShowToolsModal({ mode, opened, onClose, show, registrationUrl, d
     try {
       if (!demo) await api(`/api/miniapp/shows/${show.id}/restore`, { method: "POST" });
       onChanged({ ...show, isActive: true }); onClose();
-      notifications.show({ color: "green", title: "Афиша восстановлена", message: "Запись снова доступна" });
-    } catch (reason) { notifications.show({ color: "red", title: "Не удалось восстановить", message: (reason as Error).message }); }
+      showNotification({ color: "green", title: "Афиша восстановлена", message: "Запись снова доступна" });
+    } catch (reason) { showNotification({ color: "red", title: "Не удалось восстановить", message: (reason as Error).message }); }
     finally { setBusy(null); }
   }
 
@@ -111,18 +111,18 @@ export function ShowToolsModal({ mode, opened, onClose, show, registrationUrl, d
     try {
       if (!demo) await api(`/api/miniapp/shows/${show.id}`, { method: "DELETE" });
       setDeleteConfirm(false); onDeleted();
-      notifications.show({ color: "green", title: "Афиша удалена", message: "Связанные данные удалены" });
-    } catch (reason) { notifications.show({ color: "red", title: "Не удалось удалить", message: (reason as Error).message }); }
+      showNotification({ color: "green", title: "Афиша удалена", message: "Связанные данные удалены" });
+    } catch (reason) { showNotification({ color: "red", title: "Не удалось удалить", message: (reason as Error).message }); }
     finally { setBusy(null); }
   }
 
   async function saveRegistrationChat() {
     setBusy("chat");
     try {
-      const result = await api<{ id: number; title: string; nameMode: "short" | "full" }>(`/api/miniapp/shows/${show.id}/registration-chat`, { method: "PUT", body: JSON.stringify({ target: chatTarget, nameMode: chatNameMode }) });
+      const result = await api<{ id: number; title: string; nameMode: "full" }>(`/api/miniapp/shows/${show.id}/registration-chat`, { method: "PUT", body: JSON.stringify({ target: chatTarget }) });
       onChanged({ ...show, registrationChatId: result.id, registrationChatTitle: result.title, registrationChatNameMode: result.nameMode });
-      setChatTarget(""); notifications.show({ color: "green", title: "Рабочий чат подключён", message: result.title });
-    } catch (reason) { notifications.show({ color: "red", title: "Не удалось подключить чат", message: (reason as Error).message }); }
+      setChatTarget(""); showNotification({ color: "green", title: "Рабочий чат подключён", message: result.title });
+    } catch (reason) { showNotification({ color: "red", title: "Не удалось подключить чат", message: (reason as Error).message }); }
     finally { setBusy(null); }
   }
 
@@ -132,8 +132,8 @@ export function ShowToolsModal({ mode, opened, onClose, show, registrationUrl, d
       await api(`/api/miniapp/shows/${show.id}/registration-chat`, { method: "DELETE" });
       onChanged({ ...show, registrationChatId: null, registrationChatTitle: null });
       setDisconnectChatConfirm(false);
-      notifications.show({ color: "green", title: "Рабочий чат отключён", message: "Уведомления о записях больше не отправляются" });
-    } catch (reason) { notifications.show({ color: "red", title: "Не удалось отключить чат", message: (reason as Error).message }); }
+      showNotification({ color: "green", title: "Рабочий чат отключён", message: "Уведомления о записях больше не отправляются" });
+    } catch (reason) { showNotification({ color: "red", title: "Не удалось отключить чат", message: (reason as Error).message }); }
     finally { setBusy(null); }
   }
 
@@ -142,14 +142,14 @@ export function ShowToolsModal({ mode, opened, onClose, show, registrationUrl, d
     try {
       const result = await api<{ confirmed: number }>(`/api/miniapp/shows/${show.id}/manual-notifications/confirm`, { method: "POST" });
       setTasks((current) => current.filter((item) => item.key !== "manual_notifications"));
-      notifications.show({ color: "green", title: "Отмечено", message: `Уведомлены вручную: ${result.confirmed}` });
-    } catch (reason) { notifications.show({ color: "red", title: "Не удалось сохранить", message: (reason as Error).message }); }
+      showNotification({ color: "green", title: "Отмечено", message: `Уведомлены вручную: ${result.confirmed}` });
+    } catch (reason) { showNotification({ color: "red", title: "Не удалось сохранить", message: (reason as Error).message }); }
     finally { setBusy(null); }
   }
 
   function openTask(key: string) {
     if (key === "announcement" || key === "repeat_announcement") { onClose(); onAnnouncement(); }
-    else if (key === "show_responsible" || key === "auto_close") { onClose(); onEdit(); }
+    else if (key === "show_responsible") { onClose(); onEdit(); }
     else if (key === "registration_chat") setSection("chat");
     else if (key === "manual_notifications") void confirmManualNotifications();
   }
@@ -165,11 +165,11 @@ export function ShowToolsModal({ mode, opened, onClose, show, registrationUrl, d
       {!show.isPast && !show.hasPublished && <button className="tools-menu-action" onClick={onAnalytics}><span><b>Аналитика</b><small>Записи, посещаемость и отзывы</small></span><span>→</span></button>}
       {!show.isPast && <button className="tools-menu-action" onClick={() => setSection("registration")}><span><b>Ссылка и QR</b><small>Для самостоятельной записи зрителей</small></span><span>→</span></button>}
       <button className="tools-menu-action" onClick={() => setSection("clone")}><span><b>Создать копию</b><small>Новая афиша с теми же данными</small></span><span>→</span></button>
-      {show.isPast ? <button className="tools-menu-action danger" onClick={() => setDeleteConfirm(true)}><span><b>Удалить навсегда</b><small>Удалить афишу и связанные данные</small></span><span>→</span></button> : show.isActive ? <button className="tools-menu-action danger" onClick={() => setCancelConfirm(true)}><span><b>Отменить афишу</b><small>Закрыть запись и уведомить зрителей</small></span><span>→</span></button> : <><button className="tools-menu-action" onClick={() => void restoreShow()}><span><b>Восстановить афишу</b><small>Снова открыть запись</small></span><span>→</span></button><button className="tools-menu-action danger" onClick={() => setDeleteConfirm(true)}><span><b>Удалить навсегда</b><small>Удалить афишу и связанные данные</small></span><span>→</span></button></>}
+      {show.isPast ? <button className="tools-menu-action danger" onClick={() => setDeleteConfirm(true)}><span><b>Удалить навсегда</b><small>Удалить афишу и связанные данные</small></span><span>→</span></button> : show.isActive ? <><button className="tools-menu-action danger" onClick={() => setCancelConfirm(true)}><span><b>Отменить афишу</b><small>Закрыть запись и уведомить зрителей</small></span><span>→</span></button>{canDeleteActive && <button className="tools-menu-action danger" onClick={() => setDeleteConfirm(true)}><span><b>Удалить навсегда</b><small>Доступно только суперадмину</small></span><span>→</span></button>}</> : <><button className="tools-menu-action" onClick={() => void restoreShow()}><span><b>Восстановить афишу</b><small>Снова открыть запись</small></span><span>→</span></button><button className="tools-menu-action danger" onClick={() => setDeleteConfirm(true)}><span><b>Удалить навсегда</b><small>Удалить афишу и связанные данные</small></span><span>→</span></button></>}
     </Stack>}
     {section === "chat" && <Stack><Text size="sm" c="dimmed">Сюда бот будет отправлять сообщения о новых записях.</Text>{show.registrationChatId ? <Paper className="resource-card"><Text fw={750}>{show.registrationChatTitle || show.registrationChatId}</Text><Text size="sm" c="dimmed">Чат подключён</Text></Paper> : <><Text size="sm" c="dimmed">Добавь админ-бота в группу или канал — чат автоматически появится в списке.</Text><Select clearable label="Мои чаты" placeholder={savedChats.length ? "Выбери чат" : "Подключённых чатов пока нет"} value={chatTarget || null} onChange={(value) => setChatTarget(value ?? "")} data={savedChats.map((chat) => ({ value: String(chat.id), label: chat.title }))} /></>}</Stack>}
     {section === "registration" && <Stack><Text size="sm" c="dimmed">Ссылка открывает публичного бота сразу на записи на это шоу. QR-код содержит ту же ссылку.</Text><Paper className="resource-card"><Text size="sm" style={{ wordBreak: "break-all" }}>{registrationUrl}</Text></Paper><Group className="announcement-actions" grow wrap="nowrap"><Button variant="light" onClick={() => void copyLink()}>Копировать</Button><Button className="primary" loading={busy === "qr"} onClick={() => void downloadQr()}>Скачать QR</Button></Group></Stack>}
-    {section === "clone" && <Stack><Text size="sm" c="dimmed">Будет создана новая неопубликованная афиша с теми же данными.</Text><TextInput type="datetime-local" label="Дата и время новой афиши" value={cloneDate} onChange={(event) => setCloneDate(event.currentTarget.value)} /></Stack>}
+    {section === "clone" && <Stack><Text size="sm" c="dimmed">Будет создана новая неопубликованная афиша с теми же данными.</Text><AppDateTimePicker label="Дата и время новой афиши" value={cloneDate} onChange={setCloneDate} /></Stack>}
     {section === "chat" && <BottomActionBar>{show.registrationChatId ? <Button color="red" variant="light" fullWidth loading={busy === "chat"} onClick={() => setDisconnectChatConfirm(true)}>Отключить чат</Button> : <Button className="primary" fullWidth disabled={!chatTarget.trim()} loading={busy === "chat"} onClick={() => void saveRegistrationChat()}>Подключить чат</Button>}</BottomActionBar>}
     {section === "clone" && <BottomActionBar><Button className="primary" fullWidth loading={busy === "clone"} onClick={() => void clone()}>Создать копию</Button></BottomActionBar>}
     {(section === "menu" || section === "registration") && <ShowNavigation show={show} active={section === "menu" ? "more" : "registration"} onShow={onClose} onEdit={onEdit} onAnnouncement={onAnnouncement} onAnalytics={onAnalytics} onRegistration={() => setSection("registration")} onMore={() => setSection("menu")} />}

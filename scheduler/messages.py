@@ -53,10 +53,10 @@ def _registrar_line(show) -> str | None:
 
 
 _ANN_HEADERS = {
-    "7d": "🎭 Через неделю:",
-    "2d": "🎭 Через два дня:",
-    "1d": "🎭 Завтра:",
-    "0d": "🎭 Сегодня!",
+    "7d": "Через неделю",
+    "2d": "Через два дня",
+    "1d": "Завтра",
+    "0d": "Сегодня!",
 }
 
 _REGISTER_NOTE = "👆 Нажми кнопку — и твоё место сразу запомнится!"
@@ -70,38 +70,34 @@ def build_announcement_text(
     attendee_line: str | None = None,
     include_registration: bool = True,
 ) -> str:
-    if ann_type is None:
-        header = f"🎭 <b>{h(show.title)}</b>"
-    else:
-        prefix = _ANN_HEADERS.get(ann_type, "🎭")
-        header = f"{prefix} <b>{h(show.title)}</b>"
-
     poster = show.poster_text or ""
     poster_has_date = bool(DATE_RE.search(poster))
     poster_has_maps = bool(MAPS_RE.search(poster))
+    team_name = getattr(show, "team_name", None)
+    header = (
+        f"🎭 <b>Команда {h(team_name)} представляет шоу {h(show.title)}</b>"
+        if team_name else f"🎭 <b>Шоу {h(show.title)}</b>"
+    )
 
     lines = [header]
-    if getattr(show, "team_name", None):
-        lines.append(f"👥 Команда: {h(show.team_name)}")
+    if ann_type is not None:
+        lines.append(f"⏳ {_ANN_HEADERS.get(ann_type, ann_type)}")
     if not poster_has_date:
         lines.append(f"📅 {_fmt_date(show.show_date)}")
     lines.append(_location_line(show, plain=poster_has_maps))
-    if seats_left is not None:
-        lines.append(f"🪑 Свободных мест: {seats_left}/{show.max_seats}")
     if include_registration:
         registrar_line = _registrar_line(show)
         if registrar_line:
             lines.append(registrar_line)
-    if attendee_line:
-        lines.append(attendee_line)
 
     if poster:
         lines.append("")
         lines.append(h(poster))
 
+    if attendee_line:
+        lines.extend(["", attendee_line])
     if ann_type is not None:
-        lines.append("")
-        lines.append(_REGISTER_NOTE)
+        lines.extend(["", _REGISTER_NOTE])
 
     return "\n".join(lines)
 

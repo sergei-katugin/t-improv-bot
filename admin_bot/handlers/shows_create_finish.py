@@ -206,7 +206,7 @@ async def confirm_create(callback: CallbackQuery, state: FSMContext, bot: Bot, p
         registrar_id=data.get("registrar_id"),
         registrar_username=data.get("registrar_username"),
         checkin_enabled=bool(data.get("checkin_enabled", False)),
-        feedback_enabled=bool(data.get("feedback_enabled", False)),
+        feedback_enabled=bool(data.get("feedback_enabled", True)),
     )
     logger.info("admin %s created show id=%s title=%s", tg_id, show.id, data.get('title'))
 

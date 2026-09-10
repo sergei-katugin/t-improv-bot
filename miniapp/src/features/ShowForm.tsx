@@ -1,27 +1,23 @@
 import React from "react";
 import { Alert, Anchor, Autocomplete, Badge, Button, Collapse, FileInput, Group, Loader, Modal, NumberInput, Paper, Progress, Select, SimpleGrid, Skeleton, Stack, Switch, Tabs, Text, Textarea, TextInput, Title } from "@mantine/core";
-import { DateTimePicker } from "@mantine/dates";
-import { notifications } from "@mantine/notifications";
 import { BottomActionBar, RootNavigation } from "../components/BottomActionBar";
 import { ShowNavigation } from "../components/ShowNavigation";
 import { AppearanceSettings } from "../components/AppearanceSettings";
 import { ShowStepper } from "../components/ShowStepper";
+import { AppDateTimePicker } from "../components/AppDateTimePicker";
+import { PosterPreviewImage } from "../components/PosterPreviewImage";
+import { ShowAutomationSwitches } from "../components/ShowAutomationSwitches";
 import { api, authenticatedBlob } from "../lib/api";
+import { showNotification } from "../lib/notifications";
 import { telegramConfirm, telegramHaptic } from "../lib/telegram";
 import { useAppResume } from "../hooks/useAppResume";
 import type { AccessUser, Attendees, AuditItem, Me, Options, Promotion, RegistrationChatOption, Show, ShowFormValue, ThemePreference } from "../types";
 import { invalidTelegramUsername } from "../lib/validation";
 
-export function oneHourBefore(localDateTime: string): string {
-  const date = new Date(localDateTime);
-  if (Number.isNaN(date.getTime())) return "";
-  return new Date(date.getTime() - 60 * 60 * 1000 - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
-}
-
 export function newShowForm(): ShowFormValue {
   const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
   const local = new Date(tomorrow.getTime() - tomorrow.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
-  return { title: "", teamName: "", showDateLocal: local, location: "", locationUrl: "", city: "Лимасол", posterText: "", maxSeats: 50, maxGuests: 6, registrationClosesAt: oneHourBefore(local), registrarUsername: "", checkinEnabled: false, feedbackEnabled: false };
+  return { title: "", teamName: "", showDateLocal: local, location: "", locationUrl: "", city: "Лимасол", posterText: "", maxSeats: 50, maxGuests: 6, registrarUsername: "", checkinEnabled: false, feedbackEnabled: true };
 }
 
 function formFromShow(show: Show): ShowFormValue {
@@ -29,7 +25,6 @@ function formFromShow(show: Show): ShowFormValue {
     title: show.title, teamName: show.teamName, showDateLocal: show.showDateLocal ?? "",
     location: show.location, locationUrl: show.locationUrl ?? "", city: show.city,
     posterText: show.posterText ?? "", maxSeats: show.maxSeats, maxGuests: show.maxGuests ?? 6,
-    registrationClosesAt: show.registrationClosesAt ?? "",
     registrarUsername: show.registrarUsername ? `@${show.registrarUsername}` : "",
     checkinEnabled: show.checkinEnabled ?? false, feedbackEnabled: show.feedbackEnabled ?? false,
   };
@@ -55,7 +50,6 @@ export function ShowForm({ opened, initial, options, me, reloadOptions, onClose,
   const [notifyConfirmOpened, setNotifyConfirmOpened] = React.useState(false);
   const [chatTarget, setChatTarget] = React.useState("");
   const [savedChats, setSavedChats] = React.useState<RegistrationChatOption[]>([]);
-  const [chatNameMode, setChatNameMode] = React.useState<"short" | "full">("short");
   const [verifiedChat, setVerifiedChat] = React.useState<{ id: number; title: string; target: string } | null>(null);
   const [checkingChat, setCheckingChat] = React.useState(false);
   const [chatSetupOpened, setChatSetupOpened] = React.useState(false);
@@ -81,7 +75,7 @@ export function ShowForm({ opened, initial, options, me, reloadOptions, onClose,
     if (venue) nextValue.locationUrl = venue.mapsUrl ?? "";
     setValue(nextValue);
     setVenueId(venue ? String(venue.id) : initial ? "__custom__" : null);
-    setPoster(null); setNotifyConfirmOpened(false); setChatTarget(""); setChatNameMode("short"); setVerifiedChat(null); setChatSetupOpened(false); setPreviewOpened(false); setTeamDropdownOpened(false); setActiveStep(0);
+    setPoster(null); setNotifyConfirmOpened(false); setChatTarget(""); setVerifiedChat(null); setChatSetupOpened(false); setPreviewOpened(false); setTeamDropdownOpened(false); setActiveStep(0);
     if (!initial) void loadRegistrationChats();
   }, [opened, initial, options.venues, loadRegistrationChats]);
   useAppResume(() => { void loadRegistrationChats(); }, opened && !initial);
@@ -105,15 +99,7 @@ export function ShowForm({ opened, initial, options, me, reloadOptions, onClose,
   ];
   const stepLabels = ["Основное", "Место", "Запись", "Афиша"];
 
-  function changeShowDate(next: string) {
-    setValue((current) => ({
-      ...current,
-      showDateLocal: next,
-      registrationClosesAt: current.registrationClosesAt === oneHourBefore(current.showDateLocal)
-        ? oneHourBefore(next)
-        : current.registrationClosesAt,
-    }));
-  }
+  function changeShowDate(next: string) { set("showDateLocal", next); }
 
   function showPayload(): ShowFormValue {
     return selectedVenue
@@ -137,7 +123,7 @@ export function ShowForm({ opened, initial, options, me, reloadOptions, onClose,
       setTeamDropdownOpened(false);
       setTeamModal(false); setNewTeamName(""); setNewTeamMembers("");
       await reloadOptions();
-    } catch (reason) { notifications.show({ color: "red", title: "Не удалось создать команду", message: (reason as Error).message }); }
+    } catch (reason) { showNotification({ color: "red", title: "Не удалось создать команду", message: (reason as Error).message }); }
     finally { setSaving(false); }
   }
 
@@ -149,7 +135,7 @@ export function ShowForm({ opened, initial, options, me, reloadOptions, onClose,
       setValue((current) => ({ ...current, location: newVenueName.trim(), city: newVenueCity.trim(), locationUrl: newVenueUrl.trim(), maxSeats: newVenueSeats }));
       setVenueModal(false); setNewVenueName(""); setNewVenueUrl("");
       await reloadOptions();
-    } catch (reason) { notifications.show({ color: "red", title: "Не удалось создать площадку", message: (reason as Error).message }); }
+    } catch (reason) { showNotification({ color: "red", title: "Не удалось создать площадку", message: (reason as Error).message }); }
     finally { setSaving(false); }
   }
 
@@ -160,16 +146,16 @@ export function ShowForm({ opened, initial, options, me, reloadOptions, onClose,
     try {
       const result = await api<{ id: number; title: string }>("/api/miniapp/registration-chat/verify", { method: "POST", body: JSON.stringify({ target }) });
       setVerifiedChat({ ...result, target });
-      notifications.show({ color: "green", title: "Чат проверен", message: `${result.title}: бот подключён` });
+      showNotification({ color: "green", title: "Чат проверен", message: `${result.title}: бот подключён` });
     } catch (reason) {
       setVerifiedChat(null);
-      notifications.show({ color: "red", title: "Чат не прошёл проверку", message: (reason as Error).message });
+      showNotification({ color: "red", title: "Чат не прошёл проверку", message: (reason as Error).message });
     } finally { setCheckingChat(false); }
   }
 
   async function save(notifyViewers: boolean) {
     if (!initial && chatTarget.trim() && verifiedChat?.target !== chatTarget.trim()) {
-      notifications.show({ color: "red", title: "Сначала проверь чат записей", message: "Бот должен быть добавлен в выбранный чат" });
+      showNotification({ color: "red", title: "Сначала проверь чат записей", message: "Бот должен быть добавлен в выбранный чат" });
       return;
     }
     setSaving(true);
@@ -182,7 +168,7 @@ export function ShowForm({ opened, initial, options, me, reloadOptions, onClose,
       let chatError: Error | null = null;
       if (!initial && verifiedChat) {
         try {
-          await api(`/api/miniapp/shows/${result.id}/registration-chat`, { method: "PUT", body: JSON.stringify({ target: String(verifiedChat.id), nameMode: chatNameMode }) });
+          await api(`/api/miniapp/shows/${result.id}/registration-chat`, { method: "PUT", body: JSON.stringify({ target: String(verifiedChat.id) }) });
         } catch (reason) {
           chatError = reason as Error;
         }
@@ -195,12 +181,12 @@ export function ShowForm({ opened, initial, options, me, reloadOptions, onClose,
           posterError = reason as Error;
         }
       }
-      notifications.show(posterError || chatError
+      showNotification(posterError || chatError
         ? { color: "yellow", title: initial ? "Афиша обновлена частично" : "Афиша создана частично", message: [posterError && "Изображение не загружено", chatError && "Чат записей не подключён"].filter(Boolean).join(" · ") }
         : { color: "gray", title: initial ? "Афиша обновлена" : "Афиша создана", message: "Изменения сохранены" });
       onSaved(result.id);
     } catch (reason) {
-      notifications.show({ color: "red", title: "Не удалось сохранить", message: (reason as Error).message });
+      showNotification({ color: "red", title: "Не удалось сохранить", message: (reason as Error).message });
     } finally { setSaving(false); }
   }
 
@@ -222,7 +208,7 @@ export function ShowForm({ opened, initial, options, me, reloadOptions, onClose,
         {activeStep === 0 && <>
         <TextInput required label="Название" value={value.title} onChange={(e) => set("title", e.currentTarget.value)} maxLength={256} />
         <Select required searchable allowDeselect={false} label="Команда" data={[...options.teams.map((team) => ({ value: team.name, label: team.name })), { value: "__new__", label: "＋ Добавить новую команду" }]} value={value.teamName || null} dropdownOpened={teamDropdownOpened} onDropdownOpen={() => setTeamDropdownOpened(true)} onDropdownClose={() => setTeamDropdownOpened(false)} onChange={(next) => { setTeamDropdownOpened(false); if (next === "__new__") setTeamModal(true); else set("teamName", next ?? ""); }} />
-        <DateTimePicker required size="lg" dropdownType="modal" label="Дата и время" valueFormat="D MMMM YYYY, HH:mm" locale="ru" minDate={new Date().toISOString().slice(0, 10)} value={value.showDateLocal.replace("T", " ")} onChange={(next) => changeShowDate(next?.replace(" ", "T") ?? "")} timePickerProps={{ minutesStep: 5 }} clearable={false} className="large-date-picker" />
+        <AppDateTimePicker required label="Дата и время" value={value.showDateLocal} onChange={changeShowDate} />
         </>}
         {activeStep === 1 && <>
         <Select required searchable allowDeselect={false} label="Площадка" placeholder="Выбери площадку" data={[...options.venues.map((venue) => ({ value: String(venue.id), label: `${venue.name} · ${venue.city}` })), ...(initial && venueId === "__custom__" ? [{ value: "__custom__", label: `${value.location} · ${value.city}` }] : []), ...(me?.role === "admin" ? [{ value: "__new__", label: "＋ Добавить новую площадку" }] : [])]} value={venueId} onChange={selectVenue} />
@@ -242,7 +228,6 @@ export function ShowForm({ opened, initial, options, me, reloadOptions, onClose,
           description={registrarIsValid ? <Anchor href={`https://t.me/${normalizedRegistrar.slice(1)}`} target="_blank" size="xs">Проверить профиль в Telegram ↗</Anchor> : "Можно выбрать участника любой команды или ввести другой ник"}
         />
         <NumberInput label="Максимум дополнительных гостей" description="Сколько гостей один зритель может добавить к своей записи" min={0} max={6} value={value.maxGuests} onChange={(next) => set("maxGuests", typeof next === "number" ? next : 0)} />
-        <TextInput type="datetime-local" label="Закрыть запись автоматически" description="По умолчанию — за час до шоу. После этого новые записи и изменения гостей станут недоступны" value={value.registrationClosesAt} max={value.showDateLocal} onChange={(event) => set("registrationClosesAt", event.currentTarget.value)} />
         {!initial && <Paper className="venue-summary optional-section"><Stack gap="sm">
           <div>
             <Text fw={700}>Чат записей</Text>
@@ -260,17 +245,15 @@ export function ShowForm({ opened, initial, options, me, reloadOptions, onClose,
           <Collapse expanded={chatSetupOpened}><Stack gap="sm" pt="xs">
             <Text size="sm" c="dimmed">Добавь админ-бота в группу или канал. Он подтвердит подключение сообщением, а чат автоматически появится здесь. Если Telegram не прислал событие, отправь в группе <b>/connect_chat</b>.</Text>
             <Select clearable label="Мои чаты" placeholder={savedChats.length ? "Выбери чат" : "Сначала добавь админ-бота в чат"} value={chatTarget || null} onChange={(next) => { setChatTarget(next ?? ""); setVerifiedChat(null); }} data={savedChats.map((chat) => ({ value: String(chat.id), label: chat.title }))} />
-            <Select label="Как показывать имя" value={chatNameMode} onChange={(next) => setChatNameMode((next as "short" | "full") ?? "short")} data={[{ value: "short", label: "Сокращённо" }, { value: "full", label: "Полностью" }]} />
             <Button type="button" variant="light" disabled={!chatTarget.trim()} loading={checkingChat} onClick={() => void verifyRegistrationChat()}>{verifiedChat ? `Проверено: ${verifiedChat.title} ✓` : "Проверить выбранный чат"}</Button>
           </Stack></Collapse>
         </Stack></Paper>}
         </>}
         {activeStep === 3 && <>
         <Textarea label="Текст афиши" autosize minRows={5} maxLength={1800} value={value.posterText} onChange={(e) => set("posterText", e.currentTarget.value)} />
-        <FileInput accept="image/jpeg,image/png,image/webp" label="Изображение афиши" description={initial?.hasPoster ? "Выбери файл, чтобы заменить текущее изображение" : "JPEG, PNG или WebP, до 8 МБ"} value={poster} onChange={setPoster} clearable />
-        <Switch label="Включить check-in" checked={value.checkinEnabled} onChange={(e) => set("checkinEnabled", e.currentTarget.checked)} />
-        <Switch label="Запрашивать отзывы после шоу" checked={value.feedbackEnabled} onChange={(e) => set("feedbackEnabled", e.currentTarget.checked)} />
-        <div className="optional-section"><Button type="button" fullWidth variant="light" onClick={() => setPreviewOpened((opened) => !opened)} aria-expanded={previewOpened}>{previewOpened ? "Скрыть предпросмотр" : "Показать предпросмотр"}</Button><Collapse expanded={previewOpened}><Paper className="telegram-preview"><Text size="xs" fw={800} c="dimmed">ПРЕДПРОСМОТР</Text><Title order={3}>🎭 {value.title || "Название шоу"}</Title><Text>👥 Команда: {value.teamName || "не выбрана"}</Text><Text>📅 {value.showDateLocal ? new Date(value.showDateLocal).toLocaleString("ru-RU", { dateStyle: "long", timeStyle: "short" }) : "дата не выбрана"}</Text><Text>📍 {selectedVenue?.name || value.location || "площадка не выбрана"}, {selectedVenue?.city || value.city}</Text>{value.registrarUsername && <Text>👤 Ответственный: {value.registrarUsername}</Text>}{value.posterText && <Text mt="sm" style={{ whiteSpace: "pre-wrap" }}>{value.posterText}</Text>}</Paper></Collapse></div>
+        <FileInput accept="image/jpeg,image/png,image/webp" label="Изображение афиши" description={initial?.hasPoster ? "Выбери файл, чтобы заменить текущее изображение" : "JPEG, PNG или WebP, до 8 МБ"} value={poster} onChange={(file) => { setPoster(file); if (file) setPreviewOpened(true); }} clearable />
+        <ShowAutomationSwitches feedbackEnabled={value.feedbackEnabled} checkinEnabled={value.checkinEnabled} onFeedbackChange={(checked) => set("feedbackEnabled", checked)} onCheckinChange={(checked) => set("checkinEnabled", checked)} />
+        <div className="optional-section"><Button type="button" fullWidth variant="light" onClick={() => setPreviewOpened((opened) => !opened)} aria-expanded={previewOpened}>{previewOpened ? "Скрыть предпросмотр" : "Показать предпросмотр"}</Button><Collapse expanded={previewOpened}><Paper className="telegram-preview"><PosterPreviewImage file={poster} showId={initial?.id} hasExisting={initial?.hasPoster} /><Text size="xs" fw={800} c="dimmed">ПРЕДПРОСМОТР</Text><Title order={3}>🎭 {value.title || "Название шоу"}</Title><Text>👥 Команда: {value.teamName || "не выбрана"}</Text><Text>📅 {value.showDateLocal ? new Date(value.showDateLocal).toLocaleString("ru-RU", { dateStyle: "long", timeStyle: "short" }) : "дата не выбрана"}</Text><Text>📍 {selectedVenue?.name || value.location || "площадка не выбрана"}, {selectedVenue?.city || value.city}</Text>{value.registrarUsername && <Text>👤 Ответственный: {value.registrarUsername}</Text>}{value.posterText && <Text mt="sm" style={{ whiteSpace: "pre-wrap" }}>{value.posterText}</Text>}</Paper></Collapse></div>
         </>}
       </Stack>
       <BottomActionBar><Group grow wrap="nowrap">{activeStep > 0 && <Button type="button" variant="default" onClick={() => setActiveStep((step) => step - 1)}>Назад</Button>}<Button type="submit" className="primary" fullWidth loading={saving} size="md" disabled={!stepValid[activeStep]}>{activeStep < 3 ? "Далее" : initial ? "Сохранить изменения" : "Создать афишу"}</Button></Group></BottomActionBar>

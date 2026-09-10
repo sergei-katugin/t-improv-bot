@@ -7,7 +7,7 @@ import { AnnouncementModal } from "./AnnouncementModal";
 import { AttendeesModal } from "./AttendeesModal";
 import { AnalyticsModal } from "../components/AnalyticsModal";
 import { ManagementModal } from "./ManagementModal";
-import { newShowForm, oneHourBefore, ShowForm } from "./ShowForm";
+import { newShowForm, ShowForm } from "./ShowForm";
 import { ShowToolsModal } from "./ShowToolsModal";
 
 const wrapper = ({ children }: { children: ReactNode }) => <MantineProvider>{children}</MantineProvider>;
