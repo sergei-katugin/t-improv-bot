@@ -1,3 +1,5 @@
+import asyncio
+
 from tests.miniapp_support import *
 
 
@@ -163,6 +165,16 @@ async def test_test_announcement_is_sent_only_to_current_miniapp_user(monkeypatc
         assert "Тестовый анонс" in bot.send_photo.await_args.kwargs["caption"]
         assert bot.send_photo.await_args.kwargs["reply_markup"].inline_keyboard[0][0].url.endswith(f"show_{show_id}")
         bot.send_message.assert_not_awaited()
+
+        async def timeout(_awaitable, timeout):
+            assert timeout == 15
+            _awaitable.close()
+            raise asyncio.TimeoutError
+
+        monkeypatch.setattr(asyncio, "wait_for", timeout)
+        with pytest.raises(web.HTTPGatewayTimeout) as error:
+            await miniapp_api.miniapp_send_test_announcement(request)
+        assert "15 секунд" in json.loads(error.value.text)["message"]
     finally:
         await engine.dispose()
 
