@@ -67,8 +67,10 @@ def _registration_privacy_note(data: dict) -> str:
     mode = data.get("registration_chat_name_mode")
     if not mode:
         return ""
-    visibility = "полностью" if mode == "full" else "в сокращённом виде"
-    return f"\n\n🔐 Имя будет видно уполномоченным организаторам {visibility}."
+    return (
+        "\n\n🔐 В закрытом рабочем чате организаторы увидят полное имя, "
+        "Telegram-ник и Telegram ID — это нужно для восстановления записи."
+    )
 
 
 async def _notify_registration_chat(
@@ -78,15 +80,24 @@ async def _notify_registration_chat(
     guests: int,
     source: str | None,
     occupied_seats: int,
+    telegram_user: User | None = None,
 ) -> None:
     if not getattr(show, "registration_chat_id", None):
         return
     party = 1 + guests
-    display_name = attendee_name
-    if getattr(show, "registration_chat_name_mode", "short") != "full":
-        parts = attendee_name.split()
-        display_name = parts[0] + (f" {parts[1][0]}." if len(parts) > 1 and parts[1] else "")
     source_line = f"\nИсточник: {h(source)}" if source else ""
+    if telegram_user is None:
+        telegram_lines = "\nTelegram: не указан\nTelegram ID: не указан"
+    else:
+        username = getattr(telegram_user, "username", None)
+        username_line = (
+            f'<a href="https://t.me/{h(username.lstrip("@"))}">@{h(username.lstrip("@"))}</a>'
+            if username else "не указан"
+        )
+        telegram_lines = (
+            f"\nTelegram: {username_line}"
+            f"\nTelegram ID: <code>{telegram_user.telegram_id}</code>"
+        )
     builder = InlineKeyboardBuilder()
     try:
         builder.button(
@@ -99,7 +110,7 @@ async def _notify_registration_chat(
             show.registration_chat_id,
             f"👤 <b>Новая запись</b>\n"
             f"🎭 {h(show.title)}\n"
-            f"Имя: <b>{h(display_name)}</b>\n"
+            f"Полное имя: <b>{h(attendee_name)}</b>{telegram_lines}\n"
             f"Мест в записи: {party}\n"
             f"Заполнено: <b>{occupied_seats} / {show.max_seats}</b>{source_line}",
             reply_markup=builder.as_markup() if builder.buttons else None,

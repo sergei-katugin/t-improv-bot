@@ -6,7 +6,7 @@ from datetime import datetime, time, timedelta
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from aiogram import Bot
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
+from aiogram.types import LinkPreviewOptions
 from sqlalchemy import func, select
 from public_bot.keyboards.inline import attendance_kb, feedback_kb, reminder_cancel_kb
 
@@ -17,6 +17,11 @@ from html_utils import h
 from telegram_delivery import send_with_retry
 from time_utils import format_local, local_date, local_naive_to_utc, local_now
 from scheduler.setup import configure_scheduler
+from scheduler.reminder_failures import (
+    _maybe_remind_manual_attendees,
+    needs_failure_report,
+    report_failed_personal_reminders,
+)
 
 logger = get_project_logger(__name__)
 
@@ -144,17 +149,17 @@ async def _run_announcement_check(public_bot: Bot, admin_bot: Bot) -> None:
             days_left = (local_date(show.show_date) - today).days
             if days_left == 7:
                 await _maybe_send_channel(session, public_bot, admin_bot, show, "7d")
-                await _maybe_send_personal(session, public_bot, show, 7)
+                await _maybe_send_personal(session, public_bot, admin_bot, show, 7)
             elif days_left == 2:
                 await _maybe_send_channel(session, public_bot, admin_bot, show, "2d")
-                await _maybe_send_personal(session, public_bot, show, 2)
+                await _maybe_send_personal(session, public_bot, admin_bot, show, 2)
             elif days_left == 1:
                 await _maybe_send_channel(session, public_bot, admin_bot, show, "1d")
-                await _maybe_send_personal(session, public_bot, show, 1)
+                await _maybe_send_personal(session, public_bot, admin_bot, show, 1)
                 await _maybe_remind_manual_attendees(session, admin_bot, show)
             elif days_left == 0:
                 await _maybe_send_channel(session, public_bot, admin_bot, show, "0d")
-                await _maybe_send_personal(session, public_bot, show, 0)
+                await _maybe_send_personal(session, public_bot, admin_bot, show, 0)
 
 
 async def _maybe_send_channel(session, public_bot: Bot, admin_bot: Bot, show, ann_type: str) -> None:
@@ -170,7 +175,7 @@ async def _maybe_send_channel(session, public_bot: Bot, admin_bot: Bot, show, an
         logger.exception("Failed to send channel announcement for show %s", show.id)
 
 
-async def _maybe_send_personal(session, bot: Bot, show, days: int) -> None:
+async def _maybe_send_personal(session, bot: Bot, admin_bot: Bot, show, days: int) -> None:
     intros = {
         7: "🔔 До шоу осталась неделя!",
         2: "🔔 До шоу осталось два дня!",
@@ -217,6 +222,7 @@ async def _maybe_send_personal(session, bot: Bot, show, days: int) -> None:
             return None
 
     sent = 0
+    failed = []
     after_id = 0
     query_batch_size = 50
     send_batch_size = 5
@@ -238,57 +244,17 @@ async def _maybe_send_personal(session, bot: Bot, show, days: int) -> None:
             batch = regs[start:start + send_batch_size]
             results = await asyncio.gather(*(send_one(reg) for reg in batch))
             sent_ids.extend(reg_id for reg_id in results if reg_id is not None)
+            failed.extend(
+                reg for reg, result in zip(batch, results)
+                if result is None and needs_failure_report(reg, days)
+            )
         await crud.mark_reminded_many(session, sent_ids, days)
         sent += len(sent_ids)
-    logger.info("Sent %dd personal reminders for show %s to %s users", days, show.id, sent)
-
-
-async def _maybe_remind_manual_attendees(session, admin_bot: Bot, show) -> None:
-    """Ask the organizer to contact attendees whom the public bot cannot message."""
-    if not getattr(show, "registration_chat_id", None):
-        return
-    attendees = await crud.get_pending_manual_attendees_for_reminder(
-        session, show.id, limit=100
-    )
-    if not attendees:
-        return
-    await session.commit()
-    names = "\n".join(
-        f"• {h(item.name)}" + (f" — {h(item.contact)}" if item.contact else " — контакт не указан")
-        for item in attendees
-    )
-    if len(names) > 3200:
-        names = names[:3200].rsplit("\n", 1)[0] + "\n• …остальные — в списке зрителей"
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(
-            text="✅ Уведомил(а) всех",
-            callback_data=f"adm_s:manual_notified:{show.id}",
-        )
-    ]])
     try:
-        await send_with_retry(
-            admin_bot.send_message,
-            show.registration_chat_id,
-            f"📣 <b>Нужно уведомить вручную</b>\n\n"
-            f"Завтра шоу «{h(show.title)}». Бот не может написать этим зрителям, "
-            f"потому что они добавлены не через Telegram:\n\n{names}\n\n"
-            "Свяжись с ними в той соцсети, где они записались, затем отметь задачу выполненной.",
-            reply_markup=keyboard,
-        )
-        await crud.mark_manual_attendees_reminded(session, [item.id for item in attendees])
+        await report_failed_personal_reminders(session, admin_bot, show, failed, days)
     except Exception:
-        logger.exception("failed to remind organizer about manual attendees show_id=%s", show.id)
-        creator = getattr(show, "creator", None)
-        if creator is not None:
-            try:
-                await send_with_retry(
-                    admin_bot.send_message,
-                    creator.telegram_id,
-                    f"⚠️ Не удалось отправить задачу в чат записей шоу «{h(show.title)}». "
-                    "Проверь права бота в этом чате.",
-                )
-            except Exception:
-                logger.exception("failed to alert creator about registration chat show_id=%s", show.id)
+        logger.exception("Failed to report undelivered reminders for show %s", show.id)
+    logger.info("Sent %dd personal reminders for show %s to %s users", days, show.id, sent)
 
 
 from scheduler.messages import DATE_RE, MAPS_RE, TIME_RE, _fmt_date, _location_line

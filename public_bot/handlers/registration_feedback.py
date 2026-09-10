@@ -10,8 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db import crud
 from db.models import User
 from admin_bot.callbacks import AdminShowActionCb
-from public_bot.keyboards.inline import confirm_registration_kb, show_detail_kb, registration_success_kb, guests_kb, attendance_kb, calendar_kb, registrar_username
-from public_bot.callbacks import RegisterCb, ConfirmRegCb, GuestsCb, GuestsCustomCb, RemindToggleCb, EditGuestsCb, AttendanceCb, CalendarCb, FeedbackCb, WaitlistCb
+from public_bot.keyboards.inline import confirm_registration_kb, show_detail_kb, registration_success_kb, guests_kb, attendance_kb, calendar_kb, registrar_username, optional_feedback_comment_kb, cancel_feedback_comment_kb
+from public_bot.callbacks import RegisterCb, ConfirmRegCb, GuestsCb, GuestsCustomCb, RemindToggleCb, EditGuestsCb, AttendanceCb, CalendarCb, FeedbackCb, FeedbackCommentCb, WaitlistCb
 from html_utils import h
 from time_utils import format_local, utc_now
 
@@ -68,22 +68,55 @@ async def submit_feedback_rating(
         await callback.answer("Сейчас оставить отзыв для этого шоу нельзя.", show_alert=True)
         return
     await crud.save_feedback(session, callback_data.show_id, db_user.id, callback_data.rating)
-    await state.set_state(RegisterFSM.feedback_comment)
-    await state.update_data(feedback_show_id=callback_data.show_id, feedback_rating=callback_data.rating)
+    await state.clear()
     await callback.answer("Спасибо!")
     await callback.message.edit_text(
         f"Спасибо за оценку {callback_data.rating} ⭐\n\n"
-        "Если хочешь, напиши короткий комментарий. Чтобы пропустить, отправь /skip."
+        "Оценка сохранена — на этом всё.",
+        reply_markup=optional_feedback_comment_kb(
+            callback_data.show_id, callback_data.rating,
+        ),
     )
+
+
+@router.callback_query(FeedbackCommentCb.filter(F.action == "add"))
+async def start_feedback_comment(
+    callback: CallbackQuery,
+    callback_data: FeedbackCommentCb,
+    state: FSMContext,
+    db_user: User,
+    session: AsyncSession,
+):
+    if callback_data.rating not in range(1, 6) or not await crud.can_submit_feedback(
+        session, callback_data.show_id, db_user.id,
+    ):
+        await callback.answer("Сейчас добавить комментарий нельзя.", show_alert=True)
+        return
+    await state.set_state(RegisterFSM.feedback_comment)
+    await state.update_data(
+        feedback_show_id=callback_data.show_id,
+        feedback_rating=callback_data.rating,
+    )
+    await callback.answer()
+    await callback.message.edit_text(
+        "Комментарий необязателен. Если хочешь дополнить оценку, отправь его одним сообщением.",
+        reply_markup=cancel_feedback_comment_kb(
+            callback_data.show_id, callback_data.rating,
+        ),
+    )
+
+
+@router.callback_query(FeedbackCommentCb.filter(F.action == "cancel"))
+async def cancel_feedback_comment(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.answer()
+    await callback.message.edit_text("Спасибо! Оценка сохранена ⭐")
 
 
 @router.message(RegisterFSM.feedback_comment, F.text)
 async def submit_feedback_comment(message: Message, state: FSMContext, db_user: User, session: AsyncSession):
     data = await state.get_data()
     await state.clear()
-    if message.text.strip() == "/skip":
-        await message.answer("Спасибо за обратную связь! 🎭")
-        return
     show_id = data.get("feedback_show_id")
     rating = data.get("feedback_rating")
     if not isinstance(show_id, int) or rating not in range(1, 6):

@@ -100,6 +100,10 @@ class Registration(Base):
     reminded_2d = Column(Boolean, default=False, nullable=False)
     reminded_1d = Column(Boolean, default=False, nullable=False)
     reminded_0d = Column(Boolean, default=False, nullable=False)
+    reminder_failure_reported_7d = Column(Boolean, default=False, nullable=False)
+    reminder_failure_reported_2d = Column(Boolean, default=False, nullable=False)
+    reminder_failure_reported_1d = Column(Boolean, default=False, nullable=False)
+    reminder_failure_reported_0d = Column(Boolean, default=False, nullable=False)
     confirmed = Column(Boolean, nullable=True)
     guests = Column(Integer, default=0, nullable=False)
     source = Column(String(64), nullable=True)
@@ -289,4 +293,3 @@ class AnnouncementLog(Base):
     )
 
     show = relationship("Show", back_populates="announcement_logs")
-

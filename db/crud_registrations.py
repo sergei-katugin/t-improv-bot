@@ -116,6 +116,10 @@ async def register_user_safe(
         existing.reminded_2d = False
         existing.reminded_1d = False
         existing.reminded_0d = False
+        existing.reminder_failure_reported_7d = False
+        existing.reminder_failure_reported_2d = False
+        existing.reminder_failure_reported_1d = False
+        existing.reminder_failure_reported_0d = False
         existing.confirmed = None
         existing.source = source or existing.source
         reg = existing

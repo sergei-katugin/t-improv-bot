@@ -188,35 +188,6 @@ async def test_channel_announcement_is_not_sent_twice(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_reminders_mark_only_successful_deliveries(monkeypatch):
-    show = SimpleNamespace(id=42, title="Show", show_date=utc_now() + timedelta(days=1),
-                           location="Venue", city="City", location_url=None)
-    good = SimpleNamespace(id=1, user=SimpleNamespace(telegram_id=100))
-    blocked = SimpleNamespace(id=2, user=SimpleNamespace(telegram_id=200))
-    monkeypatch.setattr(
-        jobs.crud, "get_registrations_for_reminder",
-        AsyncMock(side_effect=[[good, blocked], []]),
-    )
-    monkeypatch.setattr(jobs.crud, "get_last_channel_message_id", AsyncMock(return_value=None))
-    mark = AsyncMock()
-    monkeypatch.setattr(jobs.crud, "mark_reminded_many", mark)
-    bot = AsyncMock()
-
-    async def send_message(chat_id, *args, **kwargs):
-        if chat_id == 200:
-            raise RuntimeError("bot blocked")
-
-    bot.send_message.side_effect = send_message
-    await jobs._maybe_send_personal(AsyncMock(), bot, show, 1)
-
-    assert mark.await_args.args[1] == [1]
-    reminder_markup = bot.send_message.await_args_list[0].kwargs["reply_markup"]
-    cancel_button = reminder_markup.inline_keyboard[0][0]
-    assert cancel_button.text == "Не получается — отменить запись"
-    assert cancel_button.callback_data == "pub_cancel:42"
-
-
-@pytest.mark.asyncio
 async def test_reconciliation_waits_for_configured_local_hour(monkeypatch):
     before_hour = datetime(2026, 8, 30, jobs.settings.REMINDER_HOUR_LOCAL - 1, 59)
     monkeypatch.setattr(jobs, "local_now", lambda: before_hour)

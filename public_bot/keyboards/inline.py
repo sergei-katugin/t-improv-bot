@@ -9,7 +9,7 @@ from time_utils import format_local, utc_now, utc_to_local
 from public_bot.callbacks import (
     ShowCb, RegisterCb, ConfirmRegCb, CancelRegCb,
     EditGuestsCb, GuestsCb, GuestsCustomCb, RemindToggleCb, AttendanceCb,
-    CalendarCb, FeedbackCb, WaitlistCb, ShowsPageCb,
+    CalendarCb, FeedbackCb, FeedbackCommentCb, WaitlistCb, ShowsPageCb,
 )
 
 
@@ -184,6 +184,28 @@ def feedback_kb(show_id: int) -> InlineKeyboardMarkup:
     for rating in range(1, 6):
         builder.button(text=f"{rating} ⭐", callback_data=FeedbackCb(show_id=show_id, rating=rating).pack())
     builder.adjust(5)
+    return builder.as_markup()
+
+
+def optional_feedback_comment_kb(show_id: int, rating: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="✍️ Добавить комментарий (необязательно)",
+        callback_data=FeedbackCommentCb(
+            show_id=show_id, rating=rating, action="add",
+        ).pack(),
+    )
+    return builder.as_markup()
+
+
+def cancel_feedback_comment_kb(show_id: int, rating: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="Отмена",
+        callback_data=FeedbackCommentCb(
+            show_id=show_id, rating=rating, action="cancel",
+        ).pack(),
+    )
     return builder.as_markup()
 
 

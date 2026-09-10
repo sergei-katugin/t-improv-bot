@@ -132,6 +132,8 @@ async def test_manual_attendee_reminder_success_and_creator_fallback(monkeypatch
     monkeypatch.setattr(jobs.crud, "mark_manual_attendees_reminded", AsyncMock())
     await jobs._maybe_remind_manual_attendees(session, bot, show)
     jobs.crud.mark_manual_attendees_reminded.assert_awaited_once_with(session, [1])
+    assert "не может отправить" in bot.send_message.await_args.args[1]
+    assert "Анна" in bot.send_message.await_args.args[1]
 
     bot.send_message.reset_mock()
     bot.send_message.side_effect = [RuntimeError("chat"), None]

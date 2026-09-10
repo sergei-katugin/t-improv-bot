@@ -20,6 +20,7 @@ from admin_bot.keyboards.inline import checkin_counter_kb, checkin_kb, checkin_m
 from admin_bot.keyboards.reply import registration_channel_picker_kb, registrations_context_kb, show_context_kb
 from admin_bot.callbacks import AdminCheckinCb, AdminManualCheckinCb, AdminPartyCountCb, AdminShowActionCb
 from admin_bot.security import checkin_accessible_show, deny, manageable_show
+from admin_bot.telegram_usernames import normalize_telegram_username
 from html_utils import h
 
 logger = get_project_logger(__name__)
@@ -103,10 +104,20 @@ async def process_chat_manual_contact(message: Message, state: FSMContext):
         return
     data = await state.get_data()
     source = data.get("manual_contact_source")
-    if source in {"telegram", "instagram"}:
+    telegram_username = None
+    if source == "telegram":
+        telegram_username = normalize_telegram_username(contact)
+        if telegram_username is None:
+            await message.answer("Неверный Telegram-ник. Пришли его в формате <code>@username</code>.")
+            return
+        contact = f"@{telegram_username}"
+    elif source == "instagram":
         contact = "@" + contact.lstrip("@").strip()
     label = {"telegram": "Telegram", "instagram": "Instagram", "other": "Другое"}.get(source, "Контакт")
-    await state.update_data(manual_contact=f"{label}: {contact}")
+    await state.update_data(
+        manual_contact=f"{label}: {contact}",
+        manual_telegram_username=telegram_username,
+    )
     await state.set_state(AddManualFSM.chat_guests)
     await message.answer("Сколько дополнительных гостей придёт с этим человеком? Отправь число от 0 до 50.")
 
@@ -130,23 +141,44 @@ async def process_chat_manual_guests(message: Message, state: FSMContext, sessio
     if guests > show.max_guests:
         await message.answer(f"Для этого шоу можно добавить не больше {show.max_guests} гостей.")
         return
-    count = await crud.add_manual_attendees(
-        session,
-        show_id,
-        [data["manual_name"]],
-        source=data.get("manual_contact_source", "social"),
-        contacts=[data["manual_contact"]],
-        guests=[guests],
-    )
+    telegram_user = None
+    telegram_username = data.get("manual_telegram_username")
+    if telegram_username:
+        telegram_user = await crud.get_user_by_username(session, telegram_username)
+
+    if telegram_user is not None:
+        registration = await crud.register_user_safe(
+            session,
+            show_id,
+            telegram_user.id,
+            data["manual_name"],
+            guests,
+            source="registration_chat",
+        )
+        count = int(registration is not None)
+    else:
+        count = await crud.add_manual_attendees(
+            session,
+            show_id,
+            [data["manual_name"]],
+            source=data.get("manual_contact_source", "social"),
+            contacts=[data["manual_contact"]],
+            guests=[guests],
+        )
     await state.clear()
     await state.update_data(current_show_id=show_id, reply_context="show")
     if count == 0:
         occupied = await crud.count_active_registrations(session, show_id)
         await message.answer(f"😔 Не хватает мест: свободно {max(0, show.max_seats - occupied)}.", reply_markup=show_context_kb())
         return
+    reminder_note = (
+        "\n🔔 Пользователь найден в боте и добавлен в автоматические напоминания."
+        if telegram_user is not None else
+        "\n📣 Напомню в этом чате, что зрителя нужно уведомить вручную."
+    )
     await message.answer(
         f"✅ Добавлен {h(data['manual_name'])}{f' +{guests}' if guests else ''}.\n"
-        f"Связь: {h(data['manual_contact'])}",
+        f"Связь: {h(data['manual_contact'])}{reminder_note}",
         reply_markup=show_context_kb(),
     )
     logger.info("added manual attendee from registration chat show_id=%s by admin=%s", show_id, message.from_user.id)

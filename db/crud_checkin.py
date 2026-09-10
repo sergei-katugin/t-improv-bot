@@ -16,7 +16,7 @@ logger = get_project_logger(__name__)
 
 from db.crud_registrations import get_registration
 
-__all__ = ['mark_reminded', 'mark_reminded_many', 'set_confirmed', 'toggle_registration_checkin', 'toggle_manual_attendee_checkin', 'set_registration_checkin_count', 'set_manual_checkin_count']
+__all__ = ['mark_reminded', 'mark_reminded_many', 'mark_reminder_failures_reported', 'set_confirmed', 'toggle_registration_checkin', 'toggle_manual_attendee_checkin', 'set_registration_checkin_count', 'set_manual_checkin_count']
 
 
 async def mark_reminded(session: AsyncSession, reg_id: int, days: int) -> None:
@@ -36,6 +36,23 @@ async def mark_reminded_many(session: AsyncSession, reg_ids: list[int], days: in
         update(Registration)
         .where(Registration.id.in_(reg_ids))
         .values({field: True})
+    )
+    await session.commit()
+
+
+async def mark_reminder_failures_reported(
+    session: AsyncSession, reg_ids: list[int], days: int
+) -> None:
+    if not reg_ids:
+        return
+    field = {
+        0: "reminder_failure_reported_0d",
+        1: "reminder_failure_reported_1d",
+        2: "reminder_failure_reported_2d",
+        7: "reminder_failure_reported_7d",
+    }[days]
+    await session.execute(
+        update(Registration).where(Registration.id.in_(reg_ids)).values({field: True})
     )
     await session.commit()
 

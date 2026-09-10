@@ -258,9 +258,8 @@ async def confirm_registration(callback: CallbackQuery, callback_data: ConfirmRe
             f'<a href="https://t.me/{h(username)}">@{h(username)}</a>.'
         )
     privacy_note = (
-        "Полное имя будет видно организаторам в закрытом рабочем канале."
-        if show.registration_chat_id and show.registration_chat_name_mode == "full"
-        else "Организаторы увидят имя в сокращённом виде."
+        "В закрытом рабочем чате организаторы увидят полное имя, Telegram-ник "
+        "и Telegram ID — это нужно для восстановления записи."
         if show.registration_chat_id else ""
     )
     if privacy_note:
@@ -277,6 +276,6 @@ async def confirm_registration(callback: CallbackQuery, callback_data: ConfirmRe
     )
     occupied_seats = await crud.count_active_registrations(session, show_id)
     await _notify_registration_chat(
-        admin_bot, show, attendee_name, guests, source, occupied_seats
+        admin_bot, show, attendee_name, guests, source, occupied_seats, db_user
     )
     logger.info("user %s registered id=%s show_id=%s attendee=%s guests=%s", db_user.id, reg.id, show_id, attendee_name, guests)
