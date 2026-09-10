@@ -2,6 +2,7 @@ import React from "react";
 import { Alert, Anchor, Autocomplete, Badge, Button, Collapse, FileInput, Group, Loader, Modal, NumberInput, Paper, Progress, Select, SimpleGrid, Skeleton, Stack, Switch, Tabs, Text, Textarea, TextInput, Title } from "@mantine/core";
 import { DateTimePicker } from "@mantine/dates";
 import { BottomActionBar, RootNavigation } from "../components/BottomActionBar";
+import { PosterPreviewImage } from "../components/PosterPreviewImage";
 import { ShowNavigation } from "../components/ShowNavigation";
 import { AppearanceSettings } from "../components/AppearanceSettings";
 import { ShowStepper } from "../components/ShowStepper";
@@ -82,7 +83,7 @@ export function AnnouncementModal({ opened, onClose, show, demo, onEdit, onAnaly
   return <Modal opened={opened} onClose={onClose} title="Предпросмотр анонса" fullScreen classNames={{ close: "fullscreen-modal-close" }}>
     <Stack gap="md">
       {loading && <Skeleton height={240} radius="lg" />}
-      {!loading && <Paper className="telegram-preview" dangerouslySetInnerHTML={{ __html: html }} />}
+      {!loading && <Paper className="telegram-preview"><PosterPreviewImage file={null} showId={show.id} hasExisting={promotion?.hasPoster} /><div dangerouslySetInnerHTML={{ __html: html }} /></Paper>}
       {!loading && promotion && <Paper className="resource-form"><Stack>
         <Title order={3}>Публикация</Title>
         {!promotion.hasPublished ?

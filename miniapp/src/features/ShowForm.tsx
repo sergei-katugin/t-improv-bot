@@ -196,7 +196,7 @@ export function ShowForm({ opened, initial, options, me, reloadOptions, onClose,
       if (stepValid[activeStep]) setActiveStep((step) => step + 1);
       return;
     }
-    if (initial) setNotifyConfirmOpened(true);
+    if (initial?.hasPublished) setNotifyConfirmOpened(true);
     else void save(false);
   }
 
