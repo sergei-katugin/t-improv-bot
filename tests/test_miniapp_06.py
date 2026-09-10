@@ -14,6 +14,8 @@ async def test_valid_poster_upload_is_checked_sent_and_saved(monkeypatch):
             show = Show(title="Poster", team_name="T", show_date=utc_now() + timedelta(days=1), location="V", city="C", max_seats=20, creator_id=owner.id)
             session.add(show); await session.commit(); owner_id, show_id = owner.id, show.id
         monkeypatch.setattr(miniapp_api, "AsyncSessionLocal", sessions)
+        optimized = b"optimized-jpeg"
+        monkeypatch.setattr("miniapp_media._optimized_poster_bytes", lambda content: optimized)
         # A valid 1x1 PNG keeps the test independent of filesystem fixtures.
         png = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
 
@@ -34,21 +36,10 @@ async def test_valid_poster_upload_is_checked_sent_and_saved(monkeypatch):
         bot.send_photo.return_value = SimpleNamespace(message_id=5, photo=[SimpleNamespace(file_id="new-file")])
         request.app = {miniapp_api.ADMIN_BOT_KEY: bot}
 
-        class FakeImage:
-            format = "PNG"
-            width = height = 1
-            DecompressionBombError = RuntimeError
-            def __enter__(self): return self
-            def __exit__(self, *_args): return None
-            def verify(self): return None
-            @classmethod
-            def open(cls, _stream): return cls()
-
-        fake_pil = SimpleNamespace(Image=FakeImage, UnidentifiedImageError=ValueError)
-        monkeypatch.setitem(sys.modules, "PIL", fake_pil)
-
         response = await miniapp_api.miniapp_upload_poster(request)
         assert json.loads(response.text) == {"hasPoster": True}
+        uploaded = bot.send_photo.await_args.args[1]
+        assert uploaded.filename == "poster.jpg" and uploaded.data == optimized
         async with sessions() as session:
             assert (await session.get(Show, show_id)).poster_file_id == "new-file"
     finally:

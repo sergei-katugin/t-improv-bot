@@ -3,6 +3,38 @@ from miniapp_common import *
 from miniapp_helpers import _json_body, _manageable_api_show, _record_audit, _require_admin, _show_id
 
 
+POSTER_MAX_SIDE = 1600
+POSTER_JPEG_QUALITY = 84
+
+
+class InvalidPosterError(ValueError):
+    pass
+
+
+def _optimized_poster_bytes(content: bytes) -> bytes:
+    from PIL import Image, ImageOps, UnidentifiedImageError
+
+    try:
+        with Image.open(io.BytesIO(content)) as source:
+            if source.format not in {"JPEG", "PNG", "WEBP"} or source.width * source.height > MAX_POSTER_PIXELS:
+                raise InvalidPosterError
+            source.verify()
+        with Image.open(io.BytesIO(content)) as source:
+            image = ImageOps.exif_transpose(source)
+            image.thumbnail((POSTER_MAX_SIDE, POSTER_MAX_SIDE), Image.Resampling.LANCZOS)
+            if image.mode in {"RGBA", "LA"}:
+                background = Image.new("RGB", image.size, "white")
+                background.paste(image, mask=image.getchannel("A"))
+                image = background
+            elif image.mode != "RGB":
+                image = image.convert("RGB")
+            output = io.BytesIO()
+            image.save(output, format="JPEG", quality=POSTER_JPEG_QUALITY, optimize=True)
+            return output.getvalue()
+    except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError) as exc:
+        raise InvalidPosterError from exc
+
+
 async def miniapp_upload_poster(request: web.Request) -> web.Response:
     show_id = _show_id(request)
     async with AsyncSessionLocal() as session:
@@ -28,13 +60,9 @@ async def miniapp_upload_poster(request: web.Request) -> web.Response:
             raise web.HTTPRequestEntityTooLarge(max_size=MAX_POSTER_BYTES, actual_size=len(content))
     if not content:
         raise web.HTTPBadRequest(text=json.dumps({"error": "empty_poster"}), content_type="application/json")
-    from PIL import Image, UnidentifiedImageError
     try:
-        with Image.open(io.BytesIO(content)) as image:
-            if image.format not in {"JPEG", "PNG", "WEBP"} or image.width * image.height > MAX_POSTER_PIXELS:
-                raise ValueError
-            image.verify()
-    except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError):
+        optimized = _optimized_poster_bytes(bytes(content))
+    except InvalidPosterError:
         logger.warning("Poster upload rejected: invalid image content_type=%s size=%s", content_type or "missing", len(content))
         raise web.HTTPBadRequest(
             text=json.dumps({"error": "invalid_poster"}), content_type="application/json",
@@ -42,7 +70,7 @@ async def miniapp_upload_poster(request: web.Request) -> web.Response:
     bot = request.app[ADMIN_BOT_KEY]
     message = await bot.send_photo(
         creator_telegram_id,
-        BufferedInputFile(bytes(content), filename=part.filename or "poster.jpg"),
+        BufferedInputFile(optimized, filename="poster.jpg"),
     )
     file_id = message.photo[-1].file_id
     try:
@@ -160,4 +188,3 @@ async def miniapp_update_access_user(request: web.Request) -> web.Response:
         {"role": target_role, "telegramId": target_telegram_id},
     )
     return web.json_response({"id": target_id, "role": target_role})
-

@@ -59,15 +59,28 @@ async def miniapp_send_test_announcement(request: web.Request) -> web.Response:
     ]])
     bot = request.app[ADMIN_BOT_KEY]
     chat_id = request["miniapp_telegram_id"]
-    if show.poster_file_id and len(text) <= 1024:
-        await send_with_retry(
-            bot.send_photo, chat_id, show.poster_file_id,
-            caption=text, reply_markup=keyboard,
-        )
-    else:
+    async def send_test() -> None:
+        if show.poster_file_id and len(text) <= 1024:
+            await send_with_retry(
+                bot.send_photo, chat_id, show.poster_file_id,
+                caption=text, reply_markup=keyboard,
+            )
+            return
         if show.poster_file_id:
             await send_with_retry(bot.send_photo, chat_id, show.poster_file_id)
         await send_with_retry(bot.send_message, chat_id, text, reply_markup=keyboard)
+
+    try:
+        await asyncio.wait_for(send_test(), timeout=15)
+    except asyncio.TimeoutError:
+        logger.warning("Test announcement timed out show_id=%s has_poster=%s", show_id, bool(show.poster_file_id))
+        raise web.HTTPGatewayTimeout(
+            text=json.dumps({
+                "error": "telegram_timeout",
+                "message": "Telegram не ответил за 15 секунд. Попробуй отправить тест ещё раз.",
+            }),
+            content_type="application/json",
+        )
     return web.json_response({"sent": True})
 
 
