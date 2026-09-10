@@ -1,12 +1,12 @@
 import React from "react";
 import { Alert, Anchor, Autocomplete, Badge, Button, Collapse, FileInput, Group, Loader, Modal, NumberInput, Paper, Progress, Select, SimpleGrid, Skeleton, Stack, Switch, Tabs, Text, Textarea, TextInput, Title } from "@mantine/core";
 import { DateTimePicker } from "@mantine/dates";
-import { notifications } from "@mantine/notifications";
 import { BottomActionBar, RootNavigation } from "../components/BottomActionBar";
 import { ShowNavigation } from "../components/ShowNavigation";
 import { AppearanceSettings } from "../components/AppearanceSettings";
 import { ShowStepper } from "../components/ShowStepper";
 import { api, authenticatedBlob } from "../lib/api";
+import { showNotification } from "../lib/notifications";
 import { telegramConfirm, telegramHaptic } from "../lib/telegram";
 import { sanitizeTelegramHtml } from "../lib/sanitizeTelegramHtml";
 import { useAppResume } from "../hooks/useAppResume";
@@ -34,7 +34,7 @@ export function AnnouncementModal({ opened, onClose, show, demo, onEdit, onAnaly
         setPromotion(preview);
         setHtml(sanitizeTelegramHtml(preview.html.split("\n").join("<br>")));
       }
-    } catch (reason) { notifications.show({ color: "red", title: "Не удалось открыть предпросмотр", message: (reason as Error).message }); }
+    } catch (reason) { showNotification({ color: "red", title: "Не удалось открыть предпросмотр", message: (reason as Error).message }); }
     finally { setLoading(false); }
   }, [demo, show]);
 
@@ -56,8 +56,8 @@ export function AnnouncementModal({ opened, onClose, show, demo, onEdit, onAnaly
       setPromotion((current) => current ? { ...current, hasPublished: true } : current);
       onPublished();
       setRepeatConfirm(false);
-      notifications.show({ color: "green", title: repeat ? "Анонс отправлен повторно" : "Анонс опубликован", message: "Пост отправлен в основной канал с кнопкой записи" });
-    } catch (reason) { notifications.show({ color: "red", title: "Не удалось опубликовать", message: (reason as Error).message }); }
+      showNotification({ color: "green", title: repeat ? "Анонс отправлен повторно" : "Анонс опубликован", message: "Пост отправлен в основной канал с кнопкой записи" });
+    } catch (reason) { showNotification({ color: "red", title: "Не удалось опубликовать", message: (reason as Error).message }); }
     finally { setPublishing(false); }
   }
 
@@ -65,17 +65,17 @@ export function AnnouncementModal({ opened, onClose, show, demo, onEdit, onAnaly
     if (!promotion) return;
     try {
       await navigator.clipboard.writeText(promotion.text);
-      notifications.show({ color: "green", title: "Текст и ссылка скопированы", message: "Можно вставить их в соцсеть, канал или чат" });
-    } catch { notifications.show({ color: "red", title: "Не удалось скопировать", message: "Выдели текст анонса вручную" }); }
+      showNotification({ color: "green", title: "Текст и ссылка скопированы", message: "Можно вставить их в соцсеть, канал или чат" });
+    } catch { showNotification({ color: "red", title: "Не удалось скопировать", message: "Выдели текст анонса вручную" }); }
   }
 
   async function sendTestAnnouncement() {
     setSendingTest(true);
     try {
       if (!demo) await api(`/api/miniapp/shows/${show.id}/promotion/test`, { method: "POST" });
-      notifications.show({ color: "green", title: "Тест отправлен", message: "Проверь личный чат с админ-ботом" });
+      showNotification({ color: "green", title: "Тест отправлен", message: "Проверь личный чат с админ-ботом" });
     } catch (reason) {
-      notifications.show({ color: "red", title: "Не удалось отправить тест", message: (reason as Error).message });
+      showNotification({ color: "red", title: "Не удалось отправить тест", message: (reason as Error).message });
     } finally { setSendingTest(false); }
   }
 

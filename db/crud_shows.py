@@ -35,7 +35,7 @@ async def create_show(
     registrar_id: int | None = None,
     registrar_username: str | None = None,
     checkin_enabled: bool = False,
-    feedback_enabled: bool = False,
+    feedback_enabled: bool = True,
 ) -> Show:
     show = Show(
         title=title,
@@ -48,7 +48,7 @@ async def create_show(
         poster_file_id=poster_file_id,
         max_seats=max_seats,
         max_guests=max_guests,
-        registration_closes_at=registration_closes_at,
+        registration_closes_at=show_date - timedelta(minutes=5),
         creator_id=creator_id,
         registrar_id=registrar_id,
         registrar_username=registrar_username,
@@ -288,6 +288,8 @@ async def update_show(session: AsyncSession, show_id: int, **fields) -> Show | N
     show = await get_show(session, show_id)
     if show is None:
         return None
+    if "show_date" in fields:
+        fields["registration_closes_at"] = fields["show_date"] - timedelta(minutes=5)
     for key, value in fields.items():
         setattr(show, key, value)
     show.updated_at = _utcnow()

@@ -190,7 +190,7 @@ async def test_registration_chat_is_notified_when_registration_is_cancelled():
     message = admin_bot.send_message.await_args.args[1]
     assert admin_bot.send_message.await_args.args[0] == -100123
     assert "Запись отменена" in message
-    assert "Sergey K." in message
+    assert "Полное имя: <b>Sergey Katugin</b>" in message
     assert "Освободилось мест: 3" in message
     assert "Заполнено: <b>14 / 80</b>" in message
 

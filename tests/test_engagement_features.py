@@ -21,9 +21,9 @@ def test_registration_discloses_name_visibility_before_confirmation():
     assert _registration_privacy_note({}) == ""
 
 
-def test_feedback_is_disabled_by_default():
+def test_feedback_is_enabled_by_default():
     assert Show().feedback_enabled is None
-    assert Show.__table__.c.feedback_enabled.default.arg is False
+    assert Show.__table__.c.feedback_enabled.default.arg is True
 
 
 def test_create_confirmation_exposes_optional_features():
@@ -46,16 +46,19 @@ def test_create_preview_hides_optional_feature_statuses():
         "location": "Theatre",
         "city": "Limassol",
         "registrar_username": "alice",
+        "poster_text": "Описание шоу",
         "checkin_enabled": False,
         "feedback_enabled": False,
     })
 
     assert "Check-in" not in preview
     assert "Отзывы после шоу" not in preview
-    assert "👥 Команда: Test &lt;Team&gt;" in preview
+    assert "Команда Test &lt;Team&gt; представляет шоу Test Show" in preview
+    assert "👥 Команда:" not in preview
     assert "👥 Записаться тут:" in preview
     assert "<b>через бота</b>" in preview
     assert "@ImprovCypEventBot</a> или у <a href=\"https://t.me/alice\">@alice</a>" in preview
+    assert preview.index("📍") < preview.index("👥 Записаться тут:") < preview.index("Описание шоу")
 
 
 def test_edit_keyboard_exposes_current_optional_feature_values():

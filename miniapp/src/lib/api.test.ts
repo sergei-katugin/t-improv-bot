@@ -25,6 +25,20 @@ describe("api", () => {
     expect(fetchMock).toHaveBeenCalledWith("/shows", expect.objectContaining({ headers: expect.objectContaining({ Authorization: "tma signed-data", "Content-Type": "application/json" }) }));
   });
 
+  it("lets the WebView set the multipart boundary for poster uploads", async () => {
+    setInitData("signed-data");
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ hasPoster: true }) });
+    vi.stubGlobal("fetch", fetchMock);
+    const form = new FormData();
+    form.append("poster", new File(["image"], "poster.jpg", { type: "image/jpeg" }));
+
+    await api("/shows/1/poster", { method: "POST", body: form });
+
+    const headers = fetchMock.mock.calls[0][1].headers;
+    expect(headers.Authorization).toBe("tma signed-data");
+    expect(headers["Content-Type"]).toBeUndefined();
+  });
+
   it("turns API field errors into a useful message", async () => {
     setInitData("signed-data");
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 422, headers: new Headers({ "X-Request-ID": "req-1" }), json: async () => ({ field: "title" }) }));

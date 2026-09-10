@@ -1,7 +1,7 @@
 import React from "react";
 import { Alert, Anchor, Badge, Button, Group, Modal, Paper, Progress, SimpleGrid, Skeleton, Stack, Text, Title } from "@mantine/core";
-import { notifications } from "@mantine/notifications";
 import { api, authenticatedBlob } from "../lib/api";
+import { showNotification } from "../lib/notifications";
 import { useAppResume } from "../hooks/useAppResume";
 import type { Analytics, Show } from "../types";
 import { ShowNavigation } from "./ShowNavigation";
@@ -30,7 +30,7 @@ export function AnalyticsModal({ opened, onClose, show, demo, onEdit, onAnnounce
     } catch (reason) {
       const message = (reason as Error).message;
       setData(null); setError(message);
-      notifications.show({ color: "red", title: "Не удалось загрузить аналитику", message });
+      showNotification({ color: "red", title: "Не удалось загрузить аналитику", message });
     } finally { setLoading(false); }
   }, [show.id, show.maxSeats, show.occupiedSeats, demo]);
 
@@ -42,7 +42,7 @@ export function AnalyticsModal({ opened, onClose, show, demo, onEdit, onAnnounce
   async function downloadCsv() {
     try {
       if (demo) {
-        notifications.show({ color: "gray", title: "Демо-режим", message: "Экспорт доступен после запуска из Telegram" });
+        showNotification({ color: "gray", title: "Демо-режим", message: "Экспорт доступен после запуска из Telegram" });
         return;
       }
       const blob = await authenticatedBlob(`/api/miniapp/shows/${show.id}/export.csv`);
@@ -53,7 +53,7 @@ export function AnalyticsModal({ opened, onClose, show, demo, onEdit, onAnnounce
       link.click();
       URL.revokeObjectURL(url);
     } catch (reason) {
-      notifications.show({ color: "red", title: "Не удалось скачать CSV", message: (reason as Error).message });
+      showNotification({ color: "red", title: "Не удалось скачать CSV", message: (reason as Error).message });
     }
   }
 

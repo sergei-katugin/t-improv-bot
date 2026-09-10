@@ -242,15 +242,9 @@ def registrations_kb(show_id: int, manual_attendees=None, can_manage: bool = Tru
     return builder.as_markup()
 
 
-def registration_chat_kb(show_id: int, configured: bool, name_mode: str = "short") -> InlineKeyboardMarkup:
+def registration_chat_kb(show_id: int, configured: bool) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     if configured:
-        builder.button(
-            text=f"👤 Имена: {'полностью' if name_mode == 'full' else 'сокращённо'}",
-            callback_data=AdminShowActionCb(
-                action="reg_name_short" if name_mode == "full" else "reg_name_full", show_id=show_id,
-            ).pack(),
-        )
         builder.button(
             text="🔌 Отключить чат",
             callback_data=AdminShowActionCb(action="reg_chat_clear", show_id=show_id).pack(),

@@ -63,7 +63,7 @@ def test_admin_attendee_and_confirmation_keyboards_cover_variants():
     _assert_valid(admin.party_count_kb(7, "registration", 1, 2, 6))
     _assert_valid(admin.registrations_kb(7, manual, True))
     _assert_valid(admin.registrations_kb(7, [], False))
-    _assert_valid(admin.registration_chat_kb(7, True, "full"))
+    _assert_valid(admin.registration_chat_kb(7, True))
     _assert_valid(admin.registration_chat_kb(7, False))
     _assert_valid(admin.confirm_kb("yes", "no"))
     _assert_valid(admin.confirm_with_back_kb("yes", "no", checkin_enabled=True, feedback_enabled=True))

@@ -2,7 +2,7 @@ from tests.miniapp_support import *
 
 
 @pytest.mark.asyncio
-async def test_cancelled_show_can_be_restored_then_deleted_by_owner(monkeypatch):
+async def test_cancelled_show_can_be_restored_then_deleted_by_super_admin(monkeypatch):
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     try:
         async with engine.begin() as connection:
@@ -14,7 +14,7 @@ async def test_cancelled_show_can_be_restored_then_deleted_by_owner(monkeypatch)
             show = Show(title="Restore", team_name="T", show_date=utc_now() + timedelta(days=1), location="V", city="C", max_seats=10, creator_id=owner.id, is_active=False)
             session.add(show); await session.commit(); show_id, owner_id = show.id, owner.id
         monkeypatch.setattr(miniapp_api, "AsyncSessionLocal", sessions)
-        request = _Request(show_id=show_id, user_id=owner_id)
+        request = _Request(show_id=show_id, user_id=owner_id, is_admin=True, is_super_admin=True)
         restored = json.loads((await miniapp_api.miniapp_restore_show(request)).text)
         assert restored["isActive"] is True
         assert (await miniapp_api.miniapp_delete_show(request)).status == 200
@@ -43,7 +43,7 @@ async def test_registration_chat_is_verified_before_it_is_saved(monkeypatch):
             get_chat_member=AsyncMock(return_value=SimpleNamespace(status="administrator", can_post_messages=True)),
             send_message=AsyncMock(),
         )
-        request = _Request(show_id=show_id, user_id=owner_id, body={"target": "@registrations", "nameMode": "full"})
+        request = _Request(show_id=show_id, user_id=owner_id, body={"target": "@registrations"})
         request.app = {miniapp_api.ADMIN_BOT_KEY: bot}
         payload = json.loads((await miniapp_api.miniapp_registration_chat(request)).text)
         assert payload == {"id": -100123, "title": "Registrations", "nameMode": "full"}
@@ -134,7 +134,7 @@ async def test_show_tasks_and_manual_notification_confirmation(monkeypatch):
         monkeypatch.setattr(miniapp_api, "AsyncSessionLocal", sessions)
         request = _Request(show_id=show_id, user_id=owner_id)
         tasks = json.loads((await miniapp_api.miniapp_show_tasks(request)).text)["items"]
-        assert {item["key"] for item in tasks} == {"announcement", "show_responsible", "auto_close", "registration_chat", "manual_notifications"}
+        assert {item["key"] for item in tasks} == {"announcement", "show_responsible", "registration_chat", "manual_notifications"}
 
         confirmed = json.loads((await miniapp_api.miniapp_confirm_manual_notifications(request)).text)
         assert confirmed == {"confirmed": 1}

@@ -105,9 +105,7 @@ async def configure_registration_chat(callback: CallbackQuery, callback_data: Ad
         "сам добавит этого бота и запросит только право публикации сообщений.\n\n"
         "Никакой @username или числовой ID искать не нужно. После подключения бот отправит тестовое сообщение."
         f"{current}",
-        reply_markup=registration_chat_kb(
-            show.id, bool(show.registration_chat_id), show.registration_chat_name_mode,
-        ),
+        reply_markup=registration_chat_kb(show.id, bool(show.registration_chat_id)),
     )
     await callback.message.answer(
         "Выбери канал системной кнопкой Telegram. Если канал не появляется, у тебя нет прав администратора в нём.",
@@ -130,6 +128,7 @@ async def _save_registration_chat(message: Message, state: FSMContext, session: 
     title = getattr(chat, "title", None) or getattr(chat, "username", None) or display_name
     await crud.update_show(
         session, show.id, registration_chat_id=chat.id, registration_chat_title=title,
+        registration_chat_name_mode="full",
     )
     await state.clear()
     await state.update_data(current_show_id=show.id, reply_context="registrations")
@@ -175,20 +174,6 @@ async def clear_registration_chat(callback: CallbackQuery, callback_data: AdminS
     await state.clear()
     await callback.answer("Чат отключён")
     await callback.message.edit_text("🔕 Уведомления о новых записях для этого шоу отключены.")
-
-
-@router.callback_query(AdminShowActionCb.filter(F.action.in_({"reg_name_short", "reg_name_full"})))
-async def change_registration_chat_name_mode(callback: CallbackQuery, callback_data: AdminShowActionCb, session: AsyncSession, is_super_admin: bool = False, db_user=None):
-    show = await manageable_show(session, callback_data.show_id, db_user, is_super_admin)
-    if show is None:
-        await deny(callback, "⛔ Нет доступа к этому шоу.")
-        return
-    mode = "full" if callback_data.action == "reg_name_full" else "short"
-    show = await crud.update_show(session, show.id, registration_chat_name_mode=mode)
-    await callback.answer("Формат имён обновлён")
-    await callback.message.edit_reply_markup(
-        reply_markup=registration_chat_kb(show.id, bool(show.registration_chat_id), mode)
-    )
 
 
 @router.callback_query(AdminShowActionCb.filter(F.action == "manual_notified"))

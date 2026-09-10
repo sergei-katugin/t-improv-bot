@@ -1,8 +1,8 @@
 import React from "react";
 import { Anchor, Button, Group, Modal, Skeleton, Stack, Text, TextInput, Title } from "@mantine/core";
-import { notifications } from "@mantine/notifications";
 import { ShowNavigation } from "../components/ShowNavigation";
 import { api } from "../lib/api";
+import { showNotification } from "../lib/notifications";
 import { useAppResume } from "../hooks/useAppResume";
 import type { Attendees, Show } from "../types";
 import { previewAttendees } from "./ManagementModal";
@@ -32,7 +32,7 @@ export function AttendeesModal({ opened, onClose, show, demo, backHandlerRef, on
         waitlist: current.waitlist,
       } : next);
     }
-    catch (reason) { notifications.show({ color: "red", title: "Не удалось загрузить записи", message: (reason as Error).message }); }
+    catch (reason) { showNotification({ color: "red", title: "Не удалось загрузить записи", message: (reason as Error).message }); }
     finally { setLoading(false); }
   }, [demo, search, show.id]);
 

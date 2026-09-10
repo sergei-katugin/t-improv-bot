@@ -7,7 +7,7 @@ import { AnnouncementModal } from "./AnnouncementModal";
 import { AttendeesModal } from "./AttendeesModal";
 import { AnalyticsModal } from "../components/AnalyticsModal";
 import { ManagementModal } from "./ManagementModal";
-import { newShowForm, oneHourBefore, ShowForm } from "./ShowForm";
+import { newShowForm, ShowForm } from "./ShowForm";
 import { ShowToolsModal } from "./ShowToolsModal";
 
 const wrapper = ({ children }: { children: ReactNode }) => <MantineProvider>{children}</MantineProvider>;
@@ -62,6 +62,14 @@ describe("ShowToolsModal", () => {
     render(<ShowToolsModal {...common} show={{ ...show, isActive: false }} />, { wrapper });
     fireEvent.click(screen.getByRole("button", { name: /Восстановить афишу/ }));
     await waitFor(() => expect(onChanged).toHaveBeenCalledWith(expect.objectContaining({ isActive: true })));
+  });
+
+  it("lets a super admin permanently delete an active show", () => {
+    const props = { mode: "all" as const, opened: true, onClose: vi.fn(), show, registrationUrl: "https://t.me/test", demo: true, canDeleteActive: true, backHandlerRef: createRef<(() => boolean) | null>(), onEdit: vi.fn(), onAnalytics: vi.fn(), onAnnouncement: vi.fn(), onChanged: vi.fn(), onDeleted: vi.fn() };
+    render(<ShowToolsModal {...props} />, { wrapper });
+
+    expect(screen.getByRole("button", { name: /Отменить афишу/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Удалить навсегда/ })).toBeInTheDocument();
   });
 
   it("clones and permanently deletes a past show", async () => {

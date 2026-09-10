@@ -164,20 +164,8 @@ def _show_fields(data: dict, *, require_all: bool) -> dict[str, object]:
         result["max_guests"] = guests
     elif require_all:
         result["max_guests"] = 6
-    if "registrationClosesAt" in data:
-        raw_close = data["registrationClosesAt"]
-        if raw_close in (None, ""):
-            result["registration_closes_at"] = None
-        else:
-            try:
-                close_at = local_naive_to_utc(datetime.fromisoformat(str(raw_close)))
-            except ValueError as exc:
-                raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_field", "field": "registrationClosesAt"}), content_type="application/json") from exc
-            result["registration_closes_at"] = close_at
-    if result.get("registration_closes_at") and result.get("show_date") and result["registration_closes_at"] >= result["show_date"]:
-        raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_field", "field": "registrationClosesAt"}), content_type="application/json")
-    if require_all and "registrationClosesAt" not in data:
-        result["registration_closes_at"] = result["show_date"] - timedelta(hours=1)
+    if "show_date" in result:
+        result["registration_closes_at"] = result["show_date"] - timedelta(minutes=5)
     if "registrarUsername" in data:
         raw_username = _optional_text(data, "registrarUsername", 64)
         username = normalize_telegram_username(raw_username)

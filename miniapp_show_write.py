@@ -64,9 +64,6 @@ async def miniapp_update_show(request: web.Request) -> web.Response:
         ).limit(1))
         if conflict:
             raise web.HTTPConflict(text=json.dumps({"error": "scheduling_conflict", "field": "showDateLocal", "message": f"Конфликт с афишей «{conflict.title}»: та же команда или площадка в пределах трёх часов"}), content_type="application/json")
-        effective_close = fields.get("registration_closes_at", show.registration_closes_at)
-        if effective_close and effective_close >= fields.get("show_date", show.show_date):
-            raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_field", "field": "registrationClosesAt"}), content_type="application/json")
         updated = await crud.update_show(session, show_id, **fields)
         users = await crud.get_registered_users_for_show(session, show_id) if notify else []
     sent = failed = 0

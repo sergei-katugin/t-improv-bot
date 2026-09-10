@@ -17,8 +17,6 @@ async def miniapp_show_tasks(request: web.Request) -> web.Response:
         if not announced: tasks.append({"key": "announcement", "label": "Опубликовать анонс", "count": 1})
         if not show.registrar_id and not show.registrar_username:
             tasks.append({"key": "show_responsible", "label": "Указать ответственного", "description": "Зрителям некому написать по вопросам записи", "count": 1})
-        if not show.registration_closes_at:
-            tasks.append({"key": "auto_close", "label": "Настроить автозакрытие", "description": "Запись сейчас открыта вплоть до начала шоу", "count": 1})
         if (
             announced
             and show.is_active
@@ -110,8 +108,7 @@ async def miniapp_registration_chat(request: web.Request) -> web.Response:
     if any(key not in {"target", "nameMode"} for key in data):
         raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_payload"}), content_type="application/json")
     target_raw = _required_text(data, "target", 128)
-    name_mode = data.get("nameMode", "short")
-    if name_mode not in {"short", "full"}:
+    if data.get("nameMode", "full") not in {"short", "full"}:
         raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_field", "field": "nameMode"}), content_type="application/json")
     async with AsyncSessionLocal() as session:
         show = await _manageable_api_show(session, request, show_id)
@@ -124,8 +121,8 @@ async def miniapp_registration_chat(request: web.Request) -> web.Response:
         raise web.HTTPConflict(text=json.dumps({"error": "chat_unavailable"}), content_type="application/json")
     async with AsyncSessionLocal() as session:
         await _manageable_api_show(session, request, show_id)
-        await crud.update_show(session, show_id, registration_chat_id=chat.id, registration_chat_title=display_name, registration_chat_name_mode=name_mode)
-    return web.json_response({"id": chat.id, "title": display_name, "nameMode": name_mode})
+        await crud.update_show(session, show_id, registration_chat_id=chat.id, registration_chat_title=display_name, registration_chat_name_mode="full")
+    return web.json_response({"id": chat.id, "title": display_name, "nameMode": "full"})
 
 
 async def miniapp_clear_registration_chat(request: web.Request) -> web.Response:
@@ -174,11 +171,12 @@ async def miniapp_restore_show(request: web.Request) -> web.Response:
 async def miniapp_delete_show(request: web.Request) -> web.Response:
     show_id = _show_id(request)
     async with AsyncSessionLocal() as session:
-        await _manageable_api_show(session, request, show_id)
+        show = await _manageable_api_show(session, request, show_id)
+        if show.is_active and not request.get("miniapp_is_super_admin", False):
+            raise web.HTTPForbidden(
+                text=json.dumps({"error": "super_admin_required"}), content_type="application/json",
+            )
         if not await crud.delete_show(session, show_id):
             raise web.HTTPConflict(text=json.dumps({"error": "delete_rejected"}), content_type="application/json")
     await _record_audit(request, "show.deleted", "show", show_id)
     return web.json_response({"id": show_id})
-
-
-

@@ -1,12 +1,12 @@
 import React from "react";
 import { Alert, Anchor, Autocomplete, Badge, Button, Collapse, FileInput, Group, Loader, Modal, NumberInput, Paper, Progress, Select, SimpleGrid, Skeleton, Stack, Switch, Tabs, Text, Textarea, TextInput, Title } from "@mantine/core";
 import { DateTimePicker } from "@mantine/dates";
-import { notifications } from "@mantine/notifications";
 import { BottomActionBar, RootNavigation } from "../components/BottomActionBar";
 import { ShowNavigation } from "../components/ShowNavigation";
 import { AppearanceSettings } from "../components/AppearanceSettings";
 import { ShowStepper } from "../components/ShowStepper";
 import { api, authenticatedBlob } from "../lib/api";
+import { showNotification } from "../lib/notifications";
 import { telegramConfirm, telegramHaptic } from "../lib/telegram";
 import { useAppResume } from "../hooks/useAppResume";
 import type { AccessUser, Attendees, AuditItem, Me, Options, Promotion, RegistrationChatOption, Show, ShowFormValue, ThemePreference } from "../types";
@@ -57,7 +57,7 @@ export function ManagementModal({ opened, onClose, onCreate, onSettings, me, opt
       if (import.meta.env.DEV && new URLSearchParams(location.search).get("preview") === "1") {
         setAccessUsers([{ id: 1, telegramId: 416607535, username: "sergey", firstName: "Sergey", lastName: null, role: "admin", isCurrent: true, isProtected: true }, { id: 2, telegramId: 123, username: "anna_impro", firstName: "Анна", lastName: null, role: "organizer", isCurrent: false, isProtected: false }]);
       } else setAccessUsers((await api<{ items: AccessUser[] }>("/api/miniapp/access/users")).items);
-    } catch (reason) { notifications.show({ color: "red", title: "Не удалось загрузить доступы", message: (reason as Error).message }); }
+    } catch (reason) { showNotification({ color: "red", title: "Не удалось загрузить доступы", message: (reason as Error).message }); }
     finally { setAccessLoading(false); }
   }, [me?.role]);
 
@@ -73,7 +73,7 @@ export function ManagementModal({ opened, onClose, onCreate, onSettings, me, opt
         { id: 1, action: "show.published", entityType: "show", entityId: 1, details: { messageId: 123 }, createdAt: new Date().toISOString(), actor: { id: 1, username: "sergey", firstName: "Sergey", lastName: null, telegramId: 416607535 } },
         { id: 2, action: "access.invite_created", entityType: "invite", entityId: 5, details: { role: "organizer" }, createdAt: new Date(Date.now() - 3600000).toISOString(), actor: { id: 1, username: "sergey", firstName: "Sergey", lastName: null, telegramId: 416607535 } },
       ]); else setAuditItems((await api<{ items: AuditItem[] }>("/api/miniapp/audit-log")).items);
-    } catch (reason) { const message = (reason as Error).message; setAuditError(message); notifications.show({ color: "red", title: "Не удалось загрузить журнал", message }); }
+    } catch (reason) { const message = (reason as Error).message; setAuditError(message); showNotification({ color: "red", title: "Не удалось загрузить журнал", message }); }
     finally { setAuditLoading(false); }
   }, [me?.role]);
 
@@ -81,10 +81,10 @@ export function ManagementModal({ opened, onClose, onCreate, onSettings, me, opt
     setSaving(true);
     try {
       await action(); await reload();
-      notifications.show({ color: "gray", title: success, message: "Справочник обновлён" });
+      showNotification({ color: "gray", title: success, message: "Справочник обновлён" });
       return true;
     } catch (reason) {
-      notifications.show({ color: "red", title: "Не удалось сохранить", message: (reason as Error).message });
+      showNotification({ color: "red", title: "Не удалось сохранить", message: (reason as Error).message });
       return false;
     } finally { setSaving(false); }
   }
@@ -141,15 +141,15 @@ export function ManagementModal({ opened, onClose, onCreate, onSettings, me, opt
       const preview = import.meta.env.DEV && new URLSearchParams(location.search).get("preview") === "1";
       const result = preview ? { url: "https://t.me/ImprovCypEventBot?start=inv_demo", ttlHours: 24 } : await api<{ url: string; ttlHours: number }>("/api/miniapp/access/invites", { method: "POST", body: JSON.stringify({ role: "organizer" }) });
       setInviteUrl(result.url);
-      notifications.show({ color: "green", title: "Ссылка создана", message: `Одноразовая, действует ${result.ttlHours} ч.` });
-    } catch (reason) { notifications.show({ color: "red", title: "Не удалось создать приглашение", message: (reason as Error).message }); }
+      showNotification({ color: "green", title: "Ссылка создана", message: `Одноразовая, действует ${result.ttlHours} ч.` });
+    } catch (reason) { showNotification({ color: "red", title: "Не удалось создать приглашение", message: (reason as Error).message }); }
     finally { setSaving(false); }
   }
 
   async function copyInvite() {
     if (!inviteUrl) return;
-    try { await navigator.clipboard.writeText(inviteUrl); notifications.show({ color: "green", title: "Скопировано", message: "Отправьте ссылку будущему организатору" }); }
-    catch { notifications.show({ color: "red", title: "Не удалось скопировать", message: inviteUrl }); }
+    try { await navigator.clipboard.writeText(inviteUrl); showNotification({ color: "green", title: "Скопировано", message: "Отправьте ссылку будущему организатору" }); }
+    catch { showNotification({ color: "red", title: "Не удалось скопировать", message: inviteUrl }); }
   }
 
   async function confirmRevoke() {
@@ -158,8 +158,8 @@ export function ManagementModal({ opened, onClose, onCreate, onSettings, me, opt
     try {
       await api(`/api/miniapp/access/users/${revokeUser.id}`, { method: "PATCH", body: JSON.stringify({ role: "user" }) });
       setRevokeUser(null); await loadAccess();
-      notifications.show({ color: "green", title: "Доступ отозван", message: "Пользователь больше не может управлять афишами" });
-    } catch (reason) { notifications.show({ color: "red", title: "Не удалось изменить доступ", message: (reason as Error).message }); }
+      showNotification({ color: "green", title: "Доступ отозван", message: "Пользователь больше не может управлять афишами" });
+    } catch (reason) { showNotification({ color: "red", title: "Не удалось изменить доступ", message: (reason as Error).message }); }
     finally { setSaving(false); }
   }
   useAppResume(() => {

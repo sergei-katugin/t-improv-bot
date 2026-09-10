@@ -10,7 +10,7 @@ from alembic.script import ScriptDirectory
 
 def test_alembic_has_single_expected_head():
     scripts = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert scripts.get_heads() == ["0026"]
+    assert scripts.get_heads() == ["0028"]
 
 
 def test_full_migration_chain_upgrades_empty_sqlite_database(tmp_path):
@@ -33,7 +33,7 @@ def test_full_migration_chain_upgrades_empty_sqlite_database(tmp_path):
         registration_columns = {
             column[1] for column in connection.execute("PRAGMA table_info(registrations)")
         }
-    assert version == ("0026",)
+    assert version == ("0028",)
     assert max_guests[4] == "'6'"
     assert "reminder_failure_reported_1d" in registration_columns
 

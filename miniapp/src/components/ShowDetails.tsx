@@ -33,7 +33,6 @@ export function ShowDetails({ show, descriptionOpened, onToggleDescription, onAt
         <OccupancyProgress occupied={show.occupiedSeats} capacity={show.maxSeats} />
         <span className="show-attendance-link">Открыть список зрителей <ChevronRight /></span>
       </button>
-      {!show.isPast && show.isActive && !show.registrationClosesAt && <Alert color="yellow" mt="md">Автозакрытие не настроено — запись будет доступна до начала шоу.</Alert>}
       {show.registrarUsername && <Anchor className="registrar" href={`https://t.me/${show.registrarUsername}`} target="_blank">Ответственный · @{show.registrarUsername} ↗</Anchor>}
       {show.posterText && <div className="description-block"><Button variant="subtle" size="xs" onClick={onToggleDescription} aria-expanded={descriptionOpened}>{descriptionOpened ? "Скрыть описание" : "Показать описание"}</Button><Collapse expanded={descriptionOpened}><Text className="poster-text">{show.posterText}</Text></Collapse></div>}
     </section>

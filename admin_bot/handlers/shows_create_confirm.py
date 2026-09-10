@@ -55,12 +55,14 @@ def _preview_from_data(data: dict) -> str:
             f' или у <a href="https://t.me/{registrar_username}">@{h(registrar_username)}</a>'
         )
     poster = data.get("poster_text") or ""
+    title = h(data.get("title", ""))
+    team_name = data.get("team_name")
+    header = (
+        f"🎭 <b>Команда {h(team_name)} представляет шоу {title}</b>"
+        if team_name else f"🎭 <b>Шоу {title}</b>"
+    )
     lines = [
-        f"🎭 <b>{h(data.get('title', ''))}</b>",
-    ]
-    if data.get("team_name"):
-        lines.append(f"👥 Команда: {h(data['team_name'])}")
-    lines += [
+        header,
         f"📅 {date_str}",
         location_line,
         f"👥 Записаться тут: {registration_targets}",
@@ -80,7 +82,7 @@ async def _show_confirm(message: Message, state: FSMContext, *, edit: bool = Fal
         "admin_confirm_create",
         "admin_cancel_create",
         checkin_enabled=data.get("checkin_enabled", False),
-        feedback_enabled=data.get("feedback_enabled", False),
+        feedback_enabled=data.get("feedback_enabled", True),
     )
     header = f"{_progress(total, total)}👁 <b>Так будет выглядеть анонс:</b>\n\n"
 

@@ -196,6 +196,7 @@ async def miniapp_auth_middleware(request: web.Request, handler):
             )
         request["miniapp_user_id"] = db_user.id
         request["miniapp_telegram_id"] = telegram_user.telegram_id
+        request["miniapp_is_super_admin"] = telegram_user.telegram_id in ADMIN_ID_LIST
         request["miniapp_is_admin"] = (
             db_user.role == UserRole.admin or telegram_user.telegram_id in ADMIN_ID_LIST
         )

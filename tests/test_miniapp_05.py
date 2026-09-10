@@ -158,6 +158,7 @@ async def test_miniapp_me_create_update_restore_and_delete_show(monkeypatch):
 
         me = json.loads((await miniapp_api.miniapp_me(request)).text)
         assert me["telegramId"] == 9002 and me["role"] == "organizer"
+        assert me["isSuperAdmin"] is False
         created = await miniapp_api.miniapp_create_show(request)
         show_id = json.loads(created.text)["id"]
         assert created.status == 201
@@ -166,6 +167,15 @@ async def test_miniapp_me_create_update_restore_and_delete_show(monkeypatch):
         request._body = {"title": "Изменённое шоу", "notify": False}
         updated = await miniapp_api.miniapp_update_show(request)
         assert json.loads(updated.text) == {"id": show_id, "notified": 0, "failed": 0}
+
+        with pytest.raises(web.HTTPForbidden):
+            await miniapp_api.miniapp_delete_show(request)
+
+        async with sessions() as session:
+            removable = Show(title="Super delete", team_name="T", show_date=utc_now() + timedelta(days=1), location="V", city="C", max_seats=10, creator_id=owner_id)
+            session.add(removable); await session.commit(); removable_id = removable.id
+        super_request = _Request(show_id=removable_id, user_id=owner_id, is_admin=True, is_super_admin=True)
+        assert json.loads((await miniapp_api.miniapp_delete_show(super_request)).text)["id"] == removable_id
 
         async with sessions() as session:
             show = await session.get(Show, show_id)

@@ -7,7 +7,7 @@ import { AnnouncementModal } from "./AnnouncementModal";
 import { AttendeesModal } from "./AttendeesModal";
 import { AnalyticsModal } from "../components/AnalyticsModal";
 import { ManagementModal } from "./ManagementModal";
-import { newShowForm, oneHourBefore, ShowForm } from "./ShowForm";
+import { newShowForm, ShowForm } from "./ShowForm";
 import { ShowToolsModal } from "./ShowToolsModal";
 
 const wrapper = ({ children }: { children: ReactNode }) => <MantineProvider>{children}</MantineProvider>;
@@ -22,8 +22,8 @@ const me: Me = { id: 1, firstName: "Sergey", username: "sergey", role: "admin" }
 
 describe("ShowForm", () => {
   it("defaults registration closing to one hour before the show", () => {
-    expect(oneHourBefore("2027-09-05T20:00")).toBe("2027-09-05T19:00");
     expect(newShowForm().maxGuests).toBe(6);
+    expect(newShowForm().feedbackEnabled).toBe(true);
   });
 
   it("allows an editor to inspect every step", () => {

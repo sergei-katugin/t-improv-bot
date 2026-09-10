@@ -64,10 +64,18 @@ def test_scheduler_announcement_variants():
     show = _show(registrar_username="owner")
     text = jobs.build_announcement_text(show, "1d", seats_left=12, attendee_line="Уже идут: 5")
     assert "Завтра" in text
-    assert "12/80" in text
+    assert "Свободных мест" not in text
     assert "Уже идут: 5" in text
     assert "https://t.me/owner" in text
     assert "&lt;шоу&gt;" in text
+    lines = text.splitlines()
+    assert lines[0] == "🎭 <b>Команда Команда представляет шоу Супер &lt;шоу&gt;</b>"
+    date_index = next(index for index, line in enumerate(lines) if line.startswith("📅"))
+    location_index = next(index for index, line in enumerate(lines) if line.startswith("📍"))
+    registration_index = next(index for index, line in enumerate(lines) if "Записаться тут" in line)
+    poster_index = lines.index("Описание")
+    assert date_index < location_index < registration_index < poster_index
+    assert "👥 Команда:" not in text
     assert jobs._register_button(None) is None
     assert jobs._register_button(SimpleNamespace(id=None)) is None
     assert jobs._register_button(show).inline_keyboard[0][0].url.endswith("show_7")
@@ -88,7 +96,6 @@ def test_scheduler_announcement_variants():
     {"maxGuests": 7},
     {"maxGuests": True},
     {"checkinEnabled": "yes"},
-    {"registrationClosesAt": "bad-date"},
 ])
 def test_miniapp_show_patch_rejects_invalid_values(payload):
     if not payload:
@@ -102,7 +109,6 @@ def test_miniapp_show_patch_accepts_nullable_and_bounded_values():
     future = utc_now() + timedelta(days=4)
     payload = {
         "maxGuests": 0,
-        "registrationClosesAt": "",
         "registrarUsername": "",
         "locationUrl": "",
         "posterText": " ",
@@ -113,15 +119,14 @@ def test_miniapp_show_patch_accepts_nullable_and_bounded_values():
         "location_url": None,
         "poster_text": None,
         "max_guests": 0,
-        "registration_closes_at": None,
         "registrar_username": None,
         "feedback_enabled": False,
     }
-    with pytest.raises(web.HTTPBadRequest):
-        miniapp_api._show_fields({
-            "showDateLocal": future.isoformat(),
-            "registrationClosesAt": (future + timedelta(hours=1)).isoformat(),
-        }, require_all=False)
+    dates = miniapp_api._show_fields({
+        "showDateLocal": future.isoformat(),
+        "registrationClosesAt": (future + timedelta(hours=1)).isoformat(),
+    }, require_all=False)
+    assert dates["registration_closes_at"] == dates["show_date"] - timedelta(minutes=5)
 
 
 @pytest.mark.asyncio

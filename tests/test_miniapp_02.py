@@ -152,7 +152,7 @@ async def test_clone_show_preserves_configuration_but_uses_new_date(monkeypatch)
             )
             assert clone.checkin_enabled is True
             assert clone.feedback_enabled is True
-            assert clone.registration_closes_at == clone.show_date - timedelta(hours=1)
+            assert clone.registration_closes_at == clone.show_date - timedelta(minutes=5)
             assert clone.id != show_id
     finally:
         await engine.dispose()

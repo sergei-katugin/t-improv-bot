@@ -150,6 +150,12 @@ h1 { margin: 2px 0 0; font-size: 28px; line-height: 1.08; letter-spacing: -.035e
 .description-block .poster-text { margin-top: 6px; }
 .state { display: grid; gap: 7px; place-items: center; min-height: 180px; padding: 28px; color: var(--muted); text-align: center; border: 1px dashed var(--line); border-radius: 20px; }
 .state.error { color: var(--mantine-color-red-3); border-color: color-mix(in srgb, var(--mantine-color-red-5) 30%, transparent); }
+.empty-shows-state { min-height: 280px; gap: 12px; }
+.empty-shows-state h3 { color: var(--app-text); }
+.empty-shows-state p { max-width: 310px; }
+.empty-shows-icon { display: grid; width: 68px; height: 68px; margin-bottom: 2px; place-items: center; border: 1px solid var(--line); border-radius: 22px; color: var(--accent); background: var(--surface-strong); }
+.empty-shows-icon svg { width: 38px; height: 38px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.empty-shows-create { min-width: 190px; margin-top: 8px; }
 .resource-card, .resource-form { padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
 .resource-form { margin-top: 4px; background: var(--surface); }
 .tools-menu { overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
@@ -175,7 +181,12 @@ h1 { margin: 2px 0 0; font-size: 28px; line-height: 1.08; letter-spacing: -.035e
 .attendee-list-row:last-child { border-bottom: 0; }
 .poster-preview { display: block; width: 100%; max-height: 54vh; object-fit: contain; border-radius: 20px; background: var(--app-bg); }
 .telegram-preview { padding: 18px; border: 1px solid var(--line); color: var(--app-text); background: var(--surface); line-height: 1.5; }
+.telegram-preview-poster { display: block; width: calc(100% + 36px); max-height: 440px; margin: -18px -18px 18px; object-fit: cover; border-radius: 14px 14px 0 0; background: var(--app-bg); }
 .telegram-preview a { color: var(--tg-theme-link-color, var(--mantine-primary-color-filled)); }
+.automation-switches { padding-block: 4px; }
+.automation-switch { min-height: 48px; }
+.automation-switch .mantine-Switch-root { flex: 1; }
+.info-icon { font-family: Georgia, serif; font-size: 18px; font-weight: 800; font-style: italic; }
 html[data-telegram="true"] .back { display: none; }
 html[data-telegram="true"] .settings-section-back { display: none; }
 html[data-telegram="true"] .fullscreen-modal-close { display: none; }

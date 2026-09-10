@@ -162,7 +162,7 @@ async def miniapp_clone_show(request: web.Request) -> web.Response:
             poster_text=source.poster_text, poster_file_id=source.poster_file_id,
             max_seats=source.max_seats, creator_id=request["miniapp_user_id"],
             max_guests=source.max_guests,
-            registration_closes_at=show_date - timedelta(hours=1),
+            registration_closes_at=show_date - timedelta(minutes=5),
             registrar_id=source.registrar_id, registrar_username=source.registrar_username,
             checkin_enabled=source.checkin_enabled, feedback_enabled=source.feedback_enabled,
         )
