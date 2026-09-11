@@ -38,6 +38,7 @@ class Show(Base):
     location_url = Column(String(512), nullable=True)
     city = Column(String(128), nullable=False, index=True)
     poster_text = Column(Text, nullable=True)
+    poster_text_newcomer = Column(Text, nullable=True)
     poster_file_id = Column(String(256), nullable=True)
     pub_poster_file_id = Column(String(256), nullable=True)
     max_seats = Column(Integer, nullable=False, default=50)

@@ -105,7 +105,7 @@ def _optional_text(data: dict, key: str, max_length: int) -> str | None:
 def _show_fields(data: dict, *, require_all: bool) -> dict[str, object]:
     allowed = {
         "title", "teamName", "showDateLocal", "location", "locationUrl", "city",
-        "posterText", "maxSeats", "maxGuests", "registrationClosesAt", "registrarUsername", "checkinEnabled", "feedbackEnabled",
+        "posterText", "posterTextNewcomer", "maxSeats", "maxGuests", "registrationClosesAt", "registrarUsername", "checkinEnabled", "feedbackEnabled",
     }
     if not isinstance(data, dict) or any(key not in allowed for key in data):
         raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_payload"}), content_type="application/json")
@@ -123,6 +123,7 @@ def _show_fields(data: dict, *, require_all: bool) -> dict[str, object]:
             result[target] = _required_text(data, source, limit)
     optional_fields = {
         "locationUrl": ("location_url", 512), "posterText": ("poster_text", 1800),
+        "posterTextNewcomer": ("poster_text_newcomer", 1800),
     }
     for source, (target, limit) in optional_fields.items():
         if source in data:

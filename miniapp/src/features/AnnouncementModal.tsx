@@ -22,6 +22,7 @@ export function AnnouncementModal({ opened, onClose, show, demo, onEdit, onAnaly
   const [sendingTest, setSendingTest] = React.useState(false);
   const [promotion, setPromotion] = React.useState<Promotion | null>(null);
   const [repeatConfirm, setRepeatConfirm] = React.useState(false);
+  const [audience, setAudience] = React.useState<"familiar" | "newcomer">("familiar");
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -31,17 +32,17 @@ export function AnnouncementModal({ opened, onClose, show, demo, onEdit, onAnaly
         setHtml(sanitizeTelegramHtml(demoHtml));
         setPromotion({ html: demoHtml, text: `${show.title}\n${show.showDateLabel}\nhttps://t.me/ImprovCypEventBot?start=show_${show.id}`, registrationUrl: `https://t.me/ImprovCypEventBot?start=show_${show.id}`, hasPoster: false, hasPublished: false, channels: [{ id: 1, username: "limassol_events", url: "https://t.me/limassol_events" }] });
       } else {
-        const preview = await api<Promotion>(`/api/miniapp/shows/${show.id}/promotion`);
+        const preview = await api<Promotion>(`/api/miniapp/shows/${show.id}/promotion?audience=${audience}`);
         setPromotion(preview);
         setHtml(sanitizeTelegramHtml(preview.html.split("\n").join("<br>")));
       }
     } catch (reason) { showNotification({ color: "red", title: "Не удалось открыть предпросмотр", message: (reason as Error).message }); }
     finally { setLoading(false); }
-  }, [demo, show]);
+  }, [demo, show, audience]);
 
   React.useEffect(() => {
     if (opened) void load();
-  }, [opened]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [opened, load]);
   useAppResume(() => { void load(); }, opened);
 
   async function publish(repeat = false) {
@@ -51,7 +52,7 @@ export function AnnouncementModal({ opened, onClose, show, demo, onEdit, onAnaly
         const idempotencyKey = Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("");
         await api(`/api/miniapp/shows/${show.id}/publish`, {
           method: "POST",
-          body: JSON.stringify(repeat ? { repeat: true, confirmed: true, idempotencyKey } : {}),
+          body: JSON.stringify(repeat ? { repeat: true, confirmed: true, idempotencyKey, audience } : { audience }),
         });
       }
       setPromotion((current) => current ? { ...current, hasPublished: true } : current);
@@ -73,7 +74,7 @@ export function AnnouncementModal({ opened, onClose, show, demo, onEdit, onAnaly
   async function sendTestAnnouncement() {
     setSendingTest(true);
     try {
-      if (!demo) await api(`/api/miniapp/shows/${show.id}/promotion/test`, { method: "POST" });
+      if (!demo) await api(`/api/miniapp/shows/${show.id}/promotion/test?audience=${audience}`, { method: "POST" });
       showNotification({ color: "green", title: "Тест отправлен", message: "Проверь личный чат с админ-ботом" });
     } catch (reason) {
       showNotification({ color: "red", title: "Не удалось отправить тест", message: (reason as Error).message });
@@ -83,6 +84,8 @@ export function AnnouncementModal({ opened, onClose, show, demo, onEdit, onAnaly
   return <Modal opened={opened} onClose={onClose} title="Предпросмотр анонса" fullScreen classNames={{ close: "fullscreen-modal-close" }}>
     <Stack gap="md">
       {loading && <Skeleton height={240} radius="lg" />}
+      <Select label="Для кого этот анонс" allowDeselect={false} value={audience} onChange={(value) => setAudience(value === "newcomer" ? "newcomer" : "familiar")}
+        data={[{ value: "familiar", label: "Профессиональный · знакомы с импровом" }, { value: "newcomer", label: "Для новичков · никогда не видели импров" }]} />
       {!loading && <Paper className="telegram-preview"><PosterPreviewImage file={null} showId={show.id} hasExisting={promotion?.hasPoster} /><div dangerouslySetInnerHTML={{ __html: html }} /></Paper>}
       {!loading && promotion && <Paper className="resource-form"><Stack>
         <Title order={3}>Публикация</Title>

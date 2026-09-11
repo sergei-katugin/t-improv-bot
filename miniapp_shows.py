@@ -98,6 +98,7 @@ async def miniapp_show_detail(request: web.Request) -> web.Response:
         payload = _show_payload(show, int(occupied or 0))
         payload.update({
             "posterText": show.poster_text,
+            "posterTextNewcomer": show.poster_text_newcomer,
             "locationUrl": show.location_url,
             "feedbackEnabled": show.feedback_enabled,
             "checkinEnabled": show.checkin_enabled,

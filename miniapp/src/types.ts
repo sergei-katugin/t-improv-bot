@@ -17,6 +17,7 @@ export type Show = {
   registrarUsername: string | null;
   registrationUrl?: string;
   posterText?: string | null;
+  posterTextNewcomer?: string | null;
   feedbackEnabled?: boolean;
   checkinEnabled?: boolean;
   hasPoster?: boolean;
@@ -63,7 +64,7 @@ export type Analytics = {
 
 export type ShowFormValue = {
   title: string; teamName: string; showDateLocal: string; location: string;
-  locationUrl: string; city: string; posterText: string; maxSeats: number;
+  locationUrl: string; city: string; posterText: string; posterTextNewcomer: string; maxSeats: number;
   registrarUsername: string; checkinEnabled: boolean; feedbackEnabled: boolean;
   maxGuests: number;
 };

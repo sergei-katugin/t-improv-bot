@@ -3,6 +3,22 @@ from miniapp_common import *
 from miniapp_helpers import _json_body, _manageable_api_show, _record_audit, _registration_url, _show_id
 
 
+def _announcement_audience(request, data=None) -> str:
+    audience = (data or {}).get("audience") or request.query.get("audience", "familiar")
+    if audience not in {"familiar", "newcomer"}:
+        raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_audience"}), content_type="application/json")
+    return audience
+
+
+def _announcement_show(show, audience: str):
+    if audience == "familiar":
+        return show
+    import copy
+    selected = copy.copy(show)
+    selected.poster_text = show.poster_text_newcomer
+    return selected
+
+
 async def _send_test_announcement_message(bot, chat_id, show, text, keyboard) -> None:
     if show.poster_file_id and len(text) <= 1024:
         await send_with_retry(
@@ -17,13 +33,14 @@ async def _send_test_announcement_message(bot, chat_id, show, text, keyboard) ->
 
 async def miniapp_announcement_preview(request: web.Request) -> web.Response:
     show_id = _show_id(request)
+    audience = _announcement_audience(request)
     async with AsyncSessionLocal() as session:
         show = await _manageable_api_show(session, request, show_id)
         occupied = await crud.count_active_registrations(session, show_id)
         from scheduler.jobs import build_announcement_text
         return web.json_response({
             "html": build_announcement_text(
-                show, seats_left=max(0, show.max_seats - occupied),
+                _announcement_show(show, audience), seats_left=max(0, show.max_seats - occupied),
             ),
             "hasPoster": bool(show.poster_file_id),
             "hasPublished": await crud.has_any_announcement_been_sent(session, show_id),
@@ -32,12 +49,13 @@ async def miniapp_announcement_preview(request: web.Request) -> web.Response:
 
 async def miniapp_promotion(request: web.Request) -> web.Response:
     show_id = _show_id(request)
+    audience = _announcement_audience(request)
     async with AsyncSessionLocal() as session:
         show = await _manageable_api_show(session, request, show_id)
         occupied = await crud.count_active_registrations(session, show_id)
         channels = await crud.get_active_ad_channels(session)
         from scheduler.jobs import build_announcement_text
-        html = build_announcement_text(show, seats_left=max(0, show.max_seats - occupied))
+        html = build_announcement_text(_announcement_show(show, audience), seats_left=max(0, show.max_seats - occupied))
         plain_text = re.sub(r"<[^>]+>", "", html)
         registration_url = (
             f"https://t.me/{settings.PUBLIC_BOT_USERNAME.lstrip('@')}?start=show_{show.id}"
@@ -57,13 +75,14 @@ async def miniapp_promotion(request: web.Request) -> web.Response:
 
 async def miniapp_send_test_announcement(request: web.Request) -> web.Response:
     show_id = _show_id(request)
+    audience = _announcement_audience(request)
     async with AsyncSessionLocal() as session:
         show = await _manageable_api_show(session, request, show_id)
         occupied = await crud.count_active_registrations(session, show_id)
         from scheduler.jobs import build_announcement_text
         text = (
             "🧪 <b>Тестовый анонс — виден только тебе</b>\n\n"
-            + build_announcement_text(show, seats_left=max(0, show.max_seats - occupied))
+            + build_announcement_text(_announcement_show(show, audience), seats_left=max(0, show.max_seats - occupied))
         )
     registration_url = f"https://t.me/{settings.PUBLIC_BOT_USERNAME.lstrip('@')}?start=show_{show_id}"
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[
@@ -90,9 +109,10 @@ async def miniapp_send_test_announcement(request: web.Request) -> web.Response:
 async def miniapp_publish(request: web.Request) -> web.Response:
     show_id = _show_id(request)
     data = await _json_body(request)
-    if any(key not in {"repeat", "confirmed", "idempotencyKey"} for key in data):
+    if any(key not in {"repeat", "confirmed", "idempotencyKey", "audience"} for key in data):
         raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_payload"}), content_type="application/json")
     repeat = data.get("repeat") is True
+    audience = _announcement_audience(request, data)
     if repeat and data.get("confirmed") is not True:
         raise web.HTTPBadRequest(text=json.dumps({"error": "confirmation_required"}), content_type="application/json")
     idempotency_key = data.get("idempotencyKey")
@@ -103,7 +123,8 @@ async def miniapp_publish(request: web.Request) -> web.Response:
         show = await _manageable_api_show(session, request, show_id)
         if not show.is_active:
             raise web.HTTPConflict(text=json.dumps({"error": "show_cancelled"}), content_type="application/json")
-        missing = [name for value, name in ((show.poster_text, "posterText"),) if not value]
+        selected_show = _announcement_show(show, audience)
+        missing = [name for value, name in ((selected_show.poster_text, "posterText"),) if not value]
         if missing:
             raise web.HTTPConflict(
                 text=json.dumps({"error": "announcement_incomplete", "fields": missing}),
@@ -119,7 +140,7 @@ async def miniapp_publish(request: web.Request) -> web.Response:
             announcement_type = "manual"
         occupied = await crud.count_active_registrations(session, show_id)
         from scheduler.jobs import build_announcement_text
-        text = build_announcement_text(show, seats_left=max(0, show.max_seats - occupied))
+        text = build_announcement_text(selected_show, seats_left=max(0, show.max_seats - occupied))
 
     try:
         from scheduler.jobs import send_to_channel
@@ -180,7 +201,8 @@ async def miniapp_clone_show(request: web.Request) -> web.Response:
             session,
             title=source.title, team_name=source.team_name, show_date=show_date,
             location=source.location, location_url=source.location_url, city=source.city,
-            poster_text=source.poster_text, poster_file_id=source.poster_file_id,
+            poster_text=source.poster_text, poster_text_newcomer=source.poster_text_newcomer,
+            poster_file_id=source.poster_file_id,
             max_seats=source.max_seats, creator_id=request["miniapp_user_id"],
             max_guests=source.max_guests,
             registration_closes_at=show_date - timedelta(minutes=5),
