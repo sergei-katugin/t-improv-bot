@@ -1,7 +1,17 @@
 .show-form-sheet-inner { align-items: flex-end; padding: 0; }
 .show-form-sheet { display: flex; flex-direction: column; width: min(100%, 620px); height: min(92dvh, 900px); max-height: 92dvh; margin: 0 auto; overflow: hidden; border: 1px solid var(--line); border-bottom: 0; border-radius: 24px 24px 0 0; background: var(--app-bg); box-shadow: 0 -18px 54px color-mix(in srgb, var(--mantine-color-dark-9) 34%, transparent); }
 .chat-sheet { width: min(100%, 620px); max-height: 82dvh; margin: 0 auto; overflow-y: auto; border: 1px solid var(--line); border-bottom: 0; border-radius: 24px 24px 0 0; background: var(--app-bg); box-shadow: 0 -18px 54px color-mix(in srgb, var(--mantine-color-dark-9) 34%, transparent); }
-.chat-sheet .mantine-Modal-body { padding-bottom: calc(18px + env(safe-area-inset-bottom)); }
+.teams-sheet,
+.venues-sheet,
+.channels-sheet,
+.access-sheet,
+.audit-sheet { width: min(100%, 620px); max-height: 82dvh; margin: 0 auto; overflow-y: auto; border: 1px solid var(--line); border-bottom: 0; border-radius: 24px 24px 0 0; background: var(--app-bg); box-shadow: 0 -18px 54px color-mix(in srgb, var(--mantine-color-dark-9) 34%, transparent); }
+.chat-sheet .mantine-Modal-body,
+.teams-sheet .mantine-Modal-body,
+.venues-sheet .mantine-Modal-body,
+.channels-sheet .mantine-Modal-body,
+.access-sheet .mantine-Modal-body,
+.audit-sheet .mantine-Modal-body { padding-bottom: calc(18px + env(safe-area-inset-bottom)); }
 .show-form-sheet .mantine-Modal-body { display: flex; flex: 1; min-height: 0; overflow: hidden; padding: 0 16px; }
 .show-form { display: flex; width: 100%; min-height: 0; margin: 0 auto; flex: 1; flex-direction: column; }
 .show-form > .mantine-Stack-root { flex: 1; min-height: 0; padding: 16px 0; overflow-y: auto; overscroll-behavior: contain; }

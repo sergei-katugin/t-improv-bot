@@ -69,10 +69,11 @@ describe("AppRoot preview flow", () => {
     localStorage.removeItem("miniapp-onboarding-v1");
     const noop = () => undefined;
     const button = { show: noop, hide: noop, onClick: noop, offClick: noop };
+    const openTelegramLink = vi.fn();
     Object.defineProperty(window, "Telegram", { configurable: true, value: { WebApp: {
       initData: "viewer-data", colorScheme: "dark", BackButton: button, SettingsButton: button,
       ready: noop, expand: noop, close: noop, onEvent: noop, offEvent: noop,
-      setHeaderColor: noop, setBackgroundColor: noop, setBottomBarColor: noop,
+      setHeaderColor: noop, setBackgroundColor: noop, setBottomBarColor: noop, openTelegramLink,
     } } });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: false,
@@ -85,6 +86,8 @@ describe("AppRoot preview flow", () => {
 
     expect(await screen.findByRole("heading", { name: "Административная Mini App" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "@sergey_katugin" })).toHaveAttribute("href", "https://t.me/sergey_katugin");
+    fireEvent.click(screen.getByRole("link", { name: "Написать Сергею" }));
+    expect(openTelegramLink).toHaveBeenCalledWith("https://t.me/sergey_katugin");
     await waitFor(() => expect(screen.queryByText("Создавай афиши и управляй шоу")).not.toBeInTheDocument());
     expect(screen.queryByRole("button", { name: "Создать" })).not.toBeInTheDocument();
   });

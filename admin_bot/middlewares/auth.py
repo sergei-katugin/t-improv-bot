@@ -1,6 +1,6 @@
 from typing import Any, Callable, Awaitable
 from aiogram import BaseMiddleware
-from aiogram.types import TelegramObject, Message, CallbackQuery
+from aiogram.types import TelegramObject, Message, CallbackQuery, ReplyKeyboardRemove
 
 from config import ADMIN_ID_LIST
 from db.base import AsyncSessionLocal
@@ -52,6 +52,9 @@ class AdminAuthMiddleware(BaseMiddleware):
                 return await handler(event, data)
 
         if isinstance(event, Message):
-            await event.answer("⛔ Доступ запрещён.")
+            await event.answer(
+                "⛔ Доступ запрещён.",
+                reply_markup=ReplyKeyboardRemove(),
+            )
         elif isinstance(event, CallbackQuery):
             await event.answer("⛔ Доступ запрещён.", show_alert=True)

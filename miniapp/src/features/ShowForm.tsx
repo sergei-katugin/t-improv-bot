@@ -12,18 +12,19 @@ import { api, authenticatedBlob } from "../lib/api";
 import { showNotification } from "../lib/notifications";
 import { telegramConfirm, telegramHaptic } from "../lib/telegram";
 import { useAppResume } from "../hooks/useAppResume";
+import { clearShowFormDraft, readShowFormDraft, showFormDraftKey, useShowFormDraft } from "../hooks/useShowFormDraft";
 import type { AccessUser, Attendees, AuditItem, Me, Options, Promotion, RegistrationChatOption, Show, ShowFormValue, ThemePreference } from "../types";
 import { invalidTelegramUsername } from "../lib/validation";
 
 export function newShowForm(): ShowFormValue {
   const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
   const local = new Date(tomorrow.getTime() - tomorrow.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
-  return { title: "", teamName: "", showDateLocal: local, location: "", locationUrl: "", city: "Лимасол", posterText: "", posterTextNewcomer: "", maxSeats: 50, maxGuests: 6, registrarUsername: "", checkinEnabled: false, feedbackEnabled: true };
+  return { title: "", titleNewcomer: "", teamName: "", showDateLocal: local, location: "", locationUrl: "", city: "Лимасол", posterText: "", posterTextNewcomer: "", maxSeats: 50, maxGuests: 6, registrarUsername: "", checkinEnabled: false, feedbackEnabled: true };
 }
 
 function formFromShow(show: Show): ShowFormValue {
   return {
-    title: show.title, teamName: show.teamName, showDateLocal: show.showDateLocal ?? "",
+    title: show.title, titleNewcomer: show.titleNewcomer ?? "", teamName: show.teamName, showDateLocal: show.showDateLocal ?? "",
     location: show.location, locationUrl: show.locationUrl ?? "", city: show.city,
     posterText: show.posterText ?? "", posterTextNewcomer: show.posterTextNewcomer ?? "", maxSeats: show.maxSeats, maxGuests: show.maxGuests ?? 6,
     registrarUsername: show.registrarUsername ? `@${show.registrarUsername}` : "",
@@ -56,7 +57,10 @@ export function ShowForm({ opened, initial, options, me, reloadOptions, onClose,
   const [chatSetupOpened, setChatSetupOpened] = React.useState(false);
   const [previewOpened, setPreviewOpened] = React.useState(false);
   const [activeStep, setActiveStep] = React.useState(0);
+  const [draftReadyKey, setDraftReadyKey] = React.useState<string | null>(null);
   const initializedFormRef = React.useRef<string | null>(null);
+  const draftKey = showFormDraftKey(initial?.id);
+  useShowFormDraft(draftKey, opened && draftReadyKey === draftKey, value, venueId, activeStep);
   const loadRegistrationChats = React.useCallback(async () => {
     if (initial) return;
     try {
@@ -65,7 +69,7 @@ export function ShowForm({ opened, initial, options, me, reloadOptions, onClose,
     } catch { /* The empty state remains actionable; the next resume retries. */ }
   }, [initial]);
   React.useEffect(() => {
-    if (!opened) { initializedFormRef.current = null; return; }
+    if (!opened) { initializedFormRef.current = null; setDraftReadyKey(null); return; }
     const formKey = initial ? `edit:${initial.id}` : "create";
     if (initializedFormRef.current === formKey) return;
     initializedFormRef.current = formKey;
@@ -74,11 +78,12 @@ export function ShowForm({ opened, initial, options, me, reloadOptions, onClose,
       ? options.venues.find((item) => item.name === initial.location && item.city === initial.city)
       : undefined;
     if (venue) nextValue.locationUrl = venue.mapsUrl ?? "";
-    setValue(nextValue);
-    setVenueId(venue ? String(venue.id) : initial ? "__custom__" : null);
-    setPoster(null); setNotifyConfirmOpened(false); setChatTarget(""); setVerifiedChat(null); setChatSetupOpened(false); setPreviewOpened(false); setTeamDropdownOpened(false); setActiveStep(0);
+    const draft = readShowFormDraft(draftKey, nextValue);
+    setValue(draft?.value ?? nextValue);
+    setVenueId(draft?.venueId ?? (venue ? String(venue.id) : initial ? "__custom__" : null));
+    setPoster(null); setNotifyConfirmOpened(false); setChatTarget(""); setVerifiedChat(null); setChatSetupOpened(false); setPreviewOpened(false); setTeamDropdownOpened(false); setActiveStep(draft?.activeStep ?? 0); setDraftReadyKey(draftKey);
     if (!initial) void loadRegistrationChats();
-  }, [opened, initial, options.venues, loadRegistrationChats]);
+  }, [opened, initial, options.venues, loadRegistrationChats, draftKey]);
   useAppResume(() => { void loadRegistrationChats(); }, opened && !initial);
   const set = <K extends keyof ShowFormValue>(key: K, next: ShowFormValue[K]) => setValue((current) => ({ ...current, [key]: next }));
   const selectedVenue = options.venues.find((item) => String(item.id) === venueId);
@@ -185,6 +190,8 @@ export function ShowForm({ opened, initial, options, me, reloadOptions, onClose,
       showNotification(posterError || chatError
         ? { color: "yellow", title: initial ? "Афиша обновлена частично" : "Афиша создана частично", message: [posterError && "Изображение не загружено", chatError && "Чат записей не подключён"].filter(Boolean).join(" · ") }
         : { color: "gray", title: initial ? "Афиша обновлена" : "Афиша создана", message: "Изменения сохранены" });
+      clearShowFormDraft(draftKey);
+      setDraftReadyKey(null);
       onSaved(result.id);
     } catch (reason) {
       showNotification({ color: "red", title: "Не удалось сохранить", message: (reason as Error).message });
@@ -217,6 +224,7 @@ export function ShowForm({ opened, initial, options, me, reloadOptions, onClose,
         <ShowStepper active={activeStep} labels={stepLabels} allowAllSteps={Boolean(initial)} onStepChange={setActiveStep} />
         {activeStep === 0 && <>
         <TextInput required label="Название" value={value.title} onChange={(e) => set("title", e.currentTarget.value)} maxLength={256} />
+        <TextInput label="Название для новичков" description="Если оставить пустым, используем обычное название" value={value.titleNewcomer} onChange={(e) => set("titleNewcomer", e.currentTarget.value)} maxLength={256} />
         <Select required searchable allowDeselect={false} label="Команда" data={[...options.teams.map((team) => ({ value: team.name, label: team.name })), { value: "__new__", label: "＋ Добавить новую команду" }]} value={value.teamName || null} dropdownOpened={teamDropdownOpened} onDropdownOpen={() => setTeamDropdownOpened(true)} onDropdownClose={() => setTeamDropdownOpened(false)} onChange={(next) => { setTeamDropdownOpened(false); if (next === "__new__") setTeamModal(true); else set("teamName", next ?? ""); }} />
         <AppDateTimePicker required label="Дата и время" value={value.showDateLocal} onChange={changeShowDate} />
         </>}

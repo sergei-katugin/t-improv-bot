@@ -5,7 +5,7 @@ import { api } from "../lib/api";
 import { showNotification } from "../lib/notifications";
 import { useAppResume } from "../hooks/useAppResume";
 import type { Attendees, Show } from "../types";
-import { previewAttendees } from "./ManagementModal";
+import { previewAttendees } from "./previewData";
 import { AttendeeList } from "../components/AttendeeList";
 
 export function AttendeesModal({ opened, onClose, show, demo, backHandlerRef, onEdit, onAnnouncement, onAnalytics, onRegistration, onMore }: {

@@ -1,6 +1,7 @@
 export type Show = {
   id: number;
   title: string;
+  titleNewcomer?: string | null;
   teamName: string;
   showDateLabel: string;
   showDateLocal?: string;
@@ -63,7 +64,7 @@ export type Analytics = {
 };
 
 export type ShowFormValue = {
-  title: string; teamName: string; showDateLocal: string; location: string;
+  title: string; titleNewcomer: string; teamName: string; showDateLocal: string; location: string;
   locationUrl: string; city: string; posterText: string; posterTextNewcomer: string; maxSeats: number;
   registrarUsername: string; checkinEnabled: boolean; feedbackEnabled: boolean;
   maxGuests: number;

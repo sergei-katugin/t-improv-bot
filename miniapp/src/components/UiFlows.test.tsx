@@ -42,6 +42,29 @@ describe("ShowDetails", () => {
     expect(screen.getByText("Прошедшее")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Изменить" })).not.toBeInTheDocument();
   });
+
+  it("routes every available action and renders a cancelled draft", () => {
+    const actions = {
+      onAttendees: vi.fn(), onEdit: vi.fn(), onAnnouncement: vi.fn(),
+      onAnalytics: vi.fn(), onRegistration: vi.fn(), onMore: vi.fn(),
+    };
+    render(<ShowDetails
+      show={{ ...show, isActive: false, hasPublished: false, locationUrl: null, registrarUsername: null, posterText: null }}
+      descriptionOpened={false}
+      onToggleDescription={vi.fn()}
+      {...actions}
+    />, { wrapper });
+    expect(screen.getByText("Отменено")).toBeInTheDocument();
+    expect(screen.getByText("Черновик")).toBeInTheDocument();
+    expect(screen.getByText("Эта афиша отменена. Новые записи недоступны.")).toBeInTheDocument();
+    expect(screen.getByText("Театр").tagName).toBe("P");
+    fireEvent.click(screen.getByRole("button", { name: "Изменить" }));
+    fireEvent.click(screen.getByRole("button", { name: "Анонс" }));
+    fireEvent.click(screen.getByRole("button", { name: "Действия" }));
+    expect(actions.onEdit).toHaveBeenCalledOnce();
+    expect(actions.onAnnouncement).toHaveBeenCalledOnce();
+    expect(actions.onMore).toHaveBeenCalledOnce();
+  });
 });
 
 describe("MiniAppOnboarding", () => {
@@ -76,6 +99,20 @@ describe("MiniAppOnboarding", () => {
     expect(screen.getByText("Новая афиша за четыре шага")).toBeInTheDocument();
     fireEvent.pointerDown(screenRoot, { pointerId: 3, isPrimary: true, clientX: 80, clientY: 100 });
     fireEvent.pointerUp(screenRoot, { pointerId: 3, clientX: 240, clientY: 110 });
+    expect(screen.getByText("Создавай афиши и управляй шоу")).toBeInTheDocument();
+  });
+
+  it("cancels an interrupted swipe and ignores gestures starting on controls", () => {
+    render(<MiniAppOnboarding opened onFinish={vi.fn()} />, { wrapper });
+    const screenRoot = screen.getByText("Создавай афиши и управляй шоу").closest(".onboarding-screen")!;
+    fireEvent.pointerDown(screenRoot, { pointerId: 1, isPrimary: true, clientX: 240, clientY: 100 });
+    fireEvent.pointerCancel(screenRoot, { pointerId: 1 });
+    fireEvent.pointerUp(screenRoot, { pointerId: 1, clientX: 20, clientY: 100 });
+    expect(screen.getByText("Создавай афиши и управляй шоу")).toBeInTheDocument();
+
+    const skip = screen.getByRole("button", { name: "Пропустить" });
+    fireEvent.pointerDown(skip, { pointerId: 2, isPrimary: true, clientX: 240, clientY: 100 });
+    fireEvent.pointerUp(screenRoot, { pointerId: 2, clientX: 20, clientY: 100 });
     expect(screen.getByText("Создавай афиши и управляй шоу")).toBeInTheDocument();
   });
 });

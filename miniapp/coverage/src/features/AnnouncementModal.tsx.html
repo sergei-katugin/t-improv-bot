@@ -23,30 +23,30 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">84.48% </span>
+                <span class="strong">81.96% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>49/58</span>
+                <span class='fraction'>50/61</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">89.18% </span>
+                <span class="strong">80.48% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>33/37</span>
+                <span class='fraction'>33/41</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">76.47% </span>
+                <span class="strong">68.42% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>13/17</span>
+                <span class='fraction'>13/19</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">88.23% </span>
+                <span class="strong">85.18% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>45/51</span>
+                <span class='fraction'>46/54</span>
             </div>
         
             
@@ -171,7 +171,17 @@
 <a name='L106'></a><a href='#L106'>106</a>
 <a name='L107'></a><a href='#L107'>107</a>
 <a name='L108'></a><a href='#L108'>108</a>
-<a name='L109'></a><a href='#L109'>109</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L109'></a><a href='#L109'>109</a>
+<a name='L110'></a><a href='#L110'>110</a>
+<a name='L111'></a><a href='#L111'>111</a>
+<a name='L112'></a><a href='#L112'>112</a>
+<a name='L113'></a><a href='#L113'>113</a>
+<a name='L114'></a><a href='#L114'>114</a>
+<a name='L115'></a><a href='#L115'>115</a>
+<a name='L116'></a><a href='#L116'>116</a>
+<a name='L117'></a><a href='#L117'>117</a>
+<a name='L118'></a><a href='#L118'>118</a>
+<a name='L119'></a><a href='#L119'>119</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -187,6 +197,9 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">23x</span>
 <span class="cline-any cline-yes">23x</span>
 <span class="cline-any cline-yes">23x</span>
 <span class="cline-any cline-yes">23x</span>
@@ -254,6 +267,8 @@
 <span class="cline-any cline-yes">23x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -275,6 +290,11 @@
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -282,13 +302,15 @@
 <span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import React from "react";
 import { Alert, Anchor, Autocomplete, Badge, Button, Collapse, FileInput, Group, Loader, Modal, NumberInput, Paper, Progress, Select, SimpleGrid, Skeleton, Stack, Switch, Tabs, Text, Textarea, TextInput, Title } from "@mantine/core";
 import { DateTimePicker } from "@mantine/dates";
-import { notifications } from "@mantine/notifications";
 import { BottomActionBar, RootNavigation } from "../components/BottomActionBar";
+import { PosterPreviewImage } from "../components/PosterPreviewImage";
 import { ShowNavigation } from "../components/ShowNavigation";
 import { AppearanceSettings } from "../components/AppearanceSettings";
 import { ShowStepper } from "../components/ShowStepper";
 import { api, authenticatedBlob } from "../lib/api";
+import { showNotification } from "../lib/notifications";
 import { telegramConfirm, telegramHaptic } from "../lib/telegram";
+import { sanitizeTelegramHtml } from "../lib/sanitizeTelegramHtml";
 import { useAppResume } from "../hooks/useAppResume";
 import type { AccessUser, Attendees, AuditItem, Me, Options, Promotion, RegistrationChatOption, Show, ShowFormValue, ThemePreference } from "../types";
 &nbsp;
@@ -301,26 +323,27 @@ export function AnnouncementModal({ opened, onClose, show, demo, onEdit, onAnaly
   const [sendingTest, setSendingTest] = React.useState(false);
   const [promotion, setPromotion] = React.useState&lt;Promotion | null&gt;(null);
   const [repeatConfirm, setRepeatConfirm] = React.useState(false);
+  const [audience, setAudience] = React.useState&lt;"familiar" | "newcomer"&gt;("familiar");
 &nbsp;
   const load = React.useCallback(async () =&gt; {
     setLoading(true);
     try {
       if (demo) {
         const demoHtml = `🎭 &lt;b&gt;${show.title}&lt;/b&gt;&lt;br&gt;👥 Команда: ${show.teamName}&lt;br&gt;&lt;br&gt;📅 ${show.showDateLabel}&lt;br&gt;📍 ${show.location}, ${show.city}&lt;br&gt;&lt;br&gt;👥 Записаться тут: &lt;b&gt;через бота&lt;/b&gt; или у @${show.registrarUsername ?? <span class="branch-1 cbranch-no" title="branch not covered" >"ответственного"}`;</span>
-        setHtml(demoHtml);
+        setHtml(sanitizeTelegramHtml(demoHtml));
         setPromotion({ html: demoHtml, text: `${show.title}\n${show.showDateLabel}\nhttps://t.me/ImprovCypEventBot?start=show_${show.id}`, registrationUrl: `https://t.me/ImprovCypEventBot?start=show_${show.id}`, hasPoster: false, hasPublished: false, channels: [{ id: 1, username: "limassol_events", url: "https://t.me/limassol_events" }] });
       } else {
-        const preview = await api&lt;Promotion&gt;(`/api/miniapp/shows/${show.id}/promotion`);
+        const preview = await api&lt;Promotion&gt;(`/api/miniapp/shows/${show.id}/promotion?audience=${audience}`);
         setPromotion(preview);
-        setHtml(preview.html.split("\n").join("&lt;br&gt;"));
+        setHtml(sanitizeTelegramHtml(preview.html.split("\n").join("&lt;br&gt;")));
       }
-    } catch (reason) { <span class="cstat-no" title="statement not covered" >notifications.show({ color: "red", title: "Не удалось открыть предпросмотр", message: (reason as Error).message }); }</span>
+    } catch (reason) { <span class="cstat-no" title="statement not covered" >showNotification({ color: "red", title: "Не удалось открыть предпросмотр", message: (reason as Error).message }); }</span>
     finally { setLoading(false); }
-  }, [demo, show]);
+  }, [demo, show, audience]);
 &nbsp;
   React.useEffect(() =&gt; {
     if (opened) void load();
-  }, [opened]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [opened, load]);
 <span class="fstat-no" title="function not covered" >  useAppResume(() =&gt; {</span> <span class="cstat-no" title="statement not covered" >void load(); }</span>, opened);
 &nbsp;
   async function publish(repeat = false) {
@@ -330,14 +353,14 @@ export function AnnouncementModal({ opened, onClose, show, demo, onEdit, onAnaly
         const idempotencyKey = Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =&gt; byte.toString(16).padStart(2, "0")).join("");
         await api(`/api/miniapp/shows/${show.id}/publish`, {
           method: "POST",
-          body: JSON.stringify(repeat ? <span class="branch-0 cbranch-no" title="branch not covered" >{ repeat: true, confirmed: true, idempotencyKey } : {</span>}),
+          body: JSON.stringify(repeat ? <span class="branch-0 cbranch-no" title="branch not covered" >{ repeat: true, confirmed: true, idempotencyKey, audience } : {</span> audience }),
         });
       }
       setPromotion((current) =&gt; current ? { ...current, hasPublished: true } : <span class="branch-1 cbranch-no" title="branch not covered" >current)</span>;
       onPublished();
       setRepeatConfirm(false);
-      notifications.show({ color: "green", title: repeat ? "Анонс отправлен повторно" : "Анонс опубликован", message: "Пост отправлен в основной канал с кнопкой записи" });
-    } catch (reason) { <span class="cstat-no" title="statement not covered" >notifications.show({ color: "red", title: "Не удалось опубликовать", message: (reason as Error).message }); }</span>
+      showNotification({ color: "green", title: repeat ? "Анонс отправлен повторно" : "Анонс опубликован", message: "Пост отправлен в основной канал с кнопкой записи" });
+    } catch (reason) { <span class="cstat-no" title="statement not covered" >showNotification({ color: "red", title: "Не удалось опубликовать", message: (reason as Error).message }); }</span>
     finally { setPublishing(false); }
   }
 &nbsp;
@@ -345,24 +368,26 @@ export function AnnouncementModal({ opened, onClose, show, demo, onEdit, onAnaly
     <span class="missing-if-branch" title="if path not taken" >I</span>if (!promotion) <span class="cstat-no" title="statement not covered" >return;</span>
     try {
       await navigator.clipboard.writeText(promotion.text);
-      notifications.show({ color: "green", title: "Текст и ссылка скопированы", message: "Можно вставить их в соцсеть, канал или чат" });
-    } catch { <span class="cstat-no" title="statement not covered" >notifications.show({ color: "red", title: "Не удалось скопировать", message: "Выдели текст анонса вручную" }); }</span>
+      showNotification({ color: "green", title: "Текст и ссылка скопированы", message: "Можно вставить их в соцсеть, канал или чат" });
+    } catch { <span class="cstat-no" title="statement not covered" >showNotification({ color: "red", title: "Не удалось скопировать", message: "Выдели текст анонса вручную" }); }</span>
   }
 &nbsp;
   async function sendTestAnnouncement() {
     setSendingTest(true);
     try {
-      if (!demo) await api(`/api/miniapp/shows/${show.id}/promotion/test`, { method: "POST" });
-      notifications.show({ color: "green", title: "Тест отправлен", message: "Проверь личный чат с админ-ботом" });
+      if (!demo) await api(`/api/miniapp/shows/${show.id}/promotion/test?audience=${audience}`, { method: "POST" });
+      showNotification({ color: "green", title: "Тест отправлен", message: "Проверь личный чат с админ-ботом" });
     } catch (reason) {
-<span class="cstat-no" title="statement not covered" >      notifications.show({ color: "red", title: "Не удалось отправить тест", message: (reason as Error).message });</span>
+<span class="cstat-no" title="statement not covered" >      showNotification({ color: "red", title: "Не удалось отправить тест", message: (reason as Error).message });</span>
     } finally { setSendingTest(false); }
   }
 &nbsp;
   return &lt;Modal opened={opened} onClose={onClose} title="Предпросмотр анонса" fullScreen classNames={{ close: "fullscreen-modal-close" }}&gt;
     &lt;Stack gap="md"&gt;
       {loading &amp;&amp; &lt;Skeleton height={240} radius="lg" /&gt;}
-      {!loading &amp;&amp; &lt;Paper className="telegram-preview" dangerouslySetInnerHTML={{ __html: html }} /&gt;}
+      &lt;Select label="Для кого этот анонс" allowDeselect={false} value={audience} <span class="fstat-no" title="function not covered" >onChange={(v</span>alue) =&gt; <span class="cstat-no" title="statement not covered" >setAudience(value === "newcomer" ? "newcomer" : "familiar")}</span>
+        data={[{ value: "familiar", label: "Профессиональный · знакомы с импровом" }, { value: "newcomer", label: "Для новичков · никогда не видели импров" }]} /&gt;
+      {!loading &amp;&amp; &lt;Paper className="telegram-preview"&gt;&lt;PosterPreviewImage file={null} showId={show.id} hasExisting={promotion?.hasPoster} /&gt;&lt;div dangerouslySetInnerHTML={{ __html: html }} /&gt;&lt;/Paper&gt;}
       {!loading &amp;&amp; promotion &amp;&amp; &lt;Paper className="resource-form"&gt;&lt;Stack&gt;
         &lt;Title order={3}&gt;Публикация&lt;/Title&gt;
         {!promotion.hasPublished ?
@@ -382,7 +407,12 @@ export function AnnouncementModal({ opened, onClose, show, demo, onEdit, onAnaly
     &lt;/Stack&gt;
     &lt;ShowNavigation show={show} active="announcement" onShow={onClose} onEdit={onEdit} <span class="fstat-no" title="function not covered" >onAnnouncement={() =&gt; <span class="cstat-no" title="statement not covered" >u</span>ndefined} onAnalytics={o</span>nAnalytics} onRegistration={onRegistration} onMore={onMore} /&gt;
     &lt;Modal opened={repeatConfirm} <span class="fstat-no" title="function not covered" >onClose={() =&gt; <span class="cstat-no" title="statement not covered" >s</span>etRepeatConfirm(false)} t</span>itle="Повторить публикацию?" centered&gt;
-      &lt;Text&gt;В основной канал будет отправлена ещё одна полноценная афиша с кнопкой записи.&lt;/Text&gt;
+      &lt;Stack gap="md"&gt;
+        &lt;Text&gt;В основной канал будет отправлена ещё одна полноценная афиша с кнопкой записи.&lt;/Text&gt;
+        &lt;Select label="Аудитория повторной публикации" allowDeselect={false} value={audience}
+<span class="fstat-no" title="function not covered" >          onChange={(v</span>alue) =&gt; <span class="cstat-no" title="statement not covered" >setAudience(value === "newcomer" ? "newcomer" : "familiar")}</span>
+          data={[{ value: "familiar", label: "Знакомы с импровом" }, { value: "newcomer", label: "Никогда не видели импров" }]} /&gt;
+      &lt;/Stack&gt;
       &lt;Group justify="flex-end" mt="lg"&gt;&lt;Button variant="default" <span class="fstat-no" title="function not covered" >onClick={() =&gt; <span class="cstat-no" title="statement not covered" >s</span>etRepeatConfirm(false)}&gt;О</span>тмена&lt;/Button&gt;&lt;Button color="orange" loading={publishing} onClick={() =&gt; void publish(true)}&gt;Да, отправить повторно&lt;/Button&gt;&lt;/Group&gt;
     &lt;/Modal&gt;
   &lt;/Modal&gt;;
@@ -394,7 +424,7 @@ export function AnnouncementModal({ opened, onClose, show, demo, onEdit, onAnaly
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-09-06T19:04:16.683Z
+                at 2026-09-11T17:13:32.381Z
             </div>
         <script src="../../prettify.js"></script>
         <script>

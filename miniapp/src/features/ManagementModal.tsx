@@ -1,17 +1,15 @@
 import React from "react";
-import { Alert, Anchor, Autocomplete, Badge, Button, Collapse, FileInput, Group, Loader, Modal, NumberInput, Paper, Progress, Select, SimpleGrid, Skeleton, Stack, Switch, Tabs, Text, Textarea, TextInput, Title } from "@mantine/core";
-import { DateTimePicker } from "@mantine/dates";
+import { Button, Group, Modal, Paper, Stack, Switch, Tabs, Text, TextInput, Title } from "@mantine/core";
 import { BottomActionBar, RootNavigation } from "../components/BottomActionBar";
-import { ShowNavigation } from "../components/ShowNavigation";
 import { AppearanceSettings } from "../components/AppearanceSettings";
-import { ShowStepper } from "../components/ShowStepper";
-import { api, authenticatedBlob } from "../lib/api";
+import { api } from "../lib/api";
 import { showNotification } from "../lib/notifications";
-import { telegramConfirm, telegramHaptic } from "../lib/telegram";
+import { telegramConfirm } from "../lib/telegram";
 import { useAppResume } from "../hooks/useAppResume";
-import type { AccessUser, Attendees, AuditItem, Me, Options, Promotion, RegistrationChatOption, Show, ShowFormValue, ThemePreference } from "../types";
+import type { AccessUser, AuditItem, Me, Options, ThemePreference } from "../types";
 import { invalidTelegramUsername } from "../lib/validation";
-
+import { AccessModal, AuditLogModal } from "./ManagementAccessModals";
+import { TeamsSheet, VenuesSheet } from "./CatalogSheets";
 export function ManagementModal({ opened, onClose, onCreate, onSettings, me, options, reload, themePreference, onThemePreferenceChange, onResetLocalData, backHandlerRef }: {
   opened: boolean; onClose: () => void; me: Me | null; options: Options; reload: () => Promise<void>;
   onCreate?: () => void; onSettings?: () => void;
@@ -49,7 +47,6 @@ export function ManagementModal({ opened, onClose, onCreate, onSettings, me, opt
     channels: "Каналы для анонсов",
     access: "Доступ и журнал",
   }[settingsTab] : "";
-
   const loadAccess = React.useCallback(async () => {
     if (me?.role !== "admin") return;
     setAccessLoading(true);
@@ -60,9 +57,7 @@ export function ManagementModal({ opened, onClose, onCreate, onSettings, me, opt
     } catch (reason) { showNotification({ color: "red", title: "Не удалось загрузить доступы", message: (reason as Error).message }); }
     finally { setAccessLoading(false); }
   }, [me?.role]);
-
   React.useEffect(() => { if (opened) void loadAccess(); }, [opened, loadAccess]);
-
   const loadAudit = React.useCallback(async () => {
     if (me?.role !== "admin") return;
     setAuditLoading(true);
@@ -76,7 +71,6 @@ export function ManagementModal({ opened, onClose, onCreate, onSettings, me, opt
     } catch (reason) { const message = (reason as Error).message; setAuditError(message); showNotification({ color: "red", title: "Не удалось загрузить журнал", message }); }
     finally { setAuditLoading(false); }
   }, [me?.role]);
-
   async function perform(action: () => Promise<unknown>, success: string) {
     setSaving(true);
     try {
@@ -88,16 +82,34 @@ export function ManagementModal({ opened, onClose, onCreate, onSettings, me, opt
       return false;
     } finally { setSaving(false); }
   }
-
   function editTeam(team: Options["teams"][number]) {
     setTeamId(team.id); setTeamName(team.name); setMembers(team.members ?? ""); setTeamEditorOpened(true);
   }
-
+  function closeTeams() {
+    if (teamEditorOpened) {
+      setTeamEditorOpened(false); setTeamId(null); setTeamName(""); setMembers("");
+      return;
+    }
+    setSettingsTab(null);
+  }
   function editVenue(venue: Options["venues"][number]) {
     setVenueId(venue.id); setVenueName(venue.name); setVenueCity(venue.city);
     setVenueUrl(venue.mapsUrl ?? ""); setVenueSeats(venue.defaultSeats); setVenueEditorOpened(true);
   }
-
+  function closeVenues() {
+    if (venueEditorOpened) {
+      setVenueEditorOpened(false); setVenueId(null); setVenueName(""); setVenueCity("Лимасол"); setVenueUrl(""); setVenueSeats(50);
+      return;
+    }
+    setSettingsTab(null);
+  }
+  function closeChannels() {
+    if (channelEditorOpened) {
+      setChannelEditorOpened(false); setChannel("");
+      return;
+    }
+    setSettingsTab(null);
+  }
   async function saveTeam() {
     if (!teamName.trim() || invalidTeamMember) return;
     const saved = await perform(
@@ -111,7 +123,6 @@ export function ManagementModal({ opened, onClose, onCreate, onSettings, me, opt
       setTeamEditorOpened(false); setTeamId(null); setTeamName(""); setMembers("");
     }
   }
-
   async function saveVenue() {
     if (!venueName.trim() || !venueCity.trim()) return;
     const saved = await perform(
@@ -127,14 +138,12 @@ export function ManagementModal({ opened, onClose, onCreate, onSettings, me, opt
       setVenueEditorOpened(false); setVenueId(null); setVenueName(""); setVenueCity("Лимасол"); setVenueUrl(""); setVenueSeats(50);
     }
   }
-
   async function requestResourceDelete(target: { kind: "team" | "venue" | "channel"; id: number; name: string }) {
     const confirmed = await telegramConfirm(`Удалить «${target.name}»? Это действие нельзя отменить.`);
     if (!confirmed) return;
     const paths = { team: "teams", venue: "venues", channel: "ad-channels" };
     await perform(() => api(`/api/miniapp/${paths[target.kind]}/${target.id}`, { method: "DELETE" }), "Удалено");
   }
-
   async function createInvite() {
     setSaving(true);
     try {
@@ -145,13 +154,11 @@ export function ManagementModal({ opened, onClose, onCreate, onSettings, me, opt
     } catch (reason) { showNotification({ color: "red", title: "Не удалось создать приглашение", message: (reason as Error).message }); }
     finally { setSaving(false); }
   }
-
   async function copyInvite() {
     if (!inviteUrl) return;
     try { await navigator.clipboard.writeText(inviteUrl); showNotification({ color: "green", title: "Скопировано", message: "Отправьте ссылку будущему организатору" }); }
     catch { showNotification({ color: "red", title: "Не удалось скопировать", message: inviteUrl }); }
   }
-
   async function confirmRevoke() {
     if (!revokeUser) return;
     setSaving(true);
@@ -189,32 +196,7 @@ export function ManagementModal({ opened, onClose, onCreate, onSettings, me, opt
   }, [auditOpened, backHandlerRef, channelEditorOpened, opened, revokeUser, settingsTab, teamEditorOpened, venueEditorOpened]);
 
   return <Modal opened={opened} onClose={onClose} fullScreen withCloseButton={false}>
-    {teamEditorOpened ? <div className="settings-editor-screen">
-      <Stack gap="lg">
-        <div className="page-heading"><div className="eyebrow">Команды</div><Title order={1}>{teamId ? "Редактировать команду" : "Новая команда"}</Title></div>
-        <TextInput label="Название" value={teamName} onChange={(event) => setTeamName(event.currentTarget.value)} autoFocus />
-        <Textarea
-          label="Telegram-ники участников"
-          description="Через запятую или с новой строки. Ник содержит 5–32 латинских символа, цифры или _."
-          placeholder="@sergey, @anna_impro"
-          value={members}
-          error={invalidTeamMember ? `Проверь ник: ${invalidTeamMember}` : undefined}
-          onChange={(event) => setMembers(event.currentTarget.value)}
-          autosize
-          minRows={4}
-        />
-      </Stack>
-      <BottomActionBar><Button className="primary" fullWidth disabled={!teamName.trim() || Boolean(invalidTeamMember)} loading={saving} onClick={() => void saveTeam()}>{teamId ? "Сохранить" : "Добавить команду"}</Button></BottomActionBar>
-    </div> : venueEditorOpened ? <div className="settings-editor-screen">
-      <Stack gap="lg">
-        <div className="page-heading"><div className="eyebrow">Площадки</div><Title order={1}>{venueId ? "Редактировать площадку" : "Новая площадка"}</Title></div>
-        <TextInput label="Название" value={venueName} onChange={(event) => setVenueName(event.currentTarget.value)} autoFocus />
-        <Autocomplete label="Город" data={["Лимасол", "Никосия", "Пафос"]} value={venueCity} onChange={setVenueCity} />
-        <NumberInput min={1} label="Количество мест" value={venueSeats} onChange={(next) => setVenueSeats(typeof next === "number" ? next : 1)} />
-        <TextInput type="url" label="Ссылка на карту" description="Необязательно" placeholder="https://maps.google.com/…" value={venueUrl} onChange={(event) => setVenueUrl(event.currentTarget.value)} />
-      </Stack>
-      <BottomActionBar><Button className="primary" fullWidth disabled={!venueName.trim() || !venueCity.trim()} loading={saving} onClick={() => void saveVenue()}>{venueId ? "Сохранить" : "Добавить площадку"}</Button></BottomActionBar>
-    </div> : <>
+    <>
     {settingsTab === null && <div className="settings-menu">
       <div className="page-heading"><div className="eyebrow">T·IMPRO</div><Title order={1}>Администрирование</Title></div>
       <div className="settings-list">
@@ -225,56 +207,40 @@ export function ManagementModal({ opened, onClose, onCreate, onSettings, me, opt
       </div>
       <RootNavigation active="administration" onShows={onClose} onCreate={onCreate ?? onClose} onAdministration={() => undefined} onSettings={onSettings ?? onClose} />
     </div>}
-    {settingsTab !== null && <>
+    {settingsTab !== null && settingsTab !== "teams" && settingsTab !== "venues" && settingsTab !== "channels" && settingsTab !== "access" && <>
       <button type="button" className="settings-section-back" onClick={() => setSettingsTab(null)}>‹ Все настройки</button>
       <div className="page-heading settings-section-heading"><div className="eyebrow">Настройки</div><Title order={1}>{settingsTitle}</Title></div>
       <Tabs value={settingsTab} className="settings-tabs" variant="pills">
       <Tabs.Panel value="appearance" pt="lg"><Stack>
         <AppearanceSettings value={themePreference} onChange={onThemePreferenceChange} onReset={onResetLocalData} />
       </Stack></Tabs.Panel>
-      <Tabs.Panel value="teams" pt="lg"><Stack>
-        {options.teams.map((team) => <Paper className="resource-card" key={team.id}><Group justify="space-between" align="flex-start"><div><Text fw={750}>{team.name}</Text><Text size="sm" c="dimmed">{team.members || "Участники не указаны"}</Text></div><Group gap="xs"><Button size="xs" variant="light" onClick={() => editTeam(team)}>Изменить</Button><Button size="xs" color="red" variant="subtle" onClick={() => void requestResourceDelete({ kind: "team", id: team.id, name: team.name })}>Удалить</Button></Group></Group></Paper>)}
-      </Stack></Tabs.Panel>
-      <Tabs.Panel value="venues" pt="lg"><Stack>
-        {options.venues.map((venue) => <Paper className="resource-card" key={venue.id}><Group justify="space-between" align="flex-start"><div><Text fw={750}>{venue.name}</Text><Text size="sm" c="dimmed">{venue.city} · {venue.defaultSeats} мест</Text></div><Group gap="xs"><Button size="xs" variant="light" onClick={() => editVenue(venue)}>Изменить</Button><Button size="xs" color="red" variant="subtle" onClick={() => void requestResourceDelete({ kind: "venue", id: venue.id, name: venue.name })}>Удалить</Button></Group></Group></Paper>)}
-      </Stack></Tabs.Panel>
-      <Tabs.Panel value="channels" pt="lg"><Stack>
-        {options.adChannels.map((item) => <Paper className="resource-card" key={item.id}><Group justify="space-between"><div><Text fw={750}>{item.username}</Text><Text size="sm" c="dimmed">{item.isActive ? "Активен" : "Отключён"}</Text></div><Group gap="xs"><Switch checked={item.isActive} onChange={() => perform(() => api(`/api/miniapp/ad-channels/${item.id}/toggle`, { method: "PATCH" }), "Канал обновлён")} /><Button size="xs" color="red" variant="subtle" onClick={() => void requestResourceDelete({ kind: "channel", id: item.id, name: item.username })}>Удалить</Button></Group></Group></Paper>)}
-      </Stack></Tabs.Panel>
-      <Tabs.Panel value="access" pt="lg"><Stack>
-        <Paper className="resource-form"><Stack><Title order={3}>Пригласить организатора</Title><Text size="sm" c="dimmed">Ссылка одноразовая и автоматически истечёт. Новый пользователь сможет управлять только созданными им афишами.</Text>{inviteUrl && <Text size="sm" style={{ wordBreak: "break-all" }}>{inviteUrl}</Text>}</Stack></Paper>
-        <Title order={3}>Пользователи с доступом</Title>
-        {accessLoading && <Loader size="sm" />}
-        {!accessLoading && accessUsers.map((user) => <Paper className="resource-card" key={user.id}><Group justify="space-between" align="flex-start"><div><Group gap="xs"><Text fw={750}>{[user.firstName, user.lastName].filter(Boolean).join(" ") || user.username || user.telegramId}</Text><Badge color={user.role === "admin" ? "yellow" : "gray"}>{user.role === "admin" ? "Администратор" : "Организатор"}</Badge>{user.isCurrent && <Badge color="gray">Вы</Badge>}</Group>{user.username && <Anchor size="sm" href={`https://t.me/${user.username}`} target="_blank">@{user.username}</Anchor>}</div>{!user.isProtected && !user.isCurrent && <Button size="xs" color="red" variant="subtle" onClick={() => setRevokeUser(user)}>Отозвать</Button>}</Group></Paper>)}
-        {!accessLoading && !accessUsers.length && <Text c="dimmed">Пользователей с доступом нет.</Text>}
-        <Button variant="default" onClick={() => { setAuditOpened(true); void loadAudit(); }}>Журнал действий</Button>
-      </Stack></Tabs.Panel>
       </Tabs>
     </>}
-    {settingsTab && settingsTab !== "appearance" && <BottomActionBar>{settingsTab === "teams" ? <Button className="primary" fullWidth onClick={() => { setTeamId(null); setTeamName(""); setMembers(""); setTeamEditorOpened(true); }}>＋ Добавить команду</Button> : settingsTab === "venues" ? <Button className="primary" fullWidth onClick={() => { setVenueId(null); setVenueName(""); setVenueCity("Лимасол"); setVenueUrl(""); setVenueSeats(50); setVenueEditorOpened(true); }}>＋ Добавить площадку</Button> : settingsTab === "channels" ? <Button className="primary" fullWidth onClick={() => setChannelEditorOpened(true)}>＋ Добавить канал</Button> : inviteUrl ? <Button className="primary" fullWidth onClick={() => void copyInvite()}>Копировать приглашение</Button> : <Button className="primary" fullWidth loading={saving} onClick={() => void createInvite()}>＋ Пригласить организатора</Button>}</BottomActionBar>}
-    </>}
-    <Modal opened={channelEditorOpened} onClose={() => setChannelEditorOpened(false)} title="Новый рекламный канал" centered><Stack><TextInput label="Telegram-ник канала" placeholder="@afisha_cyprus" value={channel} onChange={(e) => setChannel(e.currentTarget.value)} /><Button disabled={!channel.trim()} loading={saving} onClick={() => perform(() => api("/api/miniapp/ad-channels", { method: "POST", body: JSON.stringify({ username: channel }) }), "Канал добавлен").then((saved) => { if (saved) { setChannelEditorOpened(false); setChannel(""); } })}>Добавить канал</Button></Stack></Modal>
-    <Modal opened={auditOpened} onClose={() => setAuditOpened(false)} title="Журнал действий" fullScreen classNames={{ close: "fullscreen-modal-close" }}><Stack>
-        <Group justify="space-between" align="center"><Text size="sm" c="dimmed">Последние 100 административных операций Mini App</Text><Button size="xs" variant="light" loading={auditLoading} onClick={() => void loadAudit()}>Обновить</Button></Group>
-        {auditError && <Alert color="red" title="Не удалось загрузить журнал">{auditError}<Button mt="sm" size="xs" variant="light" color="red" onClick={() => void loadAudit()}>Повторить</Button></Alert>}
-        {auditLoading && !auditItems.length && <Loader size="sm" />}
-        {auditItems.map((item) => {
-          const labels: Record<string, string> = { "show.published": "Афиша опубликована", "show.republished": "Афиша опубликована повторно", "show.cancelled": "Афиша отменена", "show.cloned": "Создана копия афиши", "access.invite_created": "Создано приглашение", "access.role_changed": "Изменена роль пользователя" };
-          const actorName = item.actor?.username ? `@${item.actor.username}` : item.actor?.firstName || "Удалённый пользователь";
-          return <Paper className="resource-card" key={item.id}><Group justify="space-between" align="flex-start"><div><Text fw={750}>{labels[item.action] ?? item.action}</Text><Text size="sm" c="dimmed">{actorName} · {new Date(item.createdAt).toLocaleString("ru-RU")}</Text></div><Badge variant="light">{item.entityType} #{item.entityId ?? "—"}</Badge></Group>{item.details && <Text size="xs" c="dimmed" mt="sm" style={{ wordBreak: "break-word" }}>{Object.entries(item.details).map(([key, value]) => `${key}: ${String(value)}`).join(" · ")}</Text>}</Paper>;
-        })}
-        {!auditLoading && !auditItems.length && <Text c="dimmed">Журнал пока пуст.</Text>}
-      </Stack></Modal>
+    </>
+    <TeamsSheet opened={settingsTab === "teams"} editorOpened={teamEditorOpened} id={teamId} name={teamName} members={members} invalidMember={invalidTeamMember} saving={saving} teams={options.teams} onClose={closeTeams} onName={setTeamName} onMembers={setMembers} onEdit={editTeam} onDelete={(team) => void requestResourceDelete({ kind: "team", id: team.id, name: team.name })} onAdd={() => { setTeamId(null); setTeamName(""); setMembers(""); setTeamEditorOpened(true); }} onSave={() => void saveTeam()} />
+    <VenuesSheet opened={settingsTab === "venues"} editorOpened={venueEditorOpened} id={venueId} name={venueName} city={venueCity} url={venueUrl} seats={venueSeats} saving={saving} venues={options.venues} onClose={closeVenues} onName={setVenueName} onCity={setVenueCity} onUrl={setVenueUrl} onSeats={setVenueSeats} onEdit={editVenue} onDelete={(venue) => void requestResourceDelete({ kind: "venue", id: venue.id, name: venue.name })} onAdd={() => { setVenueId(null); setVenueName(""); setVenueCity("Лимасол"); setVenueUrl(""); setVenueSeats(50); setVenueEditorOpened(true); }} onSave={() => void saveVenue()} />
+    <Modal
+      opened={settingsTab === "channels"}
+      onClose={closeChannels}
+      title={channelEditorOpened ? "Новый рекламный канал" : "Каналы для анонсов"}
+      size={620}
+      xOffset={0}
+      yOffset={0}
+      transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
+      closeButtonProps={{ "aria-label": channelEditorOpened ? "Закрыть добавление канала" : "Закрыть каналы" }}
+      classNames={{ inner: "show-form-sheet-inner", content: "channels-sheet", close: "show-form-close" }}
+    >
+      {channelEditorOpened ? <Stack>
+        <TextInput label="Telegram-ник канала" placeholder="@afisha_cyprus" value={channel} onChange={(event) => setChannel(event.currentTarget.value)} autoFocus />
+        <BottomActionBar inline><Button className="primary" fullWidth disabled={!channel.trim()} loading={saving} onClick={() => perform(() => api("/api/miniapp/ad-channels", { method: "POST", body: JSON.stringify({ username: channel }) }), "Канал добавлен").then((saved) => { if (saved) { setChannelEditorOpened(false); setChannel(""); } })}>Добавить канал</Button></BottomActionBar>
+      </Stack> : <Stack>
+        {options.adChannels.map((item) => <Paper className="resource-card" key={item.id}><Group justify="space-between"><div><Text fw={750}>{item.username}</Text><Text size="sm" c="dimmed">{item.isActive ? "Активен" : "Отключён"}</Text></div><Group gap="xs"><Switch aria-label={`Активность канала ${item.username}`} checked={item.isActive} onChange={() => perform(() => api(`/api/miniapp/ad-channels/${item.id}/toggle`, { method: "PATCH" }), "Канал обновлён")} /><Button size="xs" color="red" variant="subtle" onClick={() => void requestResourceDelete({ kind: "channel", id: item.id, name: item.username })}>Удалить</Button></Group></Group></Paper>)}
+        {!options.adChannels.length && <Text c="dimmed">Каналов пока нет.</Text>}
+        <BottomActionBar inline><Button className="primary" fullWidth onClick={() => setChannelEditorOpened(true)}>＋ Добавить канал</Button></BottomActionBar>
+      </Stack>}
+    </Modal>
+    <AccessModal opened={settingsTab === "access"} onClose={() => setSettingsTab(null)} users={accessUsers} loading={accessLoading} inviteUrl={inviteUrl} saving={saving} onInvite={() => void createInvite()} onCopy={() => void copyInvite()} onAudit={() => { setAuditOpened(true); void loadAudit(); }} onRevoke={setRevokeUser} />
+    <AuditLogModal opened={auditOpened} onClose={() => setAuditOpened(false)} items={auditItems} loading={auditLoading} error={auditError} onReload={() => void loadAudit()} />
     <Modal opened={revokeUser !== null} onClose={() => setRevokeUser(null)} title="Отозвать доступ?" centered><Text>Пользователь {revokeUser?.username ? `@${revokeUser.username}` : revokeUser?.firstName} больше не сможет открывать Mini App и управлять афишами.</Text><Group justify="flex-end" mt="lg"><Button variant="default" onClick={() => setRevokeUser(null)}>Отмена</Button><Button color="red" loading={saving} onClick={() => void confirmRevoke()}>Отозвать</Button></Group></Modal>
   </Modal>;
 }
-
-export const previewAttendees: Attendees = {
-  occupied: 6, maxSeats: 50, arrived: 3, hasMore: false, nextOffset: 100,
-  registrations: [
-    { id: 1, name: "Анна Смирнова", guests: 1, username: "anna_impro", confirmed: true, checkedInCount: 2, source: "telegram" },
-    { id: 2, name: "Михаил Орлов", guests: 0, username: "m_orlov", confirmed: null, checkedInCount: 0, source: "telegram" },
-  ],
-  manual: [{ id: 11, name: "Елена", contact: "@elena_cy", guests: 1, checkedInCount: 1, source: "manual" }],
-  waitlist: [{ id: 21, name: "Олег", username: "oleg_impro", position: 1 }],
-};

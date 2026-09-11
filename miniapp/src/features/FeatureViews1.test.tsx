@@ -9,6 +9,7 @@ import { AnalyticsModal } from "../components/AnalyticsModal";
 import { ManagementModal } from "./ManagementModal";
 import { newShowForm, ShowForm } from "./ShowForm";
 import { ShowToolsModal } from "./ShowToolsModal";
+import { showFormDraftKey } from "../hooks/useShowFormDraft";
 
 const wrapper = ({ children }: { children: ReactNode }) => <MantineProvider>{children}</MantineProvider>;
 const show = { id: 1, title: "Супер", teamName: "Экспериментаторы", showDateLabel: "5 сентября, 20:00", showDateLocal: "2027-09-05T20:00", location: "Театр", city: "Лимасол", occupiedSeats: 10, maxSeats: 80, isActive: true, isPast: false, registrarUsername: "sergey", posterText: "Описание", hasPublished: true } as Show;
@@ -30,6 +31,17 @@ describe("ShowForm", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
+  it("restores an autosaved new-show draft", () => {
+    const value = { ...newShowForm(), title: "Несохранённая афиша", titleNewcomer: "Название для первого знакомства" };
+    localStorage.setItem(showFormDraftKey(), JSON.stringify({ version: 1, value, venueId: null, activeStep: 0 }));
+
+    render(<ShowForm opened initial={null} options={options} me={me} reloadOptions={async () => undefined} onClose={vi.fn()} onSaved={vi.fn()} />, { wrapper });
+
+    expect(screen.getByRole("textbox", { name: /^Название$/ })).toHaveValue("Несохранённая афиша");
+    expect(screen.getByRole("textbox", { name: /Название для новичков/ })).toHaveValue("Название для первого знакомства");
+    localStorage.removeItem(showFormDraftKey());
+  });
+
   it("defaults registration closing to one hour before the show", () => {
     expect(newShowForm().maxGuests).toBe(6);
     expect(newShowForm().feedbackEnabled).toBe(true);
@@ -37,6 +49,7 @@ describe("ShowForm", () => {
 
   it("allows an editor to inspect every step", () => {
     render(<ShowForm opened initial={show} options={options} me={me} reloadOptions={async () => undefined} onClose={() => undefined} onSaved={() => undefined} />, { wrapper });
+    expect(screen.getByRole("textbox", { name: /Название для новичков/ })).toHaveValue("");
     fireEvent.click(screen.getByRole("button", { name: "Шаг 2: Место" }));
     expect(screen.getByText("Открыть на карте ↗")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Шаг 3: Запись" }));
@@ -98,7 +111,7 @@ describe("ShowForm", () => {
     history.replaceState({}, "", "/?preview=1");
     const onSaved = vi.fn();
     render(<ShowForm opened initial={null} options={options} me={me} reloadOptions={async () => undefined} onClose={vi.fn()} onSaved={onSaved} />, { wrapper });
-    fireEvent.change(await screen.findByRole("textbox", { name: /Название/ }), { target: { value: "Премьера" } });
+    fireEvent.change(await screen.findByRole("textbox", { name: /^Название$/ }), { target: { value: "Премьера" } });
     const team = screen.getByRole("combobox", { name: /Команда/ });
     fireEvent.change(team, { target: { value: "Экспериментаторы" } });
     fireEvent.keyDown(team, { key: "ArrowDown" });
@@ -138,45 +151,62 @@ describe("ManagementModal", () => {
     expect(onSettings).toHaveBeenCalledOnce();
   });
 
-  it("opens administration sections", () => {
+  it("opens teams in a closable sheet", async () => {
     render(<ManagementModal opened onClose={() => undefined} me={me} options={options} reload={async () => undefined} themePreference="system" onThemePreferenceChange={() => undefined} onResetLocalData={() => undefined} backHandlerRef={createRef()} />, { wrapper });
     fireEvent.click(screen.getByRole("button", { name: /Команды/ }));
-    expect(screen.getByText("Экспериментаторы")).toBeInTheDocument();
+    const dialog = await screen.findByRole("dialog", { name: "Команды" });
+    expect(within(dialog).getByText("Экспериментаторы")).toBeInTheDocument();
+    expect(dialog).not.toHaveAttribute("data-full-screen");
+    expect(within(dialog).getByRole("button", { name: "Закрыть команды" })).toBeInTheDocument();
   });
 
-  it("opens venue editor and channel editor", async () => {
+  it("opens venue sheet and channel editor", async () => {
     const props = { opened: true, onClose: vi.fn(), me, options, reload: async () => undefined, themePreference: "system" as const, onThemePreferenceChange: vi.fn(), onResetLocalData: vi.fn(), backHandlerRef: createRef<(() => boolean) | null>() };
     const view = render(<ManagementModal {...props} />, { wrapper });
     fireEvent.click(screen.getByRole("button", { name: /Площадки/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Добавить площадку/ }));
-    expect(await screen.findByRole("heading", { name: "Новая площадка" })).toBeInTheDocument();
+    const venuesDialog = await screen.findByRole("dialog", { name: "Площадки" });
+    expect(venuesDialog).not.toHaveAttribute("data-full-screen");
+    expect(within(venuesDialog).getByRole("button", { name: "Закрыть площадки" })).toBeInTheDocument();
+    fireEvent.click(within(venuesDialog).getByRole("button", { name: /Добавить площадку/ }));
+    expect(await screen.findByRole("dialog", { name: "Новая площадка" })).toBeInTheDocument();
     view.unmount();
 
     render(<ManagementModal {...props} />, { wrapper });
     fireEvent.click(screen.getByRole("button", { name: /Каналы для анонсов/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Добавить канал/ }));
-    expect(await screen.findByText("Новый рекламный канал")).toBeInTheDocument();
+    const channelsDialog = await screen.findByRole("dialog", { name: "Каналы для анонсов" });
+    expect(channelsDialog).not.toHaveAttribute("data-full-screen");
+    expect(within(channelsDialog).getByRole("button", { name: "Закрыть каналы" })).toBeInTheDocument();
+    fireEvent.click(within(channelsDialog).getByRole("button", { name: /Добавить канал/ }));
+    expect(await screen.findByRole("dialog", { name: "Новый рекламный канал" })).toBeInTheDocument();
   });
 
   it("shows access controls and the audit log", async () => {
     history.replaceState({}, "", "/?preview=1");
     render(<ManagementModal opened onClose={vi.fn()} me={me} options={options} reload={async () => undefined} themePreference="system" onThemePreferenceChange={vi.fn()} onResetLocalData={vi.fn()} backHandlerRef={createRef()} />, { wrapper });
     fireEvent.click(screen.getByRole("button", { name: /Доступ и журнал/ }));
-    expect(await screen.findByText("@anna_impro")).toBeInTheDocument();
-    fireEvent.click(await screen.findByRole("button", { name: "Журнал действий" }));
-    expect(await screen.findByText("Афиша опубликована")).toBeInTheDocument();
+    const accessDialog = await screen.findByRole("dialog", { name: "Доступ и журнал" });
+    expect(within(accessDialog).getByText("@anna_impro")).toBeInTheDocument();
+    expect(accessDialog).not.toHaveAttribute("data-full-screen");
+    expect(within(accessDialog).getByRole("button", { name: "Закрыть доступ и журнал" })).toBeInTheDocument();
+    fireEvent.click(within(accessDialog).getByRole("button", { name: "Журнал действий" }));
+    const auditDialog = await screen.findByRole("dialog", { name: "Журнал действий" });
+    expect(within(auditDialog).getByText("Афиша опубликована")).toBeInTheDocument();
+    expect(auditDialog).not.toHaveAttribute("data-full-screen");
+    expect(within(auditDialog).getByRole("button", { name: "Закрыть журнал действий" })).toBeInTheDocument();
     history.replaceState({}, "", "/");
   });
 
-  it("creates a team on its dedicated screen", async () => {
+  it("creates a team in the teams sheet", async () => {
     history.replaceState({}, "", "/?preview=1");
     const reload = vi.fn(async () => undefined);
     render(<ManagementModal opened onClose={vi.fn()} me={me} options={options} reload={reload} themePreference="system" onThemePreferenceChange={vi.fn()} onResetLocalData={vi.fn()} backHandlerRef={createRef()} />, { wrapper });
     fireEvent.click(screen.getByRole("button", { name: /Команды/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Добавить команду/ }));
-    fireEvent.change(await screen.findByLabelText("Название"), { target: { value: "Новая команда" } });
-    fireEvent.change(screen.getByLabelText("Telegram-ники участников"), { target: { value: "@valid_user" } });
-    fireEvent.click(screen.getByRole("button", { name: "Добавить команду" }));
+    const teamsDialog = await screen.findByRole("dialog", { name: "Команды" });
+    fireEvent.click(within(teamsDialog).getByRole("button", { name: /Добавить команду/ }));
+    const editorDialog = await screen.findByRole("dialog", { name: "Новая команда" });
+    fireEvent.change(within(editorDialog).getByLabelText("Название"), { target: { value: "Новая команда" } });
+    fireEvent.change(within(editorDialog).getByLabelText("Telegram-ники участников"), { target: { value: "@valid_user" } });
+    fireEvent.click(within(editorDialog).getByRole("button", { name: "Добавить команду" }));
     await waitFor(() => expect(reload).toHaveBeenCalled());
     history.replaceState({}, "", "/");
   });
@@ -187,18 +217,22 @@ describe("ManagementModal", () => {
     const props = { opened: true, onClose: vi.fn(), me, options, reload, themePreference: "system" as const, onThemePreferenceChange: vi.fn(), onResetLocalData: vi.fn(), backHandlerRef: createRef<(() => boolean) | null>() };
     const teamView = render(<ManagementModal {...props} />, { wrapper });
     fireEvent.click(screen.getByRole("button", { name: /Команды/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Изменить" }));
-    fireEvent.change(screen.getByRole("textbox", { name: /Название/ }), { target: { value: "Экспериментаторы 2" } });
-    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+    const teamsDialog = await screen.findByRole("dialog", { name: "Команды" });
+    fireEvent.click(within(teamsDialog).getByRole("button", { name: "Изменить" }));
+    const editorDialog = await screen.findByRole("dialog", { name: "Редактировать команду" });
+    fireEvent.change(within(editorDialog).getByRole("textbox", { name: /Название/ }), { target: { value: "Экспериментаторы 2" } });
+    fireEvent.click(within(editorDialog).getByRole("button", { name: "Сохранить" }));
     await waitFor(() => expect(reload).toHaveBeenCalled());
     teamView.unmount();
 
     render(<ManagementModal {...props} />, { wrapper });
     fireEvent.click(screen.getByRole("button", { name: /Площадки/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Изменить" }));
-    fireEvent.change(screen.getByRole("textbox", { name: /Название/ }), { target: { value: "Театр 2" } });
-    fireEvent.change(screen.getByRole("textbox", { name: "Ссылка на карту" }), { target: { value: "https://maps.example/new" } });
-    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+    const venuesDialog = await screen.findByRole("dialog", { name: "Площадки" });
+    fireEvent.click(within(venuesDialog).getByRole("button", { name: "Изменить" }));
+    const venueEditorDialog = await screen.findByRole("dialog", { name: "Редактировать площадку" });
+    fireEvent.change(within(venueEditorDialog).getByRole("textbox", { name: /Название/ }), { target: { value: "Театр 2" } });
+    fireEvent.change(within(venueEditorDialog).getByRole("textbox", { name: "Ссылка на карту" }), { target: { value: "https://maps.example/new" } });
+    fireEvent.click(within(venueEditorDialog).getByRole("button", { name: "Сохранить" }));
     await waitFor(() => expect(reload).toHaveBeenCalledTimes(2));
     history.replaceState({}, "", "/");
   });

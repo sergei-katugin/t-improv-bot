@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { telegramConfirm, telegramHaptic } from "./telegram";
+import { openTelegramLink, telegramConfirm, telegramHaptic } from "./telegram";
 
 describe("Telegram helpers", () => {
   afterEach(() => Object.defineProperty(window, "Telegram", { configurable: true, value: undefined }));
@@ -23,5 +23,17 @@ describe("Telegram helpers", () => {
     Object.defineProperty(window, "Telegram", { configurable: true, value: undefined });
     vi.spyOn(window, "confirm").mockReturnValue(false);
     await expect(telegramConfirm("Удалить?")).resolves.toBe(false);
+  });
+
+  it("opens Telegram links through the Mini App API with a browser fallback", () => {
+    const nativeOpen = vi.fn();
+    Object.defineProperty(window, "Telegram", { configurable: true, value: { WebApp: { openTelegramLink: nativeOpen } } });
+    openTelegramLink("https://t.me/sergey_katugin");
+    expect(nativeOpen).toHaveBeenCalledWith("https://t.me/sergey_katugin");
+
+    Object.defineProperty(window, "Telegram", { configurable: true, value: undefined });
+    const browserOpen = vi.spyOn(window, "open").mockImplementation(() => null);
+    openTelegramLink("https://t.me/sergey_katugin");
+    expect(browserOpen).toHaveBeenCalledWith("https://t.me/sergey_katugin", "_blank", "noopener,noreferrer");
   });
 });
