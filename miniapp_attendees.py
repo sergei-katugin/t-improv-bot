@@ -1,6 +1,8 @@
 from __future__ import annotations
 from miniapp_common import *
 from miniapp_helpers import _json_body, _manageable_api_show, _show_id
+from admin_bot.registration_notifications import notify_manual_registration
+from admin_bot.telegram_usernames import normalize_telegram_username
 
 
 async def miniapp_attendees(request: web.Request) -> web.Response:
@@ -100,6 +102,59 @@ async def miniapp_attendees(request: web.Request) -> web.Response:
             } for item in manual_page],
             "waitlist": [{"id": item.id, "name": item.attendee_name, "username": item.user.username, "position": index + 1} for index, item in enumerate(waitlist)],
         })
+
+
+async def miniapp_add_manual_attendee(request: web.Request) -> web.Response:
+    show_id = _show_id(request)
+    data = await _json_body(request)
+    if set(data) != {"name", "source", "contact", "guests"}:
+        raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_payload"}), content_type="application/json")
+    name = data["name"].strip() if isinstance(data["name"], str) else ""
+    source_value = data["source"]
+    source = source_value if isinstance(source_value, str) and source_value in {"telegram", "instagram", "other"} else None
+    contact = data["contact"].strip() if isinstance(data["contact"], str) else ""
+    guests = data["guests"]
+    if not 2 <= len(name) <= 100:
+        raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_field", "field": "name"}), content_type="application/json")
+    if source is None or not 2 <= len(contact) <= 256:
+        field = "source" if source is None else "contact"
+        raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_field", "field": field}), content_type="application/json")
+    if isinstance(guests, bool) or not isinstance(guests, int) or not 0 <= guests <= 6:
+        raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_field", "field": "guests"}), content_type="application/json")
+
+    telegram_username = normalize_telegram_username(contact) if source == "telegram" else None
+    if source == "telegram" and telegram_username is None:
+        raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_field", "field": "contact"}), content_type="application/json")
+    normalized_contact = (
+        f"Telegram: @{telegram_username}" if source == "telegram" else
+        f"Instagram: @{contact.lstrip('@').strip()}" if source == "instagram" else
+        f"Другое: {contact}"
+    )
+    async with AsyncSessionLocal() as session:
+        show = await _manageable_api_show(session, request, show_id)
+        if guests > show.max_guests:
+            raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_field", "field": "guests"}), content_type="application/json")
+        telegram_user = await crud.get_user_by_username(session, telegram_username) if telegram_username else None
+        if telegram_user:
+            attendee = await crud.register_user_safe(
+                session, show_id, telegram_user.id, name, guests, source="miniapp_manual",
+            )
+            kind = "registration"
+        else:
+            count = await crud.add_manual_attendees(
+                session, show_id, [name], source=source,
+                contacts=[normalized_contact], guests=[guests],
+            )
+            attendee = count and True
+            kind = "manual"
+        if not attendee:
+            raise web.HTTPConflict(text=json.dumps({"error": "capacity_exceeded"}), content_type="application/json")
+        occupied = await crud.count_active_registrations(session, show_id)
+        await notify_manual_registration(
+            request.app[ADMIN_BOT_KEY], show, name=name, contact=normalized_contact,
+            guests=guests, occupied=occupied, automatic=telegram_user is not None,
+        )
+        return web.json_response({"kind": kind, "occupied": occupied}, status=201)
 
 
 async def miniapp_update_registration(request: web.Request) -> web.Response:

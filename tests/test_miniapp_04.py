@@ -208,6 +208,13 @@ async def test_auth_middleware_sets_organizer_context_and_rejects_regular_user(m
         assert response.status == 200
         assert request["miniapp_telegram_id"] == 2000
         assert request["miniapp_is_admin"] is False
+        assert request["miniapp_is_super_admin"] is False
+
+        monkeypatch.setattr(miniapp_api, "ADMIN_ID_LIST", [2000])
+        super_request = Request()
+        await miniapp_api.miniapp_auth_middleware(super_request, handler)
+        assert super_request["miniapp_is_admin"] is True
+        assert super_request["miniapp_is_super_admin"] is True
 
         monkeypatch.setattr(miniapp_api, "validate_telegram_init_data", lambda *_args, **_kwargs: SimpleNamespace(telegram_id=2001))
         with pytest.raises(web.HTTPForbidden):

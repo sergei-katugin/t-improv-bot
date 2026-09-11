@@ -61,7 +61,13 @@ def test_admin_attendee_and_confirmation_keyboards_cover_variants():
     _assert_valid(admin.checkin_mode_kb(7))
     _assert_valid(admin.checkin_counter_kb(7))
     _assert_valid(admin.party_count_kb(7, "registration", 1, 2, 6))
-    _assert_valid(admin.registrations_kb(7, manual, True))
+    registrations_keyboard = admin.registrations_kb(7, manual, True)
+    _assert_valid(registrations_keyboard)
+    assert any(
+        button.text == "➕ Добавить человека"
+        and "chat_add_manual" in button.callback_data
+        for row in registrations_keyboard.inline_keyboard for button in row
+    )
     _assert_valid(admin.registrations_kb(7, [], False))
     _assert_valid(admin.registration_chat_kb(7, True))
     _assert_valid(admin.registration_chat_kb(7, False))
