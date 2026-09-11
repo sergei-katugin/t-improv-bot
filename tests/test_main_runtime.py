@@ -77,6 +77,20 @@ async def test_register_commands_configures_name_commands_and_menu(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_register_commands_survives_telegram_setup_rate_limit(monkeypatch):
+    admin_bot = AsyncMock()
+    public_bot = AsyncMock()
+    admin_bot.set_my_name.side_effect = RuntimeError("retry after 58779")
+    monkeypatch.setattr("admin_bot.keyboards.reply._miniapp_url", lambda: "https://example.test/app")
+
+    await main.register_commands(admin_bot, public_bot)
+
+    admin_bot.set_my_commands.assert_awaited_once()
+    public_bot.set_my_commands.assert_awaited_once()
+    admin_bot.set_chat_menu_button.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_runtime_error_handler_ignores_stale_callbacks_and_alerts(monkeypatch):
     bot = AsyncMock()
     await main.on_error(SimpleNamespace(exception=RuntimeError("query is too old")), bot)

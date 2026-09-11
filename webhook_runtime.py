@@ -6,6 +6,8 @@ import os
 import re
 import secrets
 import time
+from collections.abc import Awaitable
+from typing import Any
 
 from aiogram import Bot, Dispatcher
 from aiogram.types import BotCommand, MenuButtonWebApp, Update, WebAppInfo
@@ -16,6 +18,14 @@ from config import settings
 from miniapp_api import ADMIN_BOT_KEY, PUBLIC_BOT_KEY, register_miniapp_routes
 
 logger = get_project_logger(__name__)
+
+
+async def _best_effort_telegram_setup(label: str, action: Awaitable[Any]) -> None:
+    """Keep optional Telegram metadata failures from stopping the web server."""
+    try:
+        await action
+    except Exception:
+        logger.exception("Telegram startup setup failed step=%s; continuing", label)
 
 
 def get_webhook_secret(bot_token: str) -> str:
@@ -43,8 +53,10 @@ def get_webhook_secret(bot_token: str) -> str:
 async def register_commands(admin_bot: Bot, public_bot: Bot) -> None:
     # Telegram uses the bot's display name as the native Mini App header title.
     # The Mini App JavaScript API cannot change that title per route.
-    await admin_bot.set_my_name(name=settings.ADMIN_BOT_DISPLAY_NAME)
-    await admin_bot.set_my_commands([
+    await _best_effort_telegram_setup(
+        "admin_name", admin_bot.set_my_name(name=settings.ADMIN_BOT_DISPLAY_NAME)
+    )
+    await _best_effort_telegram_setup("admin_commands", admin_bot.set_my_commands([
         BotCommand(command="start",       description="Начать работу"),
         BotCommand(command="home",        description="Главное меню"),
         BotCommand(command="shows",       description="Список шоу"),
@@ -52,8 +64,8 @@ async def register_commands(admin_bot: Bot, public_bot: Bot) -> None:
         BotCommand(command="app",         description="Открыть Mini App"),
         BotCommand(command="help",        description="Справка"),
         BotCommand(command="privacy",     description="Конфиденциальность"),
-    ])
-    await public_bot.set_my_commands([
+    ]))
+    await _best_effort_telegram_setup("public_commands", public_bot.set_my_commands([
         BotCommand(command="start",    description="Главная"),
         BotCommand(command="shows",    description="Все предстоящие шоу"),
         BotCommand(command="my_shows", description="Мои записи"),
@@ -61,14 +73,14 @@ async def register_commands(admin_bot: Bot, public_bot: Bot) -> None:
         BotCommand(command="settings", description="Настройки"),
         BotCommand(command="privacy",  description="Конфиденциальность"),
         BotCommand(command="delete_me", description="Удалить мои данные"),
-    ])
+    ]))
     from admin_bot.keyboards.reply import _miniapp_url
     miniapp_url = _miniapp_url()
     if miniapp_url:
-        await admin_bot.set_chat_menu_button(menu_button=MenuButtonWebApp(
+        await _best_effort_telegram_setup("admin_menu_button", admin_bot.set_chat_menu_button(menu_button=MenuButtonWebApp(
             text="Открыть Mini App",
             web_app=WebAppInfo(url=miniapp_url),
-        ))
+        )))
         logger.info("Admin bot Mini App menu button configured url=%s", miniapp_url)
     else:
         logger.warning("Admin bot Mini App menu button is not configured: public base URL is missing")
