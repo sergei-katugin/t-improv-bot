@@ -21,6 +21,15 @@ const me: Me = { id: 1, firstName: "Sergey", username: "sergey", role: "admin" }
 
 
 describe("ShowForm", () => {
+  it("opens as a closable animated bottom sheet", () => {
+    const onClose = vi.fn();
+    render(<ShowForm opened initial={null} options={options} me={me} reloadOptions={async () => undefined} onClose={onClose} onSaved={vi.fn()} />, { wrapper });
+    const dialog = screen.getByRole("dialog", { name: "Новая афиша" });
+    expect(dialog).toHaveClass("show-form-sheet");
+    fireEvent.click(dialog.querySelector(".show-form-close")!);
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
   it("defaults registration closing to one hour before the show", () => {
     expect(newShowForm().maxGuests).toBe(6);
     expect(newShowForm().feedbackEnabled).toBe(true);

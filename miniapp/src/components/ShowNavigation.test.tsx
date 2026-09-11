@@ -7,10 +7,11 @@ const show = { id: 1, title: "Супер", isPast: false, hasPublished: false } 
 const handlers = () => ({ onShow: vi.fn(), onEdit: vi.fn(), onAnnouncement: vi.fn(), onAnalytics: vi.fn(), onRegistration: vi.fn(), onMore: vi.fn() });
 
 describe("ShowNavigation", () => {
-  it("shows announcement before publication and dispatches actions", () => {
+  it("always shows announcement instead of a registration link", () => {
     const actions = handlers();
     render(<ShowNavigation show={show} {...actions} />);
     expect(screen.getByRole("button", { name: "Анонс" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Ссылка" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Аналитика" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Действия" }));
     expect(actions.onMore).toHaveBeenCalledOnce();
@@ -22,6 +23,6 @@ describe("ShowNavigation", () => {
     expect(screen.getByRole("button", { name: "Настройки" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Действия" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Изменить" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Анонс" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Анонс" })).toBeInTheDocument();
   });
 });

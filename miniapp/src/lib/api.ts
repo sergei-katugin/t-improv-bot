@@ -1,3 +1,10 @@
+export class ApiError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 export function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const demoMutation = import.meta.env.DEV &&
     new URLSearchParams(location.search).get("preview") === "1" &&
@@ -19,7 +26,7 @@ export function api<T>(path: string, init: RequestInit = {}): Promise<T> {
         response.status === 403 ? "Недостаточно прав для этого действия" :
         typeof payload.message === "string" ? payload.message :
         payload.field ? `Проверь поле: ${payload.field}` : "Не удалось выполнить запрос";
-      throw new Error(`${message}${requestId ? ` · код ${requestId}` : ""}`);
+      throw new ApiError(response.status, `${message}${requestId ? ` · код ${requestId}` : ""}`);
     }
     return response.json() as Promise<T>;
   });

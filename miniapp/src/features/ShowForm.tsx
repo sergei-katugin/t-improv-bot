@@ -201,7 +201,16 @@ export function ShowForm({ opened, initial, options, me, reloadOptions, onClose,
     else void save(false);
   }
 
-  return <Modal opened={opened} onClose={onClose} title={initial ? "Редактировать афишу" : "Новая афиша"} fullScreen classNames={{ close: "fullscreen-modal-close" }}>
+  return <Modal
+    opened={opened}
+    onClose={onClose}
+    title={initial ? "Редактировать афишу" : "Новая афиша"}
+    size={620}
+    xOffset={0}
+    yOffset={0}
+    transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
+    classNames={{ inner: "show-form-sheet-inner", content: "show-form-sheet", close: "show-form-close" }}
+  >
     <form onSubmit={submit} className="show-form">
       <Stack gap="md">
         <Text size="sm" fw={700}>Шаг {activeStep + 1} из 4 · {stepLabels[activeStep]}</Text>

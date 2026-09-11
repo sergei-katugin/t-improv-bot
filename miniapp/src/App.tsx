@@ -23,7 +23,8 @@ import { EmptyShowsState } from "./components/EmptyShowsState";
 import { ShowStepper } from "./components/ShowStepper";
 import { MiniAppOnboarding } from "./components/MiniAppOnboarding";
 import { AttentionCenter, type AttentionItem } from "./components/AttentionCenter";
-import { api, authenticatedBlob } from "./lib/api";
+import { AccessDeniedScreen } from "./components/AccessDeniedScreen";
+import { ApiError, api, authenticatedBlob } from "./lib/api";
 import { showNotification } from "./lib/notifications";
 import { telegramConfirm, telegramHaptic } from "./lib/telegram";
 import { useAppTheme } from "./hooks/useAppTheme";
@@ -38,7 +39,7 @@ const previewShows: Show[] = [
 
 
 
-function App({ themePreference, onThemePreferenceChange, onResetLocalData }: { themePreference: ThemePreference; onThemePreferenceChange: (preference: ThemePreference) => void; onResetLocalData: () => void }) {
+function App({ themePreference, onThemePreferenceChange, onResetLocalData, onAccessDenied }: { themePreference: ThemePreference; onThemePreferenceChange: (preference: ThemePreference) => void; onResetLocalData: () => void; onAccessDenied: () => void }) {
   const isPreview = import.meta.env.DEV && new URLSearchParams(location.search).get("preview") === "1";
   const [shows, setShows] = React.useState<Show[]>(isPreview ? previewShows : []);
   const [selected, setSelected] = React.useState<Show | null>(null);
@@ -51,6 +52,7 @@ function App({ themePreference, onThemePreferenceChange, onResetLocalData }: { t
   const [loading, setLoading] = React.useState(!isPreview);
   const [loadingMore, setLoadingMore] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = React.useState(false);
   const [attention, setAttention] = React.useState<AttentionItem[]>([]);
   const [options, setOptions] = React.useState<Options>({ teams: [], venues: [], adChannels: [] });
   const [me, setMe] = React.useState<Me | null>(isPreview ? { id: 1, firstName: "Sergey", username: "sergey", role: "admin" } : null);
@@ -115,9 +117,17 @@ function App({ themePreference, onThemePreferenceChange, onResetLocalData }: { t
   }, []);
 
   React.useEffect(() => {
-    if (!isPreview) { api<Options>("/api/miniapp/options").then(setOptions).catch(() => undefined); api<Me>("/api/miniapp/me").then(setMe).catch(() => undefined); }
+    if (!isPreview) {
+      api<Options>("/api/miniapp/options").then(setOptions).catch(() => undefined);
+      api<Me>("/api/miniapp/me").then(setMe).catch((reason) => {
+        if (reason instanceof ApiError && reason.status === 403) {
+          setAccessDenied(true);
+          onAccessDenied();
+        }
+      });
+    }
     else setOptions({ teams: [{ id: 1, name: "T·IMPRO", members: "@sergey, @anna_impro" }, { id: 2, name: "Импровизаторы Кипра", members: null }], venues: [{ id: 1, name: "Ravens Music Hall", city: "Лимасол", mapsUrl: "https://maps.example", defaultSeats: 50 }], adChannels: [{ id: 1, username: "@afisha_cyprus", isActive: true }] });
-  }, [isPreview]);
+  }, [isPreview, onAccessDenied]);
 
   function reloadShows(cursor: string | null = null, append = false) {
     if (isPreview) return;
@@ -207,6 +217,8 @@ function App({ themePreference, onThemePreferenceChange, onResetLocalData }: { t
     }
   }
 
+  if (accessDenied) return <AccessDeniedScreen />;
+
   if (selected) {
     const registrationUrl = selected.registrationUrl ?? `https://t.me/ImprovCypEventBot?start=show_${selected.id}`;
     return <main className="shell">
@@ -268,6 +280,8 @@ export function AppRoot() {
   const { colorScheme, preference, changePreference } = useAppTheme();
   const onboardingKey = "miniapp-onboarding-v1";
   const [onboardingOpened, setOnboardingOpened] = React.useState(() => localStorage.getItem(onboardingKey) !== "done");
+  const [accessDenied, setAccessDenied] = React.useState(false);
+  const showAccessDenied = React.useCallback(() => setAccessDenied(true), []);
   const finishOnboarding = React.useCallback(() => {
     localStorage.setItem(onboardingKey, "done");
     setOnboardingOpened(false);
@@ -282,5 +296,5 @@ export function AppRoot() {
     changePreference("system");
     setOnboardingOpened(true);
   }, [changePreference]);
-  return <MantineProvider theme={theme} forceColorScheme={colorScheme}><DatesProvider settings={{ locale: "ru", firstDayOfWeek: 1, weekendDays: [0, 6] }}><Notifications /><App themePreference={preference} onThemePreferenceChange={changePreference} onResetLocalData={resetLocalData} /><MiniAppOnboarding opened={onboardingOpened} onFinish={finishOnboarding} /></DatesProvider></MantineProvider>;
+  return <MantineProvider theme={theme} forceColorScheme={colorScheme}><DatesProvider settings={{ locale: "ru", firstDayOfWeek: 1, weekendDays: [0, 6] }}><Notifications /><App themePreference={preference} onThemePreferenceChange={changePreference} onResetLocalData={resetLocalData} onAccessDenied={showAccessDenied} /><MiniAppOnboarding opened={!accessDenied && onboardingOpened} onFinish={finishOnboarding} /></DatesProvider></MantineProvider>;
 }
