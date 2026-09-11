@@ -156,7 +156,7 @@ async def _run_announcement_check(public_bot: Bot, admin_bot: Bot) -> None:
             elif days_left == 1:
                 await _maybe_send_channel(session, public_bot, admin_bot, show, "1d")
                 await _maybe_send_personal(session, public_bot, admin_bot, show, 1)
-                await _maybe_remind_manual_attendees(session, admin_bot, show)
+                await _maybe_remind_manual_attendees(session, public_bot, admin_bot, show)
             elif days_left == 0:
                 await _maybe_send_channel(session, public_bot, admin_bot, show, "0d")
                 await _maybe_send_personal(session, public_bot, admin_bot, show, 0)

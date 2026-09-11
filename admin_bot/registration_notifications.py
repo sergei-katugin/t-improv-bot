@@ -11,7 +11,10 @@ async def notify_manual_registration(
 ) -> None:
     if not getattr(show, "registration_chat_id", None):
         return
-    reminder = "автоматические напоминания" if automatic else "уведомить вручную"
+    reminder = (
+        "автоматические напоминания" if automatic else
+        "попробуем отправить автоматически; при ошибке сообщим здесь"
+    )
     try:
         await bot.send_message(
             show.registration_chat_id,
