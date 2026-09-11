@@ -3,7 +3,7 @@ from miniapp_common import *
 
 from miniapp_analytics import miniapp_export_show_csv
 from miniapp_analytics import miniapp_show_analytics
-from miniapp_attendees import miniapp_attendees
+from miniapp_attendees import miniapp_add_manual_attendee, miniapp_attendees
 from miniapp_attendees import miniapp_cancel_registration
 from miniapp_attendees import miniapp_update_registration
 from miniapp_catalog import miniapp_create_ad_channel
@@ -90,6 +90,7 @@ def register_miniapp_routes(app: web.Application) -> None:
     app.router.add_patch("/api/miniapp/ad-channels/{channel_id}/toggle", miniapp_toggle_ad_channel)
     app.router.add_delete("/api/miniapp/ad-channels/{channel_id}", miniapp_delete_ad_channel)
     app.router.add_get("/api/miniapp/shows/{show_id}/attendees", miniapp_attendees)
+    app.router.add_post("/api/miniapp/shows/{show_id}/attendees/manual", miniapp_add_manual_attendee)
     app.router.add_get("/api/miniapp/attention", miniapp_attention)
     app.router.add_get("/api/miniapp/shows/{show_id}/tasks", miniapp_show_tasks)
     app.router.add_post("/api/miniapp/shows/{show_id}/remind", miniapp_remind_viewers)

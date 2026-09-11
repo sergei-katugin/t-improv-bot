@@ -3,6 +3,18 @@ from miniapp_common import *
 from miniapp_helpers import _json_body, _manageable_api_show, _record_audit, _registration_url, _show_id
 
 
+async def _send_test_announcement_message(bot, chat_id, show, text, keyboard) -> None:
+    if show.poster_file_id and len(text) <= 1024:
+        await send_with_retry(
+            bot.send_photo, chat_id, show.poster_file_id,
+            caption=text, reply_markup=keyboard,
+        )
+        return
+    if show.poster_file_id:
+        await send_with_retry(bot.send_photo, chat_id, show.poster_file_id)
+    await send_with_retry(bot.send_message, chat_id, text, reply_markup=keyboard)
+
+
 async def miniapp_announcement_preview(request: web.Request) -> web.Response:
     show_id = _show_id(request)
     async with AsyncSessionLocal() as session:
@@ -59,19 +71,10 @@ async def miniapp_send_test_announcement(request: web.Request) -> web.Response:
     ]])
     bot = request.app[ADMIN_BOT_KEY]
     chat_id = request["miniapp_telegram_id"]
-    async def send_test() -> None:
-        if show.poster_file_id and len(text) <= 1024:
-            await send_with_retry(
-                bot.send_photo, chat_id, show.poster_file_id,
-                caption=text, reply_markup=keyboard,
-            )
-            return
-        if show.poster_file_id:
-            await send_with_retry(bot.send_photo, chat_id, show.poster_file_id)
-        await send_with_retry(bot.send_message, chat_id, text, reply_markup=keyboard)
-
     try:
-        await asyncio.wait_for(send_test(), timeout=15)
+        await asyncio.wait_for(
+            _send_test_announcement_message(bot, chat_id, show, text, keyboard), timeout=15,
+        )
     except asyncio.TimeoutError:
         logger.warning("Test announcement timed out show_id=%s has_poster=%s", show_id, bool(show.poster_file_id))
         raise web.HTTPGatewayTimeout(

@@ -21,6 +21,7 @@ from admin_bot.keyboards.reply import registration_channel_picker_kb, registrati
 from admin_bot.callbacks import AdminCheckinCb, AdminManualCheckinCb, AdminPartyCountCb, AdminShowActionCb
 from admin_bot.security import checkin_accessible_show, deny, manageable_show
 from admin_bot.telegram_usernames import normalize_telegram_username
+from admin_bot.registration_notifications import notify_manual_registration
 from html_utils import h
 
 logger = get_project_logger(__name__)
@@ -41,13 +42,10 @@ async def start_add_manual_from_registration_chat(
     is_super_admin: bool = False,
     db_user=None,
 ):
-    """Start manual entry without replacing the notification in the working chat."""
+    """Start manual entry from either the bot or the registration chat."""
     show = await crud.get_show(session, callback_data.show_id)
-    if not _can_manage(is_super_admin, db_user, show.creator_id if show else None):
+    if show is None or not _can_manage(is_super_admin, db_user, show.creator_id):
         await callback.answer("⛔ Нет доступа к этому шоу.", show_alert=True)
-        return
-    if callback.message.chat.id != show.registration_chat_id:
-        await callback.answer("Эта кнопка работает только в чате записей.", show_alert=True)
         return
 
     await callback.answer()
@@ -123,7 +121,7 @@ async def process_chat_manual_contact(message: Message, state: FSMContext):
 
 
 @router.message(AddManualFSM.chat_guests, F.text)
-async def process_chat_manual_guests(message: Message, state: FSMContext, session: AsyncSession, is_super_admin: bool = False, db_user=None):
+async def process_chat_manual_guests(message: Message, state: FSMContext, session: AsyncSession, bot, is_super_admin: bool = False, db_user=None):
     try:
         guests = int(message.text.strip())
     except ValueError:
@@ -171,6 +169,11 @@ async def process_chat_manual_guests(message: Message, state: FSMContext, sessio
         occupied = await crud.count_active_registrations(session, show_id)
         await message.answer(f"😔 Не хватает мест: свободно {max(0, show.max_seats - occupied)}.", reply_markup=show_context_kb())
         return
+    occupied = await crud.count_active_registrations(session, show_id)
+    await notify_manual_registration(
+        bot, show, name=data["manual_name"], contact=data["manual_contact"],
+        guests=guests, occupied=occupied, automatic=telegram_user is not None,
+    )
     reminder_note = (
         "\n🔔 Пользователь найден в боте и добавлен в автоматические напоминания."
         if telegram_user is not None else

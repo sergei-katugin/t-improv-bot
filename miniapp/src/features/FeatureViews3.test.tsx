@@ -28,6 +28,15 @@ describe("AttendeesModal", () => {
     expect(screen.queryByRole("button", { name: "Отменить" })).not.toBeInTheDocument();
   });
 
+  it("opens the manual attendee form", async () => {
+    render(<AttendeesModal opened onClose={vi.fn()} show={show} demo backHandlerRef={createRef<(() => boolean) | null>()} onEdit={vi.fn()} onAnnouncement={vi.fn()} onAnalytics={vi.fn()} onRegistration={vi.fn()} onMore={vi.fn()} />, { wrapper });
+    fireEvent.click(screen.getByRole("button", { name: "➕ Добавить человека" }));
+    const dialog = await screen.findByRole("dialog", { name: "Добавить человека" });
+    expect(within(dialog).getByRole("textbox", { name: "Полное имя" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("textbox", { name: "Контакт" })).toHaveAttribute("placeholder", "@username");
+    expect(within(dialog).getByRole("button", { name: "Добавить" })).toBeDisabled();
+  });
+
   it("loads and appends viewers from the API", async () => {
     window.Telegram = { WebApp: { initData: "signed", initDataUnsafe: {}, colorScheme: "dark", onEvent: vi.fn(), offEvent: vi.fn() } } as unknown as typeof window.Telegram;
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
