@@ -30,6 +30,7 @@ async def create_show(
     poster_file_id: str | None,
     max_seats: int,
     creator_id: int,
+    poster_text_newcomer: str | None = None,
     max_guests: int = 6,
     registration_closes_at: datetime | None = None,
     registrar_id: int | None = None,
@@ -45,6 +46,7 @@ async def create_show(
         location_url=location_url,
         city=city,
         poster_text=poster_text,
+        poster_text_newcomer=poster_text_newcomer,
         poster_file_id=poster_file_id,
         max_seats=max_seats,
         max_guests=max_guests,
@@ -272,7 +274,6 @@ async def get_show_outcomes(
     for show_id, count, average in feedback_rows:
         outcomes[show_id].update(feedback_count=int(count), average_rating=float(average))
     return outcomes
-
 
 async def clear_registration_chat_if_matches(session: AsyncSession, show_id: int, chat_id: int) -> bool:
     result = await session.execute(

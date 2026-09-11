@@ -8,6 +8,14 @@ import miniapp_promotion
 from tests.miniapp_support import _Request, web
 
 
+def test_announcement_audience_selects_the_requested_description():
+    show = SimpleNamespace(poster_text="Для своих", poster_text_newcomer="Для новичков")
+
+    assert miniapp_promotion._announcement_show(show, "familiar").poster_text == "Для своих"
+    assert miniapp_promotion._announcement_show(show, "newcomer").poster_text == "Для новичков"
+    assert show.poster_text == "Для своих"
+
+
 def _fake_pillow(monkeypatch, *, image_format="PNG"):
     opened = []
 

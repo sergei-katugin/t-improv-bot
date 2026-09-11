@@ -74,7 +74,7 @@ describe("ShowForm", () => {
     fireEvent.blur(registrar);
     fireEvent.change(screen.getByLabelText("Максимум дополнительных гостей"), { target: { value: "6" } });
     fireEvent.click(screen.getByRole("button", { name: "Шаг 4: Афиша" }));
-    fireEvent.change(screen.getByLabelText("Текст афиши"), { target: { value: "Обновлённый текст" } });
+    fireEvent.change(screen.getByLabelText("Профессиональное описание"), { target: { value: "Обновлённый текст" } });
     fireEvent.click(screen.getByLabelText("Включить check-in"));
     fireEvent.click(screen.getByLabelText("Запрашивать отзывы после шоу"));
     fireEvent.click(screen.getByRole("button", { name: "Показать предпросмотр" }));

@@ -114,6 +114,7 @@ describe("AnnouncementModal", () => {
 
   it("sends a test announcement in preview mode", async () => {
     render(<AnnouncementModal opened onClose={vi.fn()} show={show} demo onEdit={vi.fn()} onAnalytics={vi.fn()} onRegistration={vi.fn()} onMore={vi.fn()} onPublished={vi.fn()} />, { wrapper });
+    expect(screen.getByRole("combobox", { name: "Для кого этот анонс" })).toBeInTheDocument();
     fireEvent.click(await screen.findByRole("button", { name: "Отправить тест себе" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Отправить тест себе" })).not.toBeDisabled());
   });
