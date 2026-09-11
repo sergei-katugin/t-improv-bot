@@ -16,9 +16,8 @@ export function ShowNavigation({ show, active, onShow, onEdit, onAnnouncement, o
   return <BottomActionBar navigation>
     <BottomNavAction icon="shows" label="Шоу" active={active === "show"} onClick={onShow} />
     {!show.isPast && <BottomNavAction icon="edit" label="Изменить" active={active === "edit"} onClick={onEdit} />}
-    {!show.isPast && !show.hasPublished && <BottomNavAction icon="announce" label="Анонс" active={active === "announcement"} onClick={onAnnouncement} />}
+    <BottomNavAction icon="announce" label="Анонс" active={active === "announcement"} onClick={onAnnouncement} />
     {(show.isPast || show.hasPublished) && <BottomNavAction icon="analytics" label="Аналитика" active={active === "analytics"} onClick={onAnalytics} />}
-    {!show.isPast && <BottomNavAction icon="link" label="Ссылка" active={active === "registration"} onClick={onRegistration} />}
     <BottomNavAction icon="more" label={show.isPast ? "Настройки" : "Действия"} active={active === "more"} onClick={onMore} />
   </BottomActionBar>;
 }

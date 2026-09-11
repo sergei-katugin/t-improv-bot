@@ -21,14 +21,13 @@ const me: Me = { id: 1, firstName: "Sergey", username: "sergey", role: "admin" }
 
 
 describe("ShowToolsModal", () => {
-  it("keeps a published announcement in more actions", () => {
-    const onClose = vi.fn();
-    const onAnnouncement = vi.fn();
-    const props = { mode: "all" as const, opened: true, onClose, show, registrationUrl: "https://t.me/test", demo: true, backHandlerRef: createRef<(() => boolean) | null>(), onEdit: vi.fn(), onAnalytics: vi.fn(), onAnnouncement, onChanged: vi.fn(), onDeleted: vi.fn() };
+  it("keeps the registration link and removes announcement from more actions", () => {
+    const props = { mode: "all" as const, opened: true, onClose: vi.fn(), show, registrationUrl: "https://t.me/test", demo: true, backHandlerRef: createRef<(() => boolean) | null>(), onEdit: vi.fn(), onAnalytics: vi.fn(), onAnnouncement: vi.fn(), onChanged: vi.fn(), onDeleted: vi.fn() };
     render(<ShowToolsModal {...props} />, { wrapper });
-    fireEvent.click(screen.getByRole("button", { name: /Анонс/ }));
-    expect(onClose).toHaveBeenCalledOnce();
-    expect(onAnnouncement).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: /Ссылка и QR/ })).toBeInTheDocument();
+    const actions = document.querySelector(".tools-menu");
+    expect(actions).not.toBeNull();
+    expect(within(actions as HTMLElement).queryByRole("button", { name: /^Анонс/ })).not.toBeInTheDocument();
   });
 
   it("does not duplicate analytics for a past show", () => {
@@ -95,6 +94,7 @@ describe("ShowToolsModal", () => {
     const onChanged = vi.fn();
     const attached = { ...show, registrationChatId: -1001, registrationChatTitle: "Записи" };
     render(<ShowToolsModal mode="chat" opened onClose={vi.fn()} show={attached} registrationUrl="https://t.me/test" demo={false} backHandlerRef={createRef()} onEdit={vi.fn()} onAnalytics={vi.fn()} onAnnouncement={vi.fn()} onChanged={onChanged} onDeleted={vi.fn()} />, { wrapper });
+    expect(screen.getByRole("dialog", { name: /Чат записей/ })).toHaveClass("chat-sheet");
     fireEvent.click(await screen.findByRole("button", { name: "Отключить чат" }));
     fireEvent.click(await screen.findByRole("button", { name: "Отключить" }));
     await waitFor(() => expect(onChanged).toHaveBeenCalledWith(expect.objectContaining({ registrationChatId: null })));
@@ -117,7 +117,9 @@ describe("ShowToolsModal", () => {
     });
     const props = { mode: "all" as const, opened: true, onClose, show, registrationUrl: "https://t.me/test", demo: false, backHandlerRef: createRef<(() => boolean) | null>(), onEdit, onAnalytics: vi.fn(), onAnnouncement, onChanged: vi.fn(), onDeleted: vi.fn() };
     const first = render(<ShowToolsModal {...props} />, { wrapper });
-    fireEvent.click(await screen.findByRole("button", { name: /Сделать анонс/ }));
+    await screen.findByRole("button", { name: /Назначить ответственного/ });
+    expect(screen.queryByRole("button", { name: /Сделать анонс/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Анонс" }));
     expect(onAnnouncement).toHaveBeenCalled();
     first.unmount();
     const second = render(<ShowToolsModal {...props} />, { wrapper });

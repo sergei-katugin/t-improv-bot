@@ -53,6 +53,9 @@ button, a { font: inherit; }
 .mantine-Switch-input:not(:checked) + .mantine-Switch-track { border: 1px solid var(--line); }
 .mantine-Input-label { margin-bottom: 5px; font-size: 14px; font-weight: 650; }
 .shell { width: min(100%, 620px); min-height: 100vh; min-height: var(--tg-viewport-stable-height, 100dvh); margin: 0 auto; padding: 0 max(16px, var(--tg-content-safe-area-inset-right, 0px)) calc(92px + env(safe-area-inset-bottom)) max(16px, var(--tg-content-safe-area-inset-left, 0px)); }
+.access-denied-screen { display: grid; place-items: center; padding-bottom: max(24px, env(safe-area-inset-bottom)); }
+.access-denied-screen .resource-form { width: 100%; }
+.access-denied-icon { font-size: 44px; line-height: 1; }
 .page-tabs-header { position: sticky; z-index: 20; top: 0; display: flex; align-items: center; gap: 8px; margin: 0 -16px 14px; padding: max(8px, var(--tg-content-safe-area-inset-top, env(safe-area-inset-top))) 16px 8px; background: var(--app-bg); border-bottom: 1px solid var(--line); }
 .page-tabs-header .tabs { flex: 1; margin: 0; }
 .page-tabs-header .tabs [role="tab"] { min-height: 28px; padding-block: 4px; }

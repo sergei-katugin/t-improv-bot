@@ -3,7 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppRoot } from "./App";
 
 describe("AppRoot preview flow", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete window.Telegram;
+  });
 
   beforeEach(() => {
     vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
@@ -59,6 +62,31 @@ describe("AppRoot preview flow", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Анонс" })[0]);
     expect(await screen.findByRole("dialog", { name: "Предпросмотр анонса" })).toBeInTheDocument();
     expect(document.title).toBe("Анонс");
+  });
+
+  it("shows a dedicated screen to Telegram users without organizer access", async () => {
+    history.replaceState({}, "", "/");
+    localStorage.removeItem("miniapp-onboarding-v1");
+    const noop = () => undefined;
+    const button = { show: noop, hide: noop, onClick: noop, offClick: noop };
+    Object.defineProperty(window, "Telegram", { configurable: true, value: { WebApp: {
+      initData: "viewer-data", colorScheme: "dark", BackButton: button, SettingsButton: button,
+      ready: noop, expand: noop, close: noop, onEvent: noop, offEvent: noop,
+      setHeaderColor: noop, setBackgroundColor: noop, setBottomBarColor: noop,
+    } } });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+      headers: new Headers(),
+      json: async () => ({ error: "organizer_access_required" }),
+    }));
+
+    render(<AppRoot />);
+
+    expect(await screen.findByRole("heading", { name: "Административная Mini App" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "@sergey_katugin" })).toHaveAttribute("href", "https://t.me/sergey_katugin");
+    await waitFor(() => expect(screen.queryByText("Создавай афиши и управляй шоу")).not.toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Создать" })).not.toBeInTheDocument();
   });
 
   it("finishes onboarding and can reset all local Mini App data", async () => {

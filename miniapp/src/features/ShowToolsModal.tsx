@@ -154,14 +154,30 @@ export function ShowToolsModal({ mode, opened, onClose, show, registrationUrl, d
     else if (key === "manual_notifications") void confirmManualNotifications();
   }
 
+  const visibleTasks = tasks.filter(
+    (task) => task.key !== "announcement" && task.key !== "repeat_announcement",
+  );
+
   const sectionTitle = section === "menu" ? (show.isPast ? "Настройки" : "Действия") : section === "chat" ? "Чат записей" : section === "registration" ? "Ссылка и QR" : "Создать копию";
   const title = `${sectionTitle} · ${show.title}`;
-  return <Modal opened={opened} onClose={onClose} title={title} fullScreen classNames={{ close: "fullscreen-modal-close" }}>
-    {section !== "menu" && mode === "all" && <Button className="back" variant="subtle" onClick={() => setSection("menu")}>← Все действия</Button>}
+  const chatSheet = section === "chat";
+  return <Modal
+    opened={opened}
+    onClose={chatSheet && mode === "all" ? () => setSection("menu") : onClose}
+    title={title}
+    fullScreen={!chatSheet}
+    size={chatSheet ? 620 : undefined}
+    xOffset={chatSheet ? 0 : undefined}
+    yOffset={chatSheet ? 0 : undefined}
+    transitionProps={chatSheet ? { transition: "slide-up", duration: 240, timingFunction: "ease-out" } : undefined}
+    classNames={chatSheet
+      ? { inner: "show-form-sheet-inner", content: "chat-sheet", close: "show-form-close" }
+      : { close: "fullscreen-modal-close" }}
+  >
+    {section !== "menu" && section !== "chat" && mode === "all" && <Button className="back" variant="subtle" onClick={() => setSection("menu")}>← Все действия</Button>}
     {section === "menu" && <Stack gap="xs" className="tools-menu">
-      {tasks.length > 0 && <><Text className="tools-section-label">Требуют внимания · {tasks.length}</Text>{tasks.map((task) => <button key={task.key} className="tools-menu-action attention" disabled={busy !== null} onClick={() => openTask(task.key)}><span><b>{task.label}</b><small>{task.description ?? (task.count > 1 ? `${task.count} элементов` : "Открыть и выполнить")}</small></span><span>→</span></button>)}</>}
+      {visibleTasks.length > 0 && <><Text className="tools-section-label">Требуют внимания · {visibleTasks.length}</Text>{visibleTasks.map((task) => <button key={task.key} className="tools-menu-action attention" disabled={busy !== null} onClick={() => openTask(task.key)}><span><b>{task.label}</b><small>{task.description ?? (task.count > 1 ? `${task.count} элементов` : "Открыть и выполнить")}</small></span><span>→</span></button>)}</>}
       {!show.isPast && <button className="tools-menu-action" onClick={() => setSection("chat")}><span><b>Чат записей</b><small>{show.registrationChatId ? show.registrationChatTitle || "Подключён" : "Не подключён"}</small></span><span>→</span></button>}
-      {!show.isPast && show.hasPublished && <button className="tools-menu-action" onClick={() => { onClose(); onAnnouncement(); }}><span><b>Анонс</b><small>Посмотреть или опубликовать повторно</small></span><span>→</span></button>}
       {!show.isPast && !show.hasPublished && <button className="tools-menu-action" onClick={onAnalytics}><span><b>Аналитика</b><small>Записи, посещаемость и отзывы</small></span><span>→</span></button>}
       {!show.isPast && <button className="tools-menu-action" onClick={() => setSection("registration")}><span><b>Ссылка и QR</b><small>Для самостоятельной записи зрителей</small></span><span>→</span></button>}
       <button className="tools-menu-action" onClick={() => setSection("clone")}><span><b>Создать копию</b><small>Новая афиша с теми же данными</small></span><span>→</span></button>
@@ -170,7 +186,7 @@ export function ShowToolsModal({ mode, opened, onClose, show, registrationUrl, d
     {section === "chat" && <Stack><Text size="sm" c="dimmed">Сюда бот будет отправлять сообщения о новых записях.</Text>{show.registrationChatId ? <Paper className="resource-card"><Text fw={750}>{show.registrationChatTitle || show.registrationChatId}</Text><Text size="sm" c="dimmed">Чат подключён</Text></Paper> : <><Text size="sm" c="dimmed">Добавь админ-бота в группу или канал — чат автоматически появится в списке.</Text><Select clearable label="Мои чаты" placeholder={savedChats.length ? "Выбери чат" : "Подключённых чатов пока нет"} value={chatTarget || null} onChange={(value) => setChatTarget(value ?? "")} data={savedChats.map((chat) => ({ value: String(chat.id), label: chat.title }))} /></>}</Stack>}
     {section === "registration" && <Stack><Text size="sm" c="dimmed">Ссылка открывает публичного бота сразу на записи на это шоу. QR-код содержит ту же ссылку.</Text><Paper className="resource-card"><Text size="sm" style={{ wordBreak: "break-all" }}>{registrationUrl}</Text></Paper><Group className="announcement-actions" grow wrap="nowrap"><Button variant="light" onClick={() => void copyLink()}>Копировать</Button><Button className="primary" loading={busy === "qr"} onClick={() => void downloadQr()}>Скачать QR</Button></Group></Stack>}
     {section === "clone" && <Stack><Text size="sm" c="dimmed">Будет создана новая неопубликованная афиша с теми же данными.</Text><AppDateTimePicker label="Дата и время новой афиши" value={cloneDate} onChange={setCloneDate} /></Stack>}
-    {section === "chat" && <BottomActionBar>{show.registrationChatId ? <Button color="red" variant="light" fullWidth loading={busy === "chat"} onClick={() => setDisconnectChatConfirm(true)}>Отключить чат</Button> : <Button className="primary" fullWidth disabled={!chatTarget.trim()} loading={busy === "chat"} onClick={() => void saveRegistrationChat()}>Подключить чат</Button>}</BottomActionBar>}
+    {section === "chat" && <BottomActionBar inline>{show.registrationChatId ? <Button color="red" variant="light" fullWidth loading={busy === "chat"} onClick={() => setDisconnectChatConfirm(true)}>Отключить чат</Button> : <Button className="primary" fullWidth disabled={!chatTarget.trim()} loading={busy === "chat"} onClick={() => void saveRegistrationChat()}>Подключить чат</Button>}</BottomActionBar>}
     {section === "clone" && <BottomActionBar><Button className="primary" fullWidth loading={busy === "clone"} onClick={() => void clone()}>Создать копию</Button></BottomActionBar>}
     {(section === "menu" || section === "registration") && <ShowNavigation show={show} active={section === "menu" ? "more" : "registration"} onShow={onClose} onEdit={onEdit} onAnnouncement={onAnnouncement} onAnalytics={onAnalytics} onRegistration={() => setSection("registration")} onMore={() => setSection("menu")} />}
     <Modal opened={cancelConfirm} onClose={() => setCancelConfirm(false)} title="Точно отменить афишу?" centered><Text>Действие закроет новые записи и отправит уведомления зрителям.</Text><Group justify="flex-end" mt="lg"><Button variant="default" onClick={() => setCancelConfirm(false)}>Не отменять</Button><Button color="red" loading={busy === "cancel"} onClick={() => void cancelShow()}>Да, отменить</Button></Group></Modal>

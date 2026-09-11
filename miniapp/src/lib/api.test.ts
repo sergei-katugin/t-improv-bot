@@ -45,6 +45,13 @@ describe("api", () => {
     await expect(api("/shows")).rejects.toThrow("Проверь поле: title · код req-1");
   });
 
+  it("preserves the response status for access handling", async () => {
+    setInitData("signed-data");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 403, headers: new Headers(), json: async () => ({ error: "organizer_access_required" }) }));
+
+    await expect(api("/shows")).rejects.toMatchObject({ status: 403 });
+  });
+
   it("downloads authenticated blobs and reports failures", async () => {
     setInitData("signed-data");
     const file = new Blob(["csv"]);
