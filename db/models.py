@@ -32,6 +32,7 @@ class Show(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     title = Column(String(256), nullable=False)
+    title_newcomer = Column(String(256), nullable=True)
     team_name = Column(String(256), nullable=False)
     show_date = Column(DateTime, nullable=False, index=True)
     location = Column(String(512), nullable=False)

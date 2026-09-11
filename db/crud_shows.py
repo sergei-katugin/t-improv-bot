@@ -16,7 +16,6 @@ logger = get_project_logger(__name__)
 
 __all__ = ['create_show', 'get_show', 'get_show_with_dependents', 'list_upcoming_shows', 'has_upcoming_shows', 'has_user_registrations', 'get_menu_flags', 'list_all_shows', 'list_shows_by_creator', 'list_finished_shows_with_registration_chat', 'mark_registration_chat_summary_sent', 'get_show_outcome', 'get_show_outcomes', 'clear_registration_chat_if_matches', 'update_show']
 
-
 async def create_show(
     session: AsyncSession,
     *,
@@ -30,6 +29,7 @@ async def create_show(
     poster_file_id: str | None,
     max_seats: int,
     creator_id: int,
+    title_newcomer: str | None = None,
     poster_text_newcomer: str | None = None,
     max_guests: int = 6,
     registration_closes_at: datetime | None = None,
@@ -40,6 +40,7 @@ async def create_show(
 ) -> Show:
     show = Show(
         title=title,
+        title_newcomer=title_newcomer,
         team_name=team_name,
         show_date=show_date,
         location=location,
@@ -283,7 +284,6 @@ async def clear_registration_chat_if_matches(session: AsyncSession, show_id: int
     )
     await session.commit()
     return bool(result.rowcount)
-
 
 async def update_show(session: AsyncSession, show_id: int, **fields) -> Show | None:
     show = await get_show(session, show_id)

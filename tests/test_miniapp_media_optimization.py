@@ -9,11 +9,25 @@ from tests.miniapp_support import _Request, web
 
 
 def test_announcement_audience_selects_the_requested_description():
-    show = SimpleNamespace(poster_text="Для своих", poster_text_newcomer="Для новичков")
+    show = SimpleNamespace(
+        title="Харольд", title_newcomer="Истории без сценария",
+        poster_text="Для своих", poster_text_newcomer="Для новичков",
+    )
 
-    assert miniapp_promotion._announcement_show(show, "familiar").poster_text == "Для своих"
-    assert miniapp_promotion._announcement_show(show, "newcomer").poster_text == "Для новичков"
+    familiar = miniapp_promotion._announcement_show(show, "familiar")
+    newcomer = miniapp_promotion._announcement_show(show, "newcomer")
+    assert (familiar.title, familiar.poster_text) == ("Харольд", "Для своих")
+    assert (newcomer.title, newcomer.poster_text) == ("Истории без сценария", "Для новичков")
     assert show.poster_text == "Для своих"
+
+
+def test_newcomer_announcement_falls_back_to_the_regular_title():
+    show = SimpleNamespace(
+        title="Обычное название", title_newcomer=None,
+        poster_text="Для своих", poster_text_newcomer="Для новичков",
+    )
+
+    assert miniapp_promotion._announcement_show(show, "newcomer").title == "Обычное название"
 
 
 def _fake_pillow(monkeypatch, *, image_format="PNG"):

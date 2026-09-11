@@ -164,9 +164,11 @@ async def test_miniapp_me_create_update_restore_and_delete_show(monkeypatch):
         assert created.status == 201
 
         request.match_info["show_id"] = str(show_id)
-        request._body = {"title": "Изменённое шоу", "notify": False}
+        request._body = {"title": "Изменённое шоу", "titleNewcomer": "Понятное шоу", "notify": False}
         updated = await miniapp_api.miniapp_update_show(request)
         assert json.loads(updated.text) == {"id": show_id, "notified": 0, "failed": 0}
+        async with sessions() as session:
+            assert (await session.get(Show, show_id)).title_newcomer == "Понятное шоу"
 
         with pytest.raises(web.HTTPForbidden):
             await miniapp_api.miniapp_delete_show(request)

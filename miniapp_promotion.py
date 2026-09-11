@@ -15,6 +15,7 @@ def _announcement_show(show, audience: str):
         return show
     import copy
     selected = copy.copy(show)
+    selected.title = show.title_newcomer or show.title
     selected.poster_text = show.poster_text_newcomer
     return selected
 
@@ -199,7 +200,7 @@ async def miniapp_clone_show(request: web.Request) -> web.Response:
         source = await _manageable_api_show(session, request, show_id)
         clone = await crud.create_show(
             session,
-            title=source.title, team_name=source.team_name, show_date=show_date,
+            title=source.title, title_newcomer=source.title_newcomer, team_name=source.team_name, show_date=show_date,
             location=source.location, location_url=source.location_url, city=source.city,
             poster_text=source.poster_text, poster_text_newcomer=source.poster_text_newcomer,
             poster_file_id=source.poster_file_id,

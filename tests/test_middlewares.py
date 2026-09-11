@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
 import pytest
-from aiogram.types import Chat, Message, User as TelegramUser
+from aiogram.types import CallbackQuery, Chat, Message, ReplyKeyboardRemove, User as TelegramUser
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from admin_bot.middlewares.auth import AdminAuthMiddleware
@@ -92,5 +92,28 @@ async def test_admin_middleware_allows_organizer_and_denies_regular_user(monkeyp
         assert await AdminAuthMiddleware()(handler, denied, {}) is None
         assert handler.await_count == 1
         answer.assert_awaited_once()
+        assert answer.await_args.kwargs["reply_markup"] == ReplyKeyboardRemove()
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_admin_middleware_denies_unknown_callback_with_alert(monkeypatch):
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        monkeypatch.setattr(admin_auth_module, "AsyncSessionLocal", sessions)
+        monkeypatch.setattr(admin_auth_module, "ADMIN_ID_LIST", [])
+        callback = CallbackQuery(
+            id="denied", from_user=TelegramUser(id=505, is_bot=False, first_name="Viewer"),
+            chat_instance="private", data="admin_action",
+        )
+        answer = AsyncMock()
+        monkeypatch.setattr(CallbackQuery, "answer", answer)
+
+        assert await AdminAuthMiddleware()(AsyncMock(), callback, {}) is None
+        answer.assert_awaited_once_with("⛔ Доступ запрещён.", show_alert=True)
     finally:
         await engine.dispose()

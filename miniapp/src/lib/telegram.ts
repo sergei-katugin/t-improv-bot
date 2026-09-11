@@ -11,3 +11,12 @@ export function telegramConfirm(message: string): Promise<boolean> {
   }
   return Promise.resolve(window.confirm(message));
 }
+
+export function openTelegramLink(url: string) {
+  const openLink = window.Telegram?.WebApp.openTelegramLink;
+  if (openLink) {
+    openLink(url);
+    return;
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
+}
