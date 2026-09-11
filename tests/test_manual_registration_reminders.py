@@ -134,11 +134,11 @@ async def test_unknown_telegram_user_stays_manual_and_gets_chat_task(monkeypatch
 
     register.assert_not_awaited()
     add_manual.assert_awaited_once()
-    assert "уведомить вручную" in message.answer.await_args.args[0]
+    assert "попробую отправить напоминание автоматически" in message.answer.await_args.args[0]
     bot.send_message.assert_awaited_once()
     notification = bot.send_message.await_args
     assert notification.args[0] == -100500
     assert "Добавлена запись вручную" in notification.args[1]
     assert "Telegram: @bob" in notification.args[1]
-    assert "уведомить вручную" in notification.args[1]
+    assert "при ошибке сообщим здесь" in notification.args[1]
     assert "7 / 20" in notification.args[1]

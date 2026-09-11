@@ -121,21 +121,47 @@ async def test_channel_announcement_claim_success_duplicate_and_failure(monkeypa
 @pytest.mark.asyncio
 async def test_manual_attendee_reminder_success_and_creator_fallback(monkeypatch):
     session = AsyncMock()
-    bot = AsyncMock()
+    public = AsyncMock()
+    admin = AsyncMock()
     show = _show(registration_chat_id=-100, creator=SimpleNamespace(telegram_id=77))
-    attendees = [SimpleNamespace(id=1, name="Анна", contact="@annie")]
+    attendees = [SimpleNamespace(id=1, name="Анна", contact="Instagram: @annie", source="instagram")]
     monkeypatch.setattr(jobs.crud, "get_pending_manual_attendees_for_reminder", AsyncMock(return_value=[]))
-    await jobs._maybe_remind_manual_attendees(session, bot, show)
-    bot.send_message.assert_not_awaited()
+    monkeypatch.setattr(jobs.crud, "mark_manual_attendees_delivered", AsyncMock())
+    await jobs._maybe_remind_manual_attendees(session, public, admin, show)
+    admin.send_message.assert_not_awaited()
 
     monkeypatch.setattr(jobs.crud, "get_pending_manual_attendees_for_reminder", AsyncMock(return_value=attendees))
     monkeypatch.setattr(jobs.crud, "mark_manual_attendees_reminded", AsyncMock())
-    await jobs._maybe_remind_manual_attendees(session, bot, show)
+    await jobs._maybe_remind_manual_attendees(session, public, admin, show)
     jobs.crud.mark_manual_attendees_reminded.assert_awaited_once_with(session, [1])
-    assert "не может отправить" in bot.send_message.await_args.args[1]
-    assert "Анна" in bot.send_message.await_args.args[1]
+    assert "не может отправить" in admin.send_message.await_args.args[1]
+    assert "Анна" in admin.send_message.await_args.args[1]
 
-    bot.send_message.reset_mock()
-    bot.send_message.side_effect = [RuntimeError("chat"), None]
-    await jobs._maybe_remind_manual_attendees(session, bot, show)
-    assert bot.send_message.await_count == 2
+    admin.send_message.reset_mock()
+    admin.send_message.side_effect = [RuntimeError("chat"), None]
+    await jobs._maybe_remind_manual_attendees(session, public, admin, show)
+    assert admin.send_message.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_manual_telegram_attendee_gets_personal_reminder_instead_of_chat_list(monkeypatch):
+    session = AsyncMock()
+    public = AsyncMock()
+    admin = AsyncMock()
+    show = _show(registration_chat_id=-100)
+    attendee = SimpleNamespace(
+        id=9, name="Любовь", contact="Telegram: @liubovcyprus", source="telegram",
+    )
+    monkeypatch.setattr(jobs.crud, "get_pending_manual_attendees_for_reminder", AsyncMock(return_value=[attendee]))
+    monkeypatch.setattr(
+        jobs.crud, "get_user_by_username",
+        AsyncMock(return_value=SimpleNamespace(telegram_id=12345)),
+    )
+    monkeypatch.setattr(jobs.crud, "mark_manual_attendees_delivered", AsyncMock())
+
+    await jobs._maybe_remind_manual_attendees(session, public, admin, show)
+
+    public.send_message.assert_awaited_once()
+    jobs.crud.get_user_by_username.assert_awaited_once_with(session, "liubovcyprus")
+    jobs.crud.mark_manual_attendees_delivered.assert_awaited_once_with(session, [9])
+    admin.send_message.assert_not_awaited()

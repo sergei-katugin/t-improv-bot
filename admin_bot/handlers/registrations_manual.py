@@ -177,7 +177,7 @@ async def process_chat_manual_guests(message: Message, state: FSMContext, sessio
     reminder_note = (
         "\n🔔 Пользователь найден в боте и добавлен в автоматические напоминания."
         if telegram_user is not None else
-        "\n📣 Напомню в этом чате, что зрителя нужно уведомить вручную."
+        "\n🔔 За день попробую отправить напоминание автоматически; при ошибке сообщу в чате записей."
     )
     await message.answer(
         f"✅ Добавлен {h(data['manual_name'])}{f' +{guests}' if guests else ''}.\n"

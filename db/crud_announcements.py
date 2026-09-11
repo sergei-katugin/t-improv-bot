@@ -14,7 +14,7 @@ from app_logging import get_project_logger
 
 logger = get_project_logger(__name__)
 
-__all__ = ['delete_manual_attendee', 'mark_manual_attendees_reminded', 'confirm_manual_attendees_notified', 'has_announcement_been_sent', 'has_any_announcement_been_sent', 'claim_manual_announcement', 'claim_repeat_announcement', 'release_announcement_claim']
+__all__ = ['delete_manual_attendee', 'mark_manual_attendees_reminded', 'mark_manual_attendees_delivered', 'confirm_manual_attendees_notified', 'has_announcement_been_sent', 'has_any_announcement_been_sent', 'claim_manual_announcement', 'claim_repeat_announcement', 'release_announcement_claim']
 
 
 async def delete_manual_attendee(session: AsyncSession, attendee_id: int) -> bool:
@@ -34,6 +34,17 @@ async def mark_manual_attendees_reminded(session: AsyncSession, attendee_ids: li
         update(ManualAttendee)
         .where(ManualAttendee.id.in_(attendee_ids))
         .values(organizer_reminded_at=_utcnow())
+    )
+    await session.commit()
+
+
+async def mark_manual_attendees_delivered(session: AsyncSession, attendee_ids: list[int]) -> None:
+    if not attendee_ids:
+        return
+    await session.execute(
+        update(ManualAttendee)
+        .where(ManualAttendee.id.in_(attendee_ids))
+        .values(notification_confirmed_at=_utcnow())
     )
     await session.commit()
 

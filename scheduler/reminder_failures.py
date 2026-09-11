@@ -4,9 +4,12 @@ from aiogram import Bot
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app_logging import get_project_logger
+from admin_bot.telegram_usernames import normalize_telegram_username
 from db import crud
 from html_utils import h
 from telegram_delivery import send_with_retry
+from time_utils import format_local
+from scheduler.messages import _location_line
 
 logger = get_project_logger(__name__)
 
@@ -53,7 +56,16 @@ async def report_failed_personal_reminders(
     )
 
 
-async def _maybe_remind_manual_attendees(session, admin_bot: Bot, show) -> None:
+def _telegram_contact_username(attendee) -> str | None:
+    contact = (attendee.contact or "").strip()
+    if contact.lower().startswith("telegram:"):
+        contact = contact.split(":", 1)[1].strip()
+    if attendee.source != "telegram" and not contact.startswith("@") and "t.me/" not in contact:
+        return None
+    return normalize_telegram_username(contact)
+
+
+async def _maybe_remind_manual_attendees(session, public_bot: Bot, admin_bot: Bot, show) -> None:
     """Ask the organizer to contact attendees whom the public bot cannot message."""
     if not getattr(show, "registration_chat_id", None):
         return
@@ -62,10 +74,31 @@ async def _maybe_remind_manual_attendees(session, admin_bot: Bot, show) -> None:
     )
     if not attendees:
         return
+    failed = []
+    delivered_ids = []
+    for item in attendees:
+        username = _telegram_contact_username(item)
+        user = await crud.get_user_by_username(session, username) if username else None
+        if user is None:
+            failed.append(item)
+            continue
+        try:
+            await send_with_retry(
+                public_bot.send_message, user.telegram_id,
+                f"👋 Завтра шоу <b>{h(show.title)}</b>, на которое тебя записали.\n"
+                f"📅 {format_local(show.show_date)}\n{_location_line(show)}",
+            )
+            delivered_ids.append(item.id)
+        except Exception:
+            logger.warning("failed to notify manual Telegram attendee show_id=%s attendee_id=%s", show.id, item.id)
+            failed.append(item)
+    await crud.mark_manual_attendees_delivered(session, delivered_ids)
+    if not failed:
+        return
     await session.commit()
     names = "\n".join(
         f"• {h(item.name)}" + (f" — {h(item.contact)}" if item.contact else " — контакт не указан")
-        for item in attendees
+        for item in failed
     )
     if len(names) > 3200:
         names = names[:3200].rsplit("\n", 1)[0] + "\n• …остальные — в списке зрителей"
@@ -85,7 +118,7 @@ async def _maybe_remind_manual_attendees(session, admin_bot: Bot, show) -> None:
             "Свяжись с ними в той соцсети, где они записались, затем отметь задачу выполненной.",
             reply_markup=keyboard,
         )
-        await crud.mark_manual_attendees_reminded(session, [item.id for item in attendees])
+        await crud.mark_manual_attendees_reminded(session, [item.id for item in failed])
     except Exception:
         logger.exception("failed to remind organizer about manual attendees show_id=%s", show.id)
         creator = getattr(show, "creator", None)
