@@ -68,7 +68,7 @@ def _preview_from_data(data: dict) -> str:
         f"👥 Записаться тут: {registration_targets}",
     ]
     if poster:
-        lines += ["", h(poster)]
+        lines += ["", formatted_description(poster)]
     return "\n".join(lines)
 
 

@@ -106,7 +106,12 @@ export function AnnouncementModal({ opened, onClose, show, demo, onEdit, onAnaly
     </Stack>
     <ShowNavigation show={show} active="announcement" onShow={onClose} onEdit={onEdit} onAnnouncement={() => undefined} onAnalytics={onAnalytics} onRegistration={onRegistration} onMore={onMore} />
     <Modal opened={repeatConfirm} onClose={() => setRepeatConfirm(false)} title="Повторить публикацию?" centered>
-      <Text>В основной канал будет отправлена ещё одна полноценная афиша с кнопкой записи.</Text>
+      <Stack gap="md">
+        <Text>В основной канал будет отправлена ещё одна полноценная афиша с кнопкой записи.</Text>
+        <Select label="Аудитория повторной публикации" allowDeselect={false} value={audience}
+          onChange={(value) => setAudience(value === "newcomer" ? "newcomer" : "familiar")}
+          data={[{ value: "familiar", label: "Знакомы с импровом" }, { value: "newcomer", label: "Никогда не видели импров" }]} />
+      </Stack>
       <Group justify="flex-end" mt="lg"><Button variant="default" onClick={() => setRepeatConfirm(false)}>Отмена</Button><Button color="orange" loading={publishing} onClick={() => void publish(true)}>Да, отправить повторно</Button></Group>
     </Modal>
   </Modal>;

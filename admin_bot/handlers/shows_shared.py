@@ -29,7 +29,7 @@ from admin_bot.keyboards.reply import (
 )
 from admin_bot.telegram_usernames import normalize_telegram_username, normalize_telegram_username_list
 from admin_bot.security import can_manage_owned, deny, is_admin, manageable_show
-from html_utils import h
+from html_utils import formatted_description, h
 from time_utils import format_local, local_date, local_naive_to_utc, local_now
 from telegram_delivery import send_with_retry
 from scheduler.jobs import build_announcement_text, send_to_channel, cache_poster_for_public_bot, MAPS_RE, DATE_RE, TIME_RE, _location_line, _fmt_date, _registrar_line

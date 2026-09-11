@@ -5,7 +5,7 @@ from datetime import datetime
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from config import settings
-from html_utils import h
+from html_utils import formatted_description, h
 from time_utils import format_local, utc_to_local
 
 MAPS_RE = re.compile(r'(maps\.google|goo\.gl/maps|maps\.app\.goo\.gl|google\.com/maps)', re.I)
@@ -92,7 +92,7 @@ def build_announcement_text(
 
     if poster:
         lines.append("")
-        lines.append(h(poster))
+        lines.append(formatted_description(poster))
 
     if attendee_line:
         lines.extend(["", attendee_line])

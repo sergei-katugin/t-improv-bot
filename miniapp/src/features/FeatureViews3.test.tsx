@@ -107,7 +107,8 @@ describe("AnnouncementModal", () => {
     fireEvent.click(screen.getByRole("button", { name: "Опубликовать в основном канале" }));
     expect(await screen.findByText("Анонс уже публиковался. Если до шоу осталось мало времени и есть свободные места, его можно отправить повторно.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Опубликовать повторно" }));
-    expect(await screen.findByText("Повторить публикацию?")).toBeInTheDocument();
+    const confirmation = await screen.findByRole("dialog", { name: "Повторить публикацию?" });
+    expect(within(confirmation).getByRole("combobox", { name: "Аудитория повторной публикации" })).toHaveValue("Знакомы с импровом");
     fireEvent.click(await screen.findByRole("button", { name: "Да, отправить повторно" }));
     await waitFor(() => expect(screen.queryByText("Повторить публикацию?")).not.toBeInTheDocument());
   });
