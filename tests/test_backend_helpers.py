@@ -12,6 +12,13 @@ import miniapp_api
 from admin_bot.handlers import registrations, shows
 from scheduler import jobs
 from time_utils import utc_now
+from html_utils import formatted_description
+
+
+def test_description_supports_bold_but_escapes_other_html():
+    assert formatted_description("Обычный **жирный** <i>опасный</i>") == (
+        "Обычный <b>жирный</b> &lt;i&gt;опасный&lt;/i&gt;"
+    )
 
 
 def _show(**overrides):
