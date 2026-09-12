@@ -5,11 +5,9 @@ from aiogram import Bot, Router, F
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import BufferedInputFile, Message, CallbackQuery
-from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 from db import crud
 from db.models import User
-from admin_bot.callbacks import AdminShowActionCb
 from public_bot.keyboards.inline import confirm_registration_kb, show_detail_kb, registration_success_kb, guests_kb, attendance_kb, calendar_kb, registrar_username
 from public_bot.callbacks import RegisterCb, ConfirmRegCb, GuestsCb, GuestsCustomCb, RemindToggleCb, EditGuestsCb, AttendanceCb, CalendarCb, FeedbackCb, WaitlistCb
 from html_utils import h
@@ -98,14 +96,7 @@ async def _notify_registration_chat(
             f"\nTelegram: {username_line}"
             f"\nTelegram ID: <code>{telegram_user.telegram_id}</code>"
         )
-    builder = InlineKeyboardBuilder()
     try:
-        builder.button(
-            text="➕ Добавить запись вручную",
-            callback_data=AdminShowActionCb(
-                action="chat_add_manual", show_id=show.id
-            ).pack(),
-        )
         await admin_bot.send_message(
             show.registration_chat_id,
             f"👤 <b>Новая запись</b>\n"
@@ -113,7 +104,6 @@ async def _notify_registration_chat(
             f"Полное имя: <b>{h(attendee_name)}</b>{telegram_lines}\n"
             f"Мест в записи: {party}\n"
             f"Заполнено: <b>{occupied_seats} / {show.max_seats}</b>{source_line}",
-            reply_markup=builder.as_markup() if builder.buttons else None,
         )
     except Exception:
         logger.exception("failed to notify registration chat show_id=%s", show.id)

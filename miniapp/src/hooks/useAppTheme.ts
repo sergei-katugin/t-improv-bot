@@ -1,5 +1,6 @@
 import React from "react";
 import type { ThemePreference } from "../types";
+import { applyTelegramTheme } from "../lib/telegramTheme";
 
 function toHexColor(value: string): string | null {
   if (/^#[0-9a-f]{6}$/i.test(value)) return value;
@@ -31,13 +32,14 @@ export function useAppTheme() {
       const next = resolve();
       setColorScheme(next);
       document.documentElement.dataset.theme = next;
+      applyTelegramTheme(preference === "system" ? telegram?.themeParams : undefined);
       // Read the resolved color instead of passing `var(--app-bg)` to Telegram.
       // Android recreates the native WebView backdrop after resume and otherwise
       // falls back to black even while the document itself remains in light mode.
       const background = toHexColor(getComputedStyle(document.body).backgroundColor);
       if (background) {
         document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute("content", background);
-        telegram?.setHeaderColor(background);
+        telegram?.setHeaderColor(preference === "system" ? toHexColor(telegram?.themeParams?.header_bg_color ?? "") ?? background : background);
         telegram?.setBackgroundColor(background);
         telegram?.setBottomBarColor?.(background);
       }
@@ -62,7 +64,7 @@ export function useAppTheme() {
       window.removeEventListener("pageshow", sync);
       window.removeEventListener("focus", sync);
     };
-  }, [resolve, telegram]);
+  }, [preference, resolve, telegram]);
 
   return { colorScheme, preference, changePreference };
 }

@@ -1,6 +1,7 @@
 @import "./styles/navigation.css";
 @import "./styles/show-form.css";
 @import "./styles/onboarding.css";
+@import "./styles/telegram-ui.css";
 
 :root {
   font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -13,7 +14,7 @@
   --surface-strong: var(--mantine-color-dark-6);
   --line: color-mix(in srgb, var(--app-text) 13%, transparent);
   --muted: var(--mantine-color-dark-3);
-  --accent: var(--app-text);
+  --accent: var(--mantine-primary-color-filled);
   --accent-2: var(--app-text);
   --dialog-overlay: color-mix(in srgb, var(--mantine-color-dark-9) 76%, transparent);
 }

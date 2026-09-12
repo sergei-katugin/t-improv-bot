@@ -58,10 +58,10 @@ describe("ShowDetails", () => {
     expect(screen.getByText("Черновик")).toBeInTheDocument();
     expect(screen.getByText("Эта афиша отменена. Новые записи недоступны.")).toBeInTheDocument();
     expect(screen.getByText("Театр").tagName).toBe("P");
-    fireEvent.click(screen.getByRole("button", { name: "Изменить" }));
+    expect(screen.queryByRole("button", { name: "Изменить" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Анонс" }));
     fireEvent.click(screen.getByRole("button", { name: "Действия" }));
-    expect(actions.onEdit).toHaveBeenCalledOnce();
+    expect(actions.onEdit).not.toHaveBeenCalled();
     expect(actions.onAnnouncement).toHaveBeenCalledOnce();
     expect(actions.onMore).toHaveBeenCalledOnce();
   });

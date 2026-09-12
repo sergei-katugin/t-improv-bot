@@ -23,30 +23,30 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">56.62% </span>
+                <span class="strong">56.77% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>171/302</span>
+                <span class='fraction'>176/310</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">63.38% </span>
+                <span class="strong">63.01% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>90/142</span>
+                <span class='fraction'>92/146</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">49.45% </span>
+                <span class="strong">50.52% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>45/91</span>
+                <span class='fraction'>48/95</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">76.16% </span>
+                <span class="strong">76.3% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>131/172</span>
+                <span class='fraction'>132/173</span>
             </div>
         
             
@@ -363,7 +363,11 @@
 <a name='L298'></a><a href='#L298'>298</a>
 <a name='L299'></a><a href='#L299'>299</a>
 <a name='L300'></a><a href='#L300'>300</a>
-<a name='L301'></a><a href='#L301'>301</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L301'></a><a href='#L301'>301</a>
+<a name='L302'></a><a href='#L302'>302</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -398,9 +402,6 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -583,6 +584,7 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">40x</span>
+<span class="cline-any cline-yes">39x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">39x</span>
 <span class="cline-any cline-yes">8x</span>
@@ -689,9 +691,12 @@ import { ShowStepper } from "./components/ShowStepper";
 import { MiniAppOnboarding } from "./components/MiniAppOnboarding";
 import { AttentionCenter, type AttentionItem } from "./components/AttentionCenter";
 import { AccessDeniedScreen } from "./components/AccessDeniedScreen";
+import { CheckinHome } from "./features/CheckinScreen";
+import { CheckinProvider } from "./features/CheckinNavigation";
 import { ApiError, api, authenticatedBlob } from "./lib/api";
 import { showNotification } from "./lib/notifications";
 import { telegramConfirm, telegramHaptic } from "./lib/telegram";
+import { transitionScreen } from "./lib/screenTransition";
 import { useAppTheme } from "./hooks/useAppTheme";
 import { useAppResume } from "./hooks/useAppResume";
 import { theme } from "./theme";
@@ -701,9 +706,6 @@ const previewShows: Show[] = [
   { id: 1, title: "Истории на ночь", teamName: "T·IMPRO", showDateLabel: "5 сентября, 20:00", location: "Ravens Music Hall", city: "Лимасол", isActive: true, maxSeats: 50, occupiedSeats: 34, registrarUsername: "sergey", hasPublished: true },
   { id: 2, title: "Маэстро", teamName: "Импровизаторы Кипра", showDateLabel: "12 сентября, 19:30", location: "Yurts in Cyprus", city: "Пафос", isActive: true, maxSeats: 40, occupiedSeats: 18, registrarUsername: "anna_impro", hasPublished: false },
 ];
-&nbsp;
-&nbsp;
-&nbsp;
 function App({ themePreference, onThemePreferenceChange, onResetLocalData, onAccessDenied }: { themePreference: ThemePreference; onThemePreferenceChange: (preference: ThemePreference) =&gt; void; onResetLocalData: () =&gt; void; onAccessDenied: () =&gt; void }) {
   const isPreview = import.meta.env.DEV &amp;&amp; new URLSearchParams(location.search).get("preview") === "1";
   const [shows, setShows] = React.useState&lt;Show[]&gt;(isPreview ? previewShows : []);
@@ -753,7 +755,7 @@ function App({ themePreference, onThemePreferenceChange, onResetLocalData, onAcc
   React.useEffect(() =&gt; {
     const backButton = window.Telegram?.WebApp.BackButton;
     if (!backButton) return;
-    const <span class="fstat-no" title="function not covered" >goBack = () =&gt; {</span>
+    const <span class="fstat-no" title="function not covered" >goBack = () =&gt; <span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >t</span>ransitionScreen(() =&gt; {</span></span>
 <span class="cstat-no" title="statement not covered" >      telegramHaptic("light");</span>
 <span class="cstat-no" title="statement not covered" >      if (toolsOpened) {</span>
 <span class="cstat-no" title="statement not covered" >        if (!toolsBackRef.current?.()) <span class="cstat-no" title="statement not covered" >setToolsOpened(false);</span></span>
@@ -769,7 +771,7 @@ function App({ themePreference, onThemePreferenceChange, onResetLocalData, onAcc
       }
       else <span class="cstat-no" title="statement not covered" >if (settingsOpened) <span class="cstat-no" title="statement not covered" >setSettingsOpened(false);</span></span>
       else <span class="cstat-no" title="statement not covered" >if (selected) <span class="cstat-no" title="statement not covered" >setSelected(null);</span></span>
-    };
+    }, "back");
     backButton.onClick(goBack);
     if (hasBackTarget) backButton.show(); else backButton.hide();
     return () =&gt; backButton.offClick(goBack);
@@ -784,7 +786,7 @@ function App({ themePreference, onThemePreferenceChange, onResetLocalData, onAcc
   React.useEffect(() =&gt; {
     if (!isPreview) {
       api&lt;Options&gt;("/api/miniapp/options").then(setOptions).catch(() =&gt; undefined);
-      api&lt;Me&gt;("/api/miniapp/me").then(setMe).catch((reason) =&gt; {
+      api&lt;Me&gt;("/api/miniapp/me").then((user) =&gt; { setMe(user); <span class="missing-if-branch" title="if path not taken" >I</span>if (user.role === "checkin") <span class="cstat-no" title="statement not covered" >onAccessDenied(); }</span>).catch((reason) =&gt; {
         <span class="missing-if-branch" title="else path not taken" >E</span>if (reason instanceof ApiError &amp;&amp; reason.status === 403) {
           setAccessDenied(true);
           onAccessDenied();
@@ -873,7 +875,7 @@ function App({ themePreference, onThemePreferenceChange, onResetLocalData, onAcc
 &nbsp;
   async function openShow(show: Show) {
     setDescriptionOpened(false);
-    setSelected(show);
+    transitionScreen(() =&gt; setSelected(show));
     if (isPreview) return;
     try {
       setSelected(await api&lt;Show&gt;(`/api/miniapp/shows/${show.id}`));
@@ -883,11 +885,12 @@ function App({ themePreference, onThemePreferenceChange, onResetLocalData, onAcc
   }
 &nbsp;
   if (accessDenied) return &lt;AccessDeniedScreen /&gt;;
+  <span class="missing-if-branch" title="if path not taken" >I</span>if (me?.role === "checkin") <span class="cstat-no" title="statement not covered" >return &lt;CheckinHome /&gt;;</span>
 &nbsp;
   if (selected) {
     const registrationUrl = selected.registrationUrl ?? `https://t.me/ImprovCypEventBot?start=show_${selected.id}`;
     return &lt;main className="shell"&gt;
-      &lt;Button className="back" variant="subtle" onClick={() =&gt; { telegramHaptic("light"); setSelected(null); }}&gt;← Все афиши&lt;/Button&gt;
+      &lt;Button className="back" variant="subtle" onClick={() =&gt; { telegramHaptic("light"); transitionScreen(() =&gt; setSelected(null), "back"); }}&gt;← Все афиши&lt;/Button&gt;
       &lt;ShowDetails show={selected} descriptionOpened={descriptionOpened} <span class="fstat-no" title="function not covered" >onToggleDescription={() =&gt; <span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >s</span>etDescriptionOpened((o</span>pened) =&gt; <span class="cstat-no" title="statement not covered" >!opened)</span>} o</span>nAttendees={() =&gt; setAttendeesOpened(true)} <span class="fstat-no" title="function not covered" >onEdit={() =&gt; {</span> <span class="cstat-no" title="statement not covered" >setEditing(selected); <span class="cstat-no" title="statement not covered" >s</span>etFormOpened(true); }</span>} <span class="fstat-no" title="function not covered" >onAnnouncement={() =&gt; <span class="cstat-no" title="statement not covered" >s</span>etAnnouncementOpened(true)} <span class="fstat-no" title="function not covered" >o</span>nAnalytics={() =&gt; <span class="cstat-no" title="statement not covered" >s</span>etAnalyticsOpened(true)} <span class="fstat-no" title="function not covered" >o</span>nRegistration={() =&gt; {</span> <span class="cstat-no" title="statement not covered" >setToolsMode("registration"); <span class="cstat-no" title="statement not covered" >s</span>etToolsOpened(true); }</span>} <span class="fstat-no" title="function not covered" >onMore={() =&gt; {</span> <span class="cstat-no" title="statement not covered" >setToolsMode("all"); <span class="cstat-no" title="statement not covered" >s</span>etToolsOpened(true); }</span>} /&gt;
       &lt;AttendeesModal
         opened={attendeesOpened}
@@ -961,7 +964,7 @@ export function AppRoot() {
     changePreference("system");
     setOnboardingOpened(true);
   }, [changePreference]);
-  return &lt;MantineProvider theme={theme} forceColorScheme={colorScheme}&gt;&lt;DatesProvider settings={{ locale: "ru", firstDayOfWeek: 1, weekendDays: [0, 6] }}&gt;&lt;Notifications /&gt;&lt;App themePreference={preference} onThemePreferenceChange={changePreference} onResetLocalData={resetLocalData} onAccessDenied={showAccessDenied} /&gt;&lt;MiniAppOnboarding opened={!accessDenied &amp;&amp; onboardingOpened} onFinish={finishOnboarding} /&gt;&lt;/DatesProvider&gt;&lt;/MantineProvider&gt;;
+  return &lt;MantineProvider theme={theme} forceColorScheme={colorScheme}&gt;&lt;DatesProvider settings={{ locale: "ru", firstDayOfWeek: 1, weekendDays: [0, 6] }}&gt;&lt;Notifications /&gt;&lt;CheckinProvider&gt;&lt;App themePreference={preference} onThemePreferenceChange={changePreference} onResetLocalData={resetLocalData} onAccessDenied={showAccessDenied} /&gt;&lt;MiniAppOnboarding opened={!accessDenied &amp;&amp; onboardingOpened} onFinish={finishOnboarding} /&gt;&lt;/CheckinProvider&gt;&lt;/DatesProvider&gt;&lt;/MantineProvider&gt;;
 }
 &nbsp;</pre></td></tr></table></pre>
 
@@ -970,7 +973,7 @@ export function AppRoot() {
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-09-11T17:13:32.381Z
+                at 2026-09-12T09:49:36.752Z
             </div>
         <script src="../prettify.js"></script>
         <script>

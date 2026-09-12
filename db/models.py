@@ -50,6 +50,7 @@ class Show(Base):
     checkin_mode = Column(String(16), default="named", nullable=False)
     checkin_counter = Column(Integer, default=0, nullable=False)
     checkin_milestone = Column(Integer, default=0, nullable=False)
+    checkin_report_every = Column(Integer, default=10, server_default="10", nullable=False)
     feedback_enabled = Column(Boolean, default=True, nullable=False)
     creator_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     registrar_id = Column(Integer, ForeignKey("users.id"), nullable=True)

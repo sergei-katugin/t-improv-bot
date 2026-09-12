@@ -19,7 +19,7 @@ import { invalidTelegramUsername } from "../lib/validation";
 export function newShowForm(): ShowFormValue {
   const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
   const local = new Date(tomorrow.getTime() - tomorrow.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
-  return { title: "", titleNewcomer: "", teamName: "", showDateLocal: local, location: "", locationUrl: "", city: "Лимасол", posterText: "", posterTextNewcomer: "", maxSeats: 50, maxGuests: 6, registrarUsername: "", checkinEnabled: false, feedbackEnabled: true };
+  return { title: "", titleNewcomer: "", teamName: "", showDateLocal: local, location: "", locationUrl: "", city: "Лимасол", posterText: "", posterTextNewcomer: "", maxSeats: 50, maxGuests: 6, registrarUsername: "", checkinEnabled: false, checkinMode: "named", checkinReportEvery: 10, feedbackEnabled: true };
 }
 
 function formFromShow(show: Show): ShowFormValue {
@@ -28,7 +28,7 @@ function formFromShow(show: Show): ShowFormValue {
     location: show.location, locationUrl: show.locationUrl ?? "", city: show.city,
     posterText: show.posterText ?? "", posterTextNewcomer: show.posterTextNewcomer ?? "", maxSeats: show.maxSeats, maxGuests: show.maxGuests ?? 6,
     registrarUsername: show.registrarUsername ? `@${show.registrarUsername}` : "",
-    checkinEnabled: show.checkinEnabled ?? false, feedbackEnabled: show.feedbackEnabled ?? false,
+    checkinEnabled: show.checkinEnabled ?? false, checkinMode: show.checkinMode ?? "named", checkinReportEvery: show.checkinReportEvery ?? 10, feedbackEnabled: show.feedbackEnabled ?? false,
   };
 }
 
@@ -272,6 +272,7 @@ export function ShowForm({ opened, initial, options, me, reloadOptions, onClose,
         <Textarea label="Описание для новичков" description="Без специальных терминов. Жирный текст: **важная фраза**" autosize minRows={5} maxLength={1800} value={value.posterTextNewcomer} onChange={(e) => set("posterTextNewcomer", e.currentTarget.value)} />
         <FileInput accept="image/jpeg,image/png,image/webp" label="Изображение афиши" description={initial?.hasPoster ? "Выбери файл, чтобы заменить текущее изображение" : "JPEG, PNG или WebP, до 8 МБ"} value={poster} onChange={(file) => { setPoster(file); if (file) setPreviewOpened(true); }} clearable />
         <ShowAutomationSwitches feedbackEnabled={value.feedbackEnabled} checkinEnabled={value.checkinEnabled} onFeedbackChange={(checked) => set("feedbackEnabled", checked)} onCheckinChange={(checked) => set("checkinEnabled", checked)} />
+        {value.checkinEnabled && <><Select label="Режим отметки входа" value={value.checkinMode ?? "named"} onChange={(mode) => set("checkinMode", mode as "named" | "counter")} data={[{ value: "counter", label: "Простой: +1 / +2 / +3" }, { value: "named", label: "По именам: поиск и отметка" }]} /><NumberInput label="Отчёт в чат каждые N человек" min={1} max={100} value={value.checkinReportEvery ?? 10} onChange={(next) => set("checkinReportEvery", Number(next))} /></>}
         <div className="optional-section"><Button type="button" fullWidth variant="light" onClick={() => setPreviewOpened((opened) => !opened)} aria-expanded={previewOpened}>{previewOpened ? "Скрыть предпросмотр" : "Показать предпросмотр"}</Button><Collapse expanded={previewOpened}><Paper className="telegram-preview"><PosterPreviewImage file={poster} showId={initial?.id} hasExisting={initial?.hasPoster} /><Text size="xs" fw={800} c="dimmed">ПРЕДПРОСМОТР</Text><Title order={3}>🎭 {value.title || "Название шоу"}</Title><Text>👥 Команда: {value.teamName || "не выбрана"}</Text><Text>📅 {value.showDateLocal ? new Date(value.showDateLocal).toLocaleString("ru-RU", { dateStyle: "long", timeStyle: "short" }) : "дата не выбрана"}</Text><Text>📍 {selectedVenue?.name || value.location || "площадка не выбрана"}, {selectedVenue?.city || value.city}</Text>{value.registrarUsername && <Text>👤 Ответственный: {value.registrarUsername}</Text>}{value.posterText && <Text mt="sm" style={{ whiteSpace: "pre-wrap" }}><BoldDescription text={value.posterText} /></Text>}</Paper></Collapse></div>
         </>}
       </Stack>

@@ -13,8 +13,10 @@ def _show_payload(show: Show, occupied: int, has_published: bool | None = None) 
         "location": show.location,
         "city": show.city,
         "isPast": show.show_date < utc_now(),
+        "isShowDay": utc_to_local(show.show_date).date() == utc_to_local(utc_now()).date(),
         "isActive": show.is_active,
         "checkinEnabled": show.checkin_enabled,
+        "checkinMode": show.checkin_mode, "checkinReportEvery": show.checkin_report_every,
         "maxSeats": show.max_seats,
         "maxGuests": show.max_guests,
         "registrationClosesAt": utc_to_local(show.registration_closes_at).strftime("%Y-%m-%dT%H:%M") if show.registration_closes_at else None,
@@ -105,7 +107,7 @@ def _optional_text(data: dict, key: str, max_length: int) -> str | None:
 def _show_fields(data: dict, *, require_all: bool) -> dict[str, object]:
     allowed = {
         "title", "titleNewcomer", "teamName", "showDateLocal", "location", "locationUrl", "city",
-        "posterText", "posterTextNewcomer", "maxSeats", "maxGuests", "registrationClosesAt", "registrarUsername", "checkinEnabled", "feedbackEnabled",
+        "posterText", "posterTextNewcomer", "maxSeats", "maxGuests", "registrationClosesAt", "registrarUsername", "checkinEnabled", "feedbackEnabled", "checkinMode", "checkinReportEvery",
     }
     if not isinstance(data, dict) or any(key not in allowed for key in data):
         raise web.HTTPBadRequest(text=json.dumps({"error": "invalid_payload"}), content_type="application/json")
@@ -184,6 +186,14 @@ def _show_fields(data: dict, *, require_all: bool) -> dict[str, object]:
                     content_type="application/json",
                 )
             result[target] = data[source]
+    if "checkinMode" in data:
+        if data["checkinMode"] not in ("named", "counter"):
+            raise web.HTTPBadRequest()
+        result["checkin_mode"] = data["checkinMode"]
+    if "checkinReportEvery" in data:
+        if type(data["checkinReportEvery"]) is not int or not 1 <= data["checkinReportEvery"] <= 100:
+            raise web.HTTPBadRequest()
+        result["checkin_report_every"] = data["checkinReportEvery"]
     return result
 
 

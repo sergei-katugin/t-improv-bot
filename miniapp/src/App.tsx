@@ -24,21 +24,20 @@ import { ShowStepper } from "./components/ShowStepper";
 import { MiniAppOnboarding } from "./components/MiniAppOnboarding";
 import { AttentionCenter, type AttentionItem } from "./components/AttentionCenter";
 import { AccessDeniedScreen } from "./components/AccessDeniedScreen";
+import { CheckinHome } from "./features/CheckinScreen";
+import { CheckinProvider } from "./features/CheckinNavigation";
 import { ApiError, api, authenticatedBlob } from "./lib/api";
 import { showNotification } from "./lib/notifications";
 import { telegramConfirm, telegramHaptic } from "./lib/telegram";
+import { transitionScreen } from "./lib/screenTransition";
 import { useAppTheme } from "./hooks/useAppTheme";
 import { useAppResume } from "./hooks/useAppResume";
 import { theme } from "./theme";
 import type { AccessUser, Attendees, AuditItem, Me, Options, Promotion, RegistrationChatOption, Show, ShowFormValue, ThemePreference } from "./types";
-
 const previewShows: Show[] = [
   { id: 1, title: "Истории на ночь", teamName: "T·IMPRO", showDateLabel: "5 сентября, 20:00", location: "Ravens Music Hall", city: "Лимасол", isActive: true, maxSeats: 50, occupiedSeats: 34, registrarUsername: "sergey", hasPublished: true },
   { id: 2, title: "Маэстро", teamName: "Импровизаторы Кипра", showDateLabel: "12 сентября, 19:30", location: "Yurts in Cyprus", city: "Пафос", isActive: true, maxSeats: 40, occupiedSeats: 18, registrarUsername: "anna_impro", hasPublished: false },
 ];
-
-
-
 function App({ themePreference, onThemePreferenceChange, onResetLocalData, onAccessDenied }: { themePreference: ThemePreference; onThemePreferenceChange: (preference: ThemePreference) => void; onResetLocalData: () => void; onAccessDenied: () => void }) {
   const isPreview = import.meta.env.DEV && new URLSearchParams(location.search).get("preview") === "1";
   const [shows, setShows] = React.useState<Show[]>(isPreview ? previewShows : []);
@@ -88,7 +87,7 @@ function App({ themePreference, onThemePreferenceChange, onResetLocalData, onAcc
   React.useEffect(() => {
     const backButton = window.Telegram?.WebApp.BackButton;
     if (!backButton) return;
-    const goBack = () => {
+    const goBack = () => transitionScreen(() => {
       telegramHaptic("light");
       if (toolsOpened) {
         if (!toolsBackRef.current?.()) setToolsOpened(false);
@@ -104,7 +103,7 @@ function App({ themePreference, onThemePreferenceChange, onResetLocalData, onAcc
       }
       else if (settingsOpened) setSettingsOpened(false);
       else if (selected) setSelected(null);
-    };
+    }, "back");
     backButton.onClick(goBack);
     if (hasBackTarget) backButton.show(); else backButton.hide();
     return () => backButton.offClick(goBack);
@@ -119,7 +118,7 @@ function App({ themePreference, onThemePreferenceChange, onResetLocalData, onAcc
   React.useEffect(() => {
     if (!isPreview) {
       api<Options>("/api/miniapp/options").then(setOptions).catch(() => undefined);
-      api<Me>("/api/miniapp/me").then(setMe).catch((reason) => {
+      api<Me>("/api/miniapp/me").then((user) => { setMe(user); if (user.role === "checkin") onAccessDenied(); }).catch((reason) => {
         if (reason instanceof ApiError && reason.status === 403) {
           setAccessDenied(true);
           onAccessDenied();
@@ -208,7 +207,7 @@ function App({ themePreference, onThemePreferenceChange, onResetLocalData, onAcc
 
   async function openShow(show: Show) {
     setDescriptionOpened(false);
-    setSelected(show);
+    transitionScreen(() => setSelected(show));
     if (isPreview) return;
     try {
       setSelected(await api<Show>(`/api/miniapp/shows/${show.id}`));
@@ -218,11 +217,12 @@ function App({ themePreference, onThemePreferenceChange, onResetLocalData, onAcc
   }
 
   if (accessDenied) return <AccessDeniedScreen />;
+  if (me?.role === "checkin") return <CheckinHome />;
 
   if (selected) {
     const registrationUrl = selected.registrationUrl ?? `https://t.me/ImprovCypEventBot?start=show_${selected.id}`;
     return <main className="shell">
-      <Button className="back" variant="subtle" onClick={() => { telegramHaptic("light"); setSelected(null); }}>← Все афиши</Button>
+      <Button className="back" variant="subtle" onClick={() => { telegramHaptic("light"); transitionScreen(() => setSelected(null), "back"); }}>← Все афиши</Button>
       <ShowDetails show={selected} descriptionOpened={descriptionOpened} onToggleDescription={() => setDescriptionOpened((opened) => !opened)} onAttendees={() => setAttendeesOpened(true)} onEdit={() => { setEditing(selected); setFormOpened(true); }} onAnnouncement={() => setAnnouncementOpened(true)} onAnalytics={() => setAnalyticsOpened(true)} onRegistration={() => { setToolsMode("registration"); setToolsOpened(true); }} onMore={() => { setToolsMode("all"); setToolsOpened(true); }} />
       <AttendeesModal
         opened={attendeesOpened}
@@ -275,7 +275,6 @@ function App({ themePreference, onThemePreferenceChange, onResetLocalData, onAcc
     <AppSettingsModal opened={settingsOpened} onClose={() => setSettingsOpened(false)} onCreate={() => { setSettingsOpened(false); setEditing(null); setFormOpened(true); }} onAdministration={() => { setSettingsOpened(false); setManagementOpened(true); }} value={themePreference} onChange={onThemePreferenceChange} onReset={onResetLocalData} />
   </main>;
 }
-
 export function AppRoot() {
   const { colorScheme, preference, changePreference } = useAppTheme();
   const onboardingKey = "miniapp-onboarding-v1";
@@ -296,5 +295,5 @@ export function AppRoot() {
     changePreference("system");
     setOnboardingOpened(true);
   }, [changePreference]);
-  return <MantineProvider theme={theme} forceColorScheme={colorScheme}><DatesProvider settings={{ locale: "ru", firstDayOfWeek: 1, weekendDays: [0, 6] }}><Notifications /><App themePreference={preference} onThemePreferenceChange={changePreference} onResetLocalData={resetLocalData} onAccessDenied={showAccessDenied} /><MiniAppOnboarding opened={!accessDenied && onboardingOpened} onFinish={finishOnboarding} /></DatesProvider></MantineProvider>;
+  return <MantineProvider theme={theme} forceColorScheme={colorScheme}><DatesProvider settings={{ locale: "ru", firstDayOfWeek: 1, weekendDays: [0, 6] }}><Notifications /><CheckinProvider><App themePreference={preference} onThemePreferenceChange={changePreference} onResetLocalData={resetLocalData} onAccessDenied={showAccessDenied} /><MiniAppOnboarding opened={!accessDenied && onboardingOpened} onFinish={finishOnboarding} /></CheckinProvider></DatesProvider></MantineProvider>;
 }

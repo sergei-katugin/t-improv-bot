@@ -1,7 +1,7 @@
 import { createTheme } from "@mantine/core";
 
 export const theme = createTheme({
-  primaryColor: "gray",
+  primaryColor: "blue",
   defaultRadius: "md",
   colors: {
     dark: [

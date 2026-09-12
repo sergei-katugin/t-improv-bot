@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { Children, isValidElement, type CSSProperties, type ReactNode } from "react";
+import { transitionScreen } from "../lib/screenTransition";
 
 export type TabBarIconName = "shows" | "create" | "admin" | "settings" | "attendees" | "edit" | "announce" | "analytics" | "link" | "more";
 
@@ -19,11 +20,23 @@ function TabBarIcon({ name }: { name: TabBarIconName }) {
 }
 
 export function BottomActionBar({ children, navigation = false, inline = false }: { children: ReactNode; navigation?: boolean; inline?: boolean }) {
-  return <div className={`bottom-action-bar${navigation ? " bottom-action-navigation" : ""}${inline ? " is-inline" : ""}`}>{children}</div>;
+  const actions = Children.toArray(children);
+  const activeIndex = actions.findIndex((action) => isValidElement<{ active?: boolean }>(action) && action.props.active);
+  const style = navigation ? { "--nav-count": actions.length, "--nav-index": Math.max(0, activeIndex) } as CSSProperties : undefined;
+  return <div role={navigation ? "navigation" : undefined} aria-label={navigation ? "Навигация" : undefined}
+    style={style} className={`bottom-action-bar${navigation ? " bottom-action-navigation" : ""}${inline ? " is-inline" : ""}`}>
+    {navigation && activeIndex >= 0 && <span className="bottom-nav-selection" aria-hidden="true" />}
+    {children}
+  </div>;
 }
 
 export function BottomNavAction({ icon, label, meta, active = false, onClick }: { icon: TabBarIconName; label: string; meta?: number | string; active?: boolean; onClick: () => void }) {
-  return <button type="button" className={`bottom-nav-action${active ? " is-active" : ""}`} aria-current={active ? "page" : undefined} onClick={onClick}>
+  return <button type="button" className={`bottom-nav-action${active ? " is-active" : ""}`} aria-current={active ? "page" : undefined} onClick={(event) => {
+    const menu = event.currentTarget.parentElement;
+    const previous = Number(menu?.style.getPropertyValue("--nav-index") ?? 0);
+    const index = [...(menu?.querySelectorAll("button") ?? [])].indexOf(event.currentTarget);
+    transitionScreen(onClick, icon === "create" || icon === "edit" ? "sheet" : index < previous ? "tab-back" : "tab-forward");
+  }}>
     <span className="bottom-nav-icon"><TabBarIcon name={icon} /></span>
     <span className="bottom-nav-label">{label}</span>
     {meta !== undefined && <span className="bottom-nav-meta">{meta}</span>}

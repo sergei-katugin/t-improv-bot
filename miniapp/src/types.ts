@@ -10,6 +10,7 @@ export type Show = {
   city: string;
   isActive: boolean;
   isPast?: boolean;
+  isShowDay?: boolean;
   maxSeats: number;
   maxGuests?: number;
   registrationClosesAt?: string | null;
@@ -21,6 +22,7 @@ export type Show = {
   posterTextNewcomer?: string | null;
   feedbackEnabled?: boolean;
   checkinEnabled?: boolean;
+  checkinMode?: "named" | "counter"; checkinReportEvery?: number;
   hasPoster?: boolean;
   hasPublished?: boolean;
   registrationChatId?: number | null;
@@ -34,7 +36,7 @@ export type Options = {
   adChannels: { id: number; username: string; isActive: boolean }[];
 };
 
-export type Me = { id: number; firstName: string | null; username: string | null; role: "organizer" | "admin"; isSuperAdmin?: boolean };
+export type Me = { id: number; firstName: string | null; username: string | null; role: "organizer" | "admin" | "checkin"; isSuperAdmin?: boolean };
 export type RegistrationChatOption = { id: number; title: string; username: string | null; type: string };
 export type AccessUser = { id: number; telegramId: number; username: string | null; firstName: string | null; lastName: string | null; role: "organizer" | "admin"; isCurrent: boolean; isProtected: boolean };
 export type AuditItem = { id: number; action: string; entityType: string; entityId: number | null; details: Record<string, unknown> | null; createdAt: string; actor: { id: number; username: string | null; firstName: string | null; lastName: string | null; telegramId: number } | null };
@@ -67,5 +69,6 @@ export type ShowFormValue = {
   title: string; titleNewcomer: string; teamName: string; showDateLocal: string; location: string;
   locationUrl: string; city: string; posterText: string; posterTextNewcomer: string; maxSeats: number;
   registrarUsername: string; checkinEnabled: boolean; feedbackEnabled: boolean;
+  checkinMode?: "named" | "counter"; checkinReportEvery?: number;
   maxGuests: number;
 };

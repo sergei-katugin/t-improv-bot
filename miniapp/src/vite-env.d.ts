@@ -6,6 +6,7 @@ interface TelegramWebApp {
   expand(): void;
   close(): void;
   colorScheme: "light" | "dark";
+  themeParams?: Record<string, string | undefined>;
   BackButton: TelegramWebAppButton;
   SettingsButton?: TelegramWebAppButton;
   HapticFeedback?: {
