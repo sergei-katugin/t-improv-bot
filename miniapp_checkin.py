@@ -30,7 +30,7 @@ async def miniapp_checkin(request):
         stats = await arrival_stats(session, show)
         query = request.query.get("search", "").strip()[:100]
         items = []
-        if show.checkin_mode == "named":
+        if show.checkin_enabled:
             regs = select(Registration).join(User).where(Registration.show_id == show.id, Registration.is_cancelled == False)
             manual = select(ManualAttendee).where(ManualAttendee.show_id == show.id)
             if query:
@@ -48,7 +48,7 @@ async def miniapp_checkin_update(request):
     data = await _json_body(request)
     async with AsyncSessionLocal() as session:
         show = await accessible_checkin_show(session, request)
-        if show.checkin_mode == "counter":
+        if "delta" in data:
             delta = data.get("delta")
             if type(delta) is not int or delta not in (-1, 1, 2, 3):
                 raise web.HTTPBadRequest()

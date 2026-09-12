@@ -32,7 +32,7 @@ async def test_door_staff_counts_search_permissions_and_reports(monkeypatch):
         request = _Request(show_id=show_id, user_id=staff_id, body={"delta": 2, "expected": 0})
         bot = AsyncMock(); request.app = {checkin.ADMIN_BOT_KEY: bot}
         first = json.loads((await checkin.miniapp_checkin_update(request)).text)
-        assert first == {"arrived": 2, "booked": 5, "remaining": 3, "percent": 40.0}
+        assert first == {"arrived": 2, "identified": 0, "unidentified": 2, "booked": 5, "remaining": 3, "percent": 40.0}
         bot.send_message.assert_not_awaited()
         with pytest.raises(web.HTTPConflict):
             await checkin.miniapp_checkin_update(request)
@@ -59,6 +59,11 @@ async def test_door_staff_counts_search_permissions_and_reports(monkeypatch):
         await checkin.miniapp_checkin_update(request)
         request._body = {"kind": "manual", "id": manual_id, "count": 2, "arrived": 0}
         assert json.loads((await checkin.miniapp_checkin_update(request)).text)["percent"] == 100
+        request._body = {"delta": 2, "expected": 0}
+        combined = json.loads((await checkin.miniapp_checkin_update(request)).text)
+        assert (combined["identified"], combined["unidentified"], combined["arrived"]) == (5, 2, 7)
+        request._body = {"delta": -1, "expected": 2}
+        assert json.loads((await checkin.miniapp_checkin_update(request)).text)["arrived"] == 6
         request._body = {"kind": "manual", "id": manual_id, "count": 3, "arrived": 2}
         with pytest.raises(web.HTTPBadRequest):
             await checkin.miniapp_checkin_update(request)

@@ -1,0 +1,20 @@
+:root .page-heading h1,
+:root .telegram-page-title h1 {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -.02em;
+  overflow-wrap: anywhere;
+}
+:root .mantine-Modal-title { min-width: 0; overflow-wrap: anywhere; }
+:root .mantine-Modal-close { flex-shrink: 0; }
+:root .show-heading { align-items: center; gap: 6px 10px; }
+:root .show-heading .show-team { font-size: 13px; color: var(--muted); }
+:root .resource-card > .mantine-Group-root > div:first-child { min-width: 0; overflow-wrap: anywhere; }
+:root .show-card h2, :root .tools-menu-action b, :root .settings-list b { overflow-wrap: anywhere; }
+:root .ios-chevron { flex-shrink: 0; width: 8px; height: 14px; }
+:root .bottom-action-bar:not(.bottom-action-navigation):not(.is-inline) { bottom: var(--keyboard-inset, 0px); }
+html[data-keyboard="open"] .bottom-action-navigation { display: none; }
+html[data-keyboard="open"] .mantine-Input-input { scroll-margin-block: 70px; }
+/* Static form footers already belong to the resized scroll container. */
+:root .show-form > .bottom-action-bar { bottom: auto; }

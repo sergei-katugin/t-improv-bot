@@ -56,10 +56,7 @@ async def miniapp_show_analytics(request: web.Request) -> web.Response:
         sum(int(rating) * int(count) for rating, count in rating_rows) / feedback_count
         if feedback_count else 0.0
     )
-    arrived = (
-        int(show.checkin_counter or 0) if show.checkin_mode == "counter"
-        else int(reg_summary[3]) + int(manual_summary[1])
-    )
+    arrived = int(show.checkin_counter or 0) + int(reg_summary[3]) + int(manual_summary[1])
     occupancy_rate = round(registered / show.max_seats * 100) if show.max_seats else 0
     cancellation_rate = round(int(reg_summary[1]) / max(1, int(reg_summary[1]) + registered) * 100)
     attendance_rate = round(arrived / registered * 100) if registered else 0

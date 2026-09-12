@@ -5,6 +5,7 @@ import { showNotification } from "../lib/notifications";
 import { useAppResume } from "../hooks/useAppResume";
 import type { Analytics, Show } from "../types";
 import { ShowNavigation } from "./ShowNavigation";
+import { StatCard } from "./StatCard";
 
 export function AnalyticsModal({ opened, onClose, show, demo, onEdit, onAnnouncement, onRegistration, onMore }: {
   opened: boolean; onClose: () => void; show: Show; demo: boolean;
@@ -62,16 +63,16 @@ export function AnalyticsModal({ opened, onClose, show, demo, onEdit, onAnnounce
     {!loading && error && <Alert color="red" title="Не удалось загрузить аналитику">{error}<Button mt="sm" size="xs" variant="light" color="red" onClick={() => void load()}>Повторить</Button></Alert>}
     {!loading && data && <Stack>
       <SimpleGrid cols={2}>
-        <Paper className="resource-card"><Text size="sm" c="dimmed">Записано</Text><Title order={2}>{data.registered} / {data.capacity}</Title></Paper>
-        <Paper className="resource-card"><Text size="sm" c="dimmed">Пришли</Text><Title order={2}>{data.checkinEnabled ? data.arrived : "—"}</Title></Paper>
-        <Paper className="resource-card"><Text size="sm" c="dimmed">Подтвердили</Text><Title order={2}>{data.confirmed}</Title></Paper>
-        <Paper className="resource-card"><Text size="sm" c="dimmed">Отмен записей</Text><Title order={2}>{data.cancelledRegistrations}</Title></Paper>
+        <StatCard label="Записано" value={`${data.registered} / ${data.capacity}`} />
+        <StatCard label="Пришли" value={data.checkinEnabled ? data.arrived : "—"} />
+        <StatCard label="Подтвердили" value={data.confirmed} />
+        <StatCard label="Отмен записей" value={data.cancelledRegistrations} />
       </SimpleGrid>
       <Paper className="resource-form"><Stack gap="xs"><Group justify="space-between"><Title order={3}>Прогноз</Title><Badge variant="light">{data.projectedAttendance} / {data.capacity}</Badge></Group><Text size="sm">Темп: <b>{data.dailyRegistrationRate}</b> места в день</Text><Text size="sm" c="dimmed">{data.recommendation}</Text></Stack></Paper>
       <SimpleGrid cols={3}>
-        <Paper className="resource-card"><Text size="xs" c="dimmed">Заполнено</Text><Text fw={800}>{data.occupancyRate}%</Text></Paper>
-        <Paper className="resource-card"><Text size="xs" c="dimmed">Отмены</Text><Text fw={800}>{data.cancellationRate}%</Text></Paper>
-        <Paper className="resource-card"><Text size="xs" c="dimmed">Явка</Text><Text fw={800}>{data.checkinEnabled ? `${data.attendanceRate}%` : "—"}</Text></Paper>
+        <StatCard label="Заполнено" value={`${data.occupancyRate}%`} />
+        <StatCard label="Отмены" value={`${data.cancellationRate}%`} />
+        <StatCard label="Явка" value={data.checkinEnabled ? `${data.attendanceRate}%` : "—"} />
       </SimpleGrid>
       <Paper className="resource-form"><Stack><Title order={3}>Источники записей</Title>{data.sources.length ? data.sources.map((item) => <div key={item.source}><Group justify="space-between"><Text>{sourceLabels[item.source] ?? item.source}</Text><Text fw={700}>{item.count}</Text></Group><Progress value={data.registered ? item.count / data.registered * 100 : 0} mt={5} /></div>) : <Text c="dimmed">Данных пока нет</Text>}</Stack></Paper>
       <Paper className="resource-form"><Stack><Group justify="space-between"><Title order={3}>Отзывы</Title><Badge color="yellow" size="lg">★ {data.averageRating.toFixed(1)} · {data.feedbackCount}</Badge></Group>

@@ -1,6 +1,11 @@
+@import "./telegram-buttons.css";
+@import "./telegram-cards.css";
+@import "./telegram-forms.css";
+@import "./telegram-surfaces.css";
+@import "./telegram-layout.css";
+@import "./telegram-details.css";
+@import "./telegram-header.css";
 /* Opaque Telegram surfaces; native Mini App chrome remains owned by Telegram. */
-:root .mantine-Modal-header { background: var(--app-header-bg, var(--app-bg)); backdrop-filter: none; }
-:root .primary, :root .primary:hover, :root .bottom-action-bar .mantine-Button-root.primary { --button-bg: var(--app-button-bg, var(--mantine-primary-color-filled)); --button-color: var(--app-button-text, var(--mantine-color-white)); background: var(--app-button-bg, var(--mantine-primary-color-filled)); color: var(--app-button-text, var(--mantine-color-white)); }
 :root .page-heading { padding-block: 12px; }
 .telegram-page-title { padding: 16px 0 12px; background: var(--app-header-bg, var(--app-bg)); }
 .telegram-page-title h1, :root .mantine-Modal-title { font-size: 22px; font-weight: 700; letter-spacing: -.02em; line-height: 1.25; }
@@ -8,8 +13,6 @@
 :root .bottom-action-navigation { width: min(calc(100% - 48px), 540px); border-radius: 28px; }
 :root .bottom-nav-selection { border-radius: 23px; background: color-mix(in srgb, var(--accent) 15%, var(--surface)); }
 :root .page-tabs-header { background: var(--app-header-bg, var(--app-bg)); }
-:root .tabs { border-radius: 22px; border: 0; }
-:root .tabs [role="tab"][aria-selected="true"] { border-radius: 18px; color: var(--accent); background: color-mix(in srgb, var(--accent) 15%, var(--surface)); }
 /* Avoid capturing a half-transparent Mantine enter animation. */
 html[data-screen-transition] .mantine-Modal-content { opacity: 1 !important; transform: none !important; }
 ::view-transition-group(root) { animation-duration: 320ms; animation-timing-function: cubic-bezier(.22, 1, .36, 1); }
@@ -21,14 +24,17 @@ html[data-screen-transition="sheet"]::view-transition-old(root) { animation-name
 html[data-screen-transition="sheet"]::view-transition-new(root) { animation-name: screen-in-bottom; }
 html[data-screen-transition="tab-forward"]::view-transition-old(root) { animation-name: tab-out-left; }
 html[data-screen-transition="tab-back"]::view-transition-new(root) { animation-name: tab-in-left; }
-::view-transition-group(app-navigation) { animation-duration: 280ms; }
-::view-transition-old(app-navigation), ::view-transition-new(app-navigation) { mix-blend-mode: normal; }
-@keyframes screen-out-left { to { transform: translateX(-25%); opacity: .6; } }
+::view-transition-group(app-navigation), ::view-transition-group(app-nav-selection) { animation-duration: 280ms; animation-timing-function: cubic-bezier(.22, 1, .36, 1); }
+::view-transition-old(app-navigation), ::view-transition-old(app-nav-selection) { display: none; }
+::view-transition-new(app-navigation), ::view-transition-new(app-nav-selection) { animation: none; mix-blend-mode: normal; }
+::view-transition-image-pair(root) { isolation: isolate; }
+::view-transition-old(root), ::view-transition-new(root) { mix-blend-mode: normal; }
+@keyframes screen-out-left { to { transform: translateX(-25%); } }
 @keyframes screen-in-right { from { transform: translateX(100%); } }
 @keyframes screen-out-right { to { transform: translateX(100%); } }
-@keyframes screen-in-left { from { transform: translateX(-25%); opacity: .6; } }
+@keyframes screen-in-left { from { transform: translateX(-25%); } }
 @keyframes screen-in-bottom { from { transform: translateY(100%); } }
-@keyframes screen-dim { to { opacity: .6; } }
+@keyframes screen-dim { from { opacity: 1; } to { opacity: 1; } }
 @keyframes tab-out-left { to { transform: translateX(-100%); } }
 @keyframes tab-in-left { from { transform: translateX(-100%); } }
 @media (prefers-reduced-motion: reduce) { ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; } }

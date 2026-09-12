@@ -1,0 +1,55 @@
+:root :is(.settings-list, .tools-menu, .attention-center) {
+  overflow: hidden;
+  border: 0;
+  border-radius: 20px;
+  background: var(--surface);
+}
+:root :is(.settings-list button, .tools-menu-action, .attention-center button) {
+  min-height: 60px;
+  padding: 12px 16px;
+  border-bottom: .5px solid var(--line);
+  transition: background-color 160ms ease;
+}
+:root :is(.settings-list button, .tools-menu-action, .attention-center button):last-child { border-bottom: 0; }
+:root :is(.settings-list button, .tools-menu-action, .attention-center button):active { background: var(--surface-strong); }
+:root :is(.settings-list button, .tools-menu-action, .attention-center button):focus-visible {
+  outline: 2px solid var(--accent); outline-offset: -3px;
+}
+:root .settings-list b, :root .tools-menu-action b { font-weight: 600; }
+:root .tools-section-label { color: var(--accent); font-weight: 600; }
+:root .tools-menu-action.danger b { color: var(--mantine-color-red-6); }
+:root .show-detail-hero {
+  border: 0;
+  border-inline-start: 3px solid var(--team-accent, var(--accent));
+  border-radius: 20px;
+  background: var(--surface);
+  padding: 18px;
+}
+:root .mantine-Modal-overlay { backdrop-filter: none; }
+:root .mantine-Modal-inner[data-centered] .mantine-Modal-content {
+  border-radius: 24px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: 0 16px 48px color-mix(in srgb, var(--mantine-color-dark-9) 35%, transparent);
+}
+:root .mantine-Modal-inner[data-centered] .mantine-Modal-header {
+  background: var(--surface); border-bottom: 0;
+}
+:root .mantine-Modal-inner[data-centered] .mantine-Modal-title { font-size: 20px; }
+:root .mantine-Notification-root {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--app-text) 12%, transparent);
+}
+:root .mantine-Notification-title { color: var(--app-text); font-weight: 600; }
+:root .mantine-Notification-description { color: var(--muted); }
+:root .mantine-Alert-root { border-radius: 16px; }
+:root .state { border-style: solid; background: var(--surface); }
+:root .mantine-Loader-root { --loader-color: var(--accent); }
+:root .onboarding-illustration .illustration-accent { fill: var(--accent); stroke: var(--accent); }
+:root .onboarding-progress button[data-active="true"]::before,
+:root .onboarding-progress button[data-complete="true"]::before { background: var(--accent); }
+@media (prefers-reduced-motion: reduce) {
+  :root :is(.settings-list button, .tools-menu-action, .attention-center button) { transition: none; }
+}
