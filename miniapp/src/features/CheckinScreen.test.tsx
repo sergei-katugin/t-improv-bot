@@ -5,7 +5,7 @@ import { CheckinScreen, CheckinHome } from "./CheckinScreen";
 import { api } from "../lib/api";
 
 vi.mock("../lib/api", () => ({ api: vi.fn() }));
-const snapshot = { id: 1, title: "Шоу", mode: "counter", reportEvery: 10, arrived: 12, booked: 20, remaining: 8, percent: 60, items: [] };
+const snapshot = { id: 1, title: "Шоу", mode: "counter", reportEvery: 10, arrived: 12, unidentified: 12, booked: 20, remaining: 8, percent: 60, items: [] };
 const wrapper = ({ children }: { children: React.ReactNode }) => <MantineProvider>{children}</MantineProvider>;
 describe("Check-in", () => {
   beforeEach(() => vi.mocked(api).mockReset());
@@ -14,7 +14,10 @@ describe("Check-in", () => {
     render(<CheckinScreen showId={1} />, { wrapper });
     expect(await screen.findByText("Пришли и ждут: 12")).toBeInTheDocument();
     expect(screen.getByText("Из 20 записанных · 60%")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "+2" }));
+    expect(screen.getByLabelText("Поиск зрителя")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "+2" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Не нашёл — указать вручную" }));
+    fireEvent.click(await screen.findByRole("button", { name: "+2" }));
     await waitFor(() => expect(api).toHaveBeenCalledWith("/api/miniapp/shows/1/checkin", expect.objectContaining({ body: JSON.stringify({ expected: 12, delta: 2 }) })));
     expect(screen.queryByRole("button", { name: /Пригласить/ })).not.toBeInTheDocument();
   });

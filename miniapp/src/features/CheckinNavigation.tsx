@@ -6,5 +6,5 @@ export const CheckinNavigation = React.createContext<((showId: number) => void) 
 
 export function CheckinProvider({ children }: { children: React.ReactNode }) {
   const [showId, setShowId] = React.useState<number | null>(null);
-  return <CheckinNavigation.Provider value={setShowId}>{children}<Modal opened={showId !== null} onClose={() => setShowId(null)} fullScreen title="Вход">{showId !== null && <CheckinScreen key={showId} showId={showId} canConfigure />}</Modal></CheckinNavigation.Provider>;
+  return <CheckinNavigation.Provider value={setShowId}>{children}<Modal opened={showId !== null} onClose={() => setShowId(null)} fullScreen title="Вход" zIndex={300} classNames={{ content: "checkin-sheet" }}>{showId !== null && <CheckinScreen key={showId} showId={showId} canConfigure />}</Modal></CheckinNavigation.Provider>;
 }

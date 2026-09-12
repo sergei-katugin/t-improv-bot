@@ -1,0 +1,58 @@
+/* Solid Telegram controls; semantic colors supplied by Mantine remain intact. */
+:root .primary {
+  width: 100%; height: auto; margin-top: 16px; padding: 12px 15px; border: 0;
+  --button-bg: var(--app-button-bg, var(--mantine-primary-color-filled));
+  --button-color: var(--app-button-text, var(--mantine-color-white));
+  background: var(--button-bg); color: var(--button-color);
+}
+:root .mantine-Button-root {
+  border-radius: 18px;
+  font-weight: 600;
+  transition: background-color 160ms ease, color 160ms ease, transform 120ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+:root .primary,
+:root .bottom-action-bar .mantine-Button-root.primary {
+  min-height: 48px;
+  border-radius: 24px;
+  font-weight: 600;
+}
+:root .mantine-Button-root[data-variant="default"] {
+  --button-bg: var(--surface);
+  --button-hover: var(--surface-strong);
+  --button-color: var(--accent);
+  --button-bd: 1px solid var(--line);
+}
+:root .primary:hover:not(:disabled):not([data-disabled]) {
+  background: color-mix(in srgb, var(--app-button-bg, var(--mantine-primary-color-filled)) 90%, var(--app-text));
+}
+:root .mantine-Button-root:active:not(:disabled):not([data-disabled]):not([data-loading]) {
+  transform: scale(.98);
+  filter: none;
+}
+:root .mantine-Button-root:focus-visible,
+:root .header-action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+:root .mantine-Button-root:disabled,
+:root .mantine-Button-root[data-disabled] {
+  background: var(--surface-strong);
+  color: var(--muted);
+  border-color: transparent;
+  opacity: .65;
+  transform: none;
+  cursor: not-allowed;
+}
+:root .header-action {
+  border-radius: 50%;
+  color: var(--accent);
+  background: var(--surface);
+  transition: background-color 160ms ease, transform 120ms ease;
+}
+:root .header-action:active { transform: scale(.94); background: var(--surface-strong); }
+@media (prefers-reduced-motion: reduce) {
+  :root .mantine-Button-root, :root .header-action { transition: none; }
+  :root .mantine-Button-root:active:not(:disabled):not([data-disabled]):not([data-loading]),
+  :root .header-action:active { transform: none; }
+}

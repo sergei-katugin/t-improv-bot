@@ -195,10 +195,9 @@ export function ManagementModal({ opened, onClose, onCreate, onSettings, me, opt
     return () => { backHandlerRef.current = null; };
   }, [auditOpened, backHandlerRef, channelEditorOpened, opened, revokeUser, settingsTab, teamEditorOpened, venueEditorOpened]);
 
-  return <Modal opened={opened} onClose={onClose} fullScreen withCloseButton={false}>
+  return <Modal opened={opened} onClose={onClose} fullScreen title="Администрирование" classNames={{ close: "fullscreen-modal-close" }}>
     <>
     {settingsTab === null && <div className="settings-menu">
-      <div className="page-heading"><div className="eyebrow">T·IMPRO</div><Title order={1}>Администрирование</Title></div>
       <div className="settings-list">
         <button type="button" onClick={() => setSettingsTab("teams")}><span><b>Команды</b><small>{options.teams.length} в справочнике</small></span><span>›</span></button>
         {me?.role === "admin" && <button type="button" onClick={() => setSettingsTab("venues")}><span><b>Площадки</b><small>{options.venues.length} в справочнике</small></span><span>›</span></button>}

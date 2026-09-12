@@ -1,0 +1,10 @@
+.stat-card { min-width: 0; }
+.stat-card-value {
+  margin-top: 6px;
+  color: var(--app-text);
+  font-size: clamp(20px, 5vw, 28px);
+  font-weight: 650;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}

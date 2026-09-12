@@ -1,6 +1,7 @@
 import React from "react";
 import type { ThemePreference } from "../types";
 import { applyTelegramTheme } from "../lib/telegramTheme";
+import { useKeyboardViewport } from "./useKeyboardViewport";
 
 function toHexColor(value: string): string | null {
   if (/^#[0-9a-f]{6}$/i.test(value)) return value;
@@ -10,6 +11,7 @@ function toHexColor(value: string): string | null {
 }
 
 export function useAppTheme() {
+  useKeyboardViewport();
   const telegram = window.Telegram?.WebApp;
   const [preference, setPreference] = React.useState<ThemePreference>(() => {
     const stored = localStorage.getItem("miniapp-theme");

@@ -1,0 +1,56 @@
+:root .mantine-Input-input {
+  min-height: 46px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--app-text);
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+:root .mantine-Input-input::placeholder { color: var(--muted); opacity: 1; }
+:root .mantine-Input-input:focus,
+:root .mantine-Input-input:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+:root .mantine-Input-input[data-error] { border-color: var(--mantine-color-red-6); }
+:root .mantine-Input-input:disabled { opacity: .6; background: var(--surface-strong); }
+:root .mantine-Input-label { color: var(--app-text); font-weight: 600; }
+:root .mantine-Input-description { color: var(--muted); }
+:root .mantine-Popover-dropdown {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--app-text);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--app-text) 10%, transparent);
+}
+:root .mantine-Combobox-option { padding: 10px 12px; border-radius: 10px; }
+:root .mantine-Combobox-option[data-combobox-selected],
+:root .mantine-Combobox-option[data-combobox-active] {
+  background: color-mix(in srgb, var(--accent) 15%, var(--surface));
+  color: var(--accent);
+}
+:root .mantine-Switch-root { --switch-color: var(--accent); }
+:root .mantine-Switch-track {
+  transition: background-color 180ms ease, border-color 180ms ease;
+}
+:root .mantine-Switch-input:checked + .mantine-Switch-track .mantine-Switch-thumb {
+  --switch-thumb-bg: var(--app-button-text, var(--mantine-color-white));
+}
+:root .mantine-Switch-input:focus-visible + .mantine-Switch-track {
+  outline: 2px solid var(--accent); outline-offset: 3px;
+}
+:root .show-stepper-dot { font-weight: 600; transition: background-color 180ms ease, color 180ms ease; }
+:root .show-stepper-dot[data-state="active"] {
+  border-color: var(--accent);
+  color: var(--app-button-text, var(--mantine-color-white));
+  background: var(--accent);
+}
+:root .show-stepper-dot[data-state="complete"] {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 15%, var(--surface));
+}
+:root .show-stepper-line[data-complete="true"] { background: var(--accent); }
+:root .show-stepper-dot:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) {
+  :root .mantine-Input-input, :root .mantine-Switch-track, :root .show-stepper-dot { transition: none; }
+}

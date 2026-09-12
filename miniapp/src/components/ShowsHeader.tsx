@@ -1,4 +1,5 @@
-import { Tabs } from "@mantine/core";
+import { TelegramTabs } from "./TelegramTabs";
+import { PageHeader } from "./PageHeader";
 
 function FilterIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4" /></svg>;
@@ -11,10 +12,9 @@ export function ShowsHeader({ status, onStatusChange, filtersOpened, activeFilte
   activeFilters: number;
   onToggleFilters: () => void;
 }) {
-  return <><div className="telegram-page-title"><h1>Мои афиши</h1></div><header className="page-tabs-header">
-    <Tabs value={status} onChange={(value) => onStatusChange(value as "upcoming" | "past")} className="tabs">
-      <Tabs.List grow><Tabs.Tab value="upcoming">Будущие</Tabs.Tab><Tabs.Tab value="past">Прошедшие</Tabs.Tab></Tabs.List>
-    </Tabs>
+  return <><PageHeader title="Мои афиши" /><header className="page-tabs-header">
+    <TelegramTabs value={status} onChange={onStatusChange} label="Период афиш"
+      items={[{ value: "upcoming", label: "Будущие" }, { value: "past", label: "Прошедшие" }]} />
     <div className="header-actions">
       <button className={`header-action${activeFilters ? " is-active" : ""}`} onClick={onToggleFilters} aria-label={`Фильтры${activeFilters ? `: выбрано ${activeFilters}` : ""}`} aria-expanded={filtersOpened}>
         <FilterIcon />

@@ -1,0 +1,24 @@
+:root .mantine-Modal-header {
+  min-height: 56px;
+  padding: 8px max(16px, var(--tg-content-safe-area-inset-right, 0px)) 8px max(16px, var(--tg-content-safe-area-inset-left, 0px));
+  gap: 12px;
+  background: var(--app-header-bg, var(--app-bg));
+  border-bottom: .5px solid var(--line);
+  backdrop-filter: none;
+}
+:root .mantine-Modal-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -.02em;
+  overflow-wrap: anywhere;
+}
+:root .mantine-Modal-close { width: 40px; height: 40px; flex-shrink: 0; color: var(--muted); }
+/* Fullscreen content needs Telegram's content inset only once, not per header/tab row. */
+:root .mantine-Modal-content:has(.fullscreen-modal-close), :root .checkin-sheet {
+  padding-top: var(--tg-content-safe-area-inset-top, 0px);
+}
+:root .page-tabs-header { padding-top: 8px; }
+:root .shell { padding-top: var(--tg-content-safe-area-inset-top, 0px); }

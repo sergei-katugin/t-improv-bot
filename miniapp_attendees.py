@@ -79,6 +79,7 @@ async def miniapp_attendees(request: web.Request) -> web.Response:
             select(func.coalesce(func.sum(ManualAttendee.checked_in_count), 0))
             .where(ManualAttendee.show_id == show_id)
         ) or 0)
+        arrived += int(show.checkin_counter or 0)
         has_more = len(registrations) > limit or len(manual) > limit
         reg_page = registrations[:limit]
         manual_page = manual[:limit]

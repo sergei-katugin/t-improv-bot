@@ -1,0 +1,23 @@
+:root .resource-form h3, :root .resource-card h3 {
+  font-size: 18px; font-weight: 600; line-height: 1.3;
+}
+:root .mantine-Badge-root { border-radius: 8px; font-weight: 600; }
+:root .mantine-Progress-root { border-radius: 8px; background: var(--surface-strong); }
+:root .mantine-Progress-section { border-radius: inherit; }
+:root [class*="mantine-"][class*="-calendarHeader"] { color: var(--app-text); }
+:root [class*="mantine-"][class*="-calendarHeaderControl"],
+:root [class*="mantine-"][class*="-calendarHeaderLevel"] { border-radius: 12px; color: var(--accent); }
+:root button[class*="mantine-"]:is([class$="-day"], [class*="-day "], [class*="-monthsListControl"], [class*="-yearsListControl"]) { border-radius: 12px; }
+:root button[class*="mantine-"]:is([class$="-day"], [class*="-day "])[data-selected] {
+  background: var(--app-button-bg, var(--accent));
+  color: var(--app-button-text, var(--mantine-color-white));
+}
+:root button[class*="mantine-"]:is([class$="-day"], [class*="-day "])[data-today]:not([data-selected]) {
+  color: var(--accent); border: 1px solid var(--accent);
+}
+:root .onboarding-content h1 { font-size: clamp(28px, 7vw, 34px); font-weight: 700; line-height: 1.15; }
+:root .onboarding-copy { font-size: 16px; line-height: 1.5; margin-top: 16px; }
+:root .onboarding-eyebrow, :root .onboarding-step-label { font-size: 12px; font-weight: 600; color: var(--accent); }
+:root .checkin-sheet .mantine-Paper-root { border: 0; border-radius: 20px; background: var(--surface); }
+:root .checkin-sheet h1 { font-size: 22px; line-height: 1.25; overflow-wrap: anywhere; }
+:root .checkin-sheet h2 { font-size: 20px; font-weight: 600; }

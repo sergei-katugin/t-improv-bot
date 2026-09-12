@@ -1,0 +1,59 @@
+/* Opaque grouped surfaces, shared by shows, catalogs and statistics. */
+:root :is(.show-card, .resource-card, .resource-form, .venue-summary,
+  .show-attendance-summary, .attendee-list, .tasks-summary) {
+  border: 0;
+  border-radius: 20px;
+  background: var(--surface);
+  color: var(--app-text);
+  box-shadow: none;
+}
+:root .show-card {
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: background-color 180ms ease, transform 120ms ease;
+}
+:root .show-card:active { transform: scale(.985); }
+:root .show-card::before {
+  content: "";
+  position: absolute;
+  inset: 18px auto 18px 0;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--team-accent, var(--accent));
+  pointer-events: none;
+}
+:root .show-card-main { padding: 18px; -webkit-tap-highlight-color: transparent; }
+:root .show-card-main:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
+  border-radius: 20px;
+}
+:root .show-card h2 { font-size: 20px; font-weight: 650; margin-top: 12px; }
+:root .show-card .mantine-Badge-root { border-radius: 8px; font-weight: 600; }
+:root .show-card-actions { border-top: .5px solid var(--line); }
+:root .show-card-actions button {
+  min-height: 44px;
+  color: var(--accent);
+  font-weight: 600;
+  border-right: .5px solid var(--line);
+  transition: background-color 160ms ease;
+}
+:root .show-card-actions button:last-child { border-right: 0; }
+:root .show-card-actions button:active { background: var(--surface-strong); }
+:root .show-card.is-past { opacity: 1; background: color-mix(in srgb, var(--surface) 60%, var(--app-bg)); }
+:root .show-card.is-past::before { background: var(--muted); opacity: .4; }
+:root .show-card.is-past h2 { color: var(--muted); }
+:root .resource-card, :root .resource-form { padding: 16px; }
+:root .venue-summary { padding: 14px 16px; }
+:root .show-attendance-summary { padding: 18px; transition: background-color 160ms ease; }
+:root .show-attendance-summary:active { background: var(--surface-strong); }
+:root .attendee-list-row { padding: 12px 16px; border-bottom: .5px solid var(--line); }
+:root .attendee-list-row:last-child { border-bottom: 0; }
+@media (hover: hover) {
+  :root .show-card:hover { background: color-mix(in srgb, var(--surface) 90%, var(--surface-strong)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root .show-card, :root .show-card-actions button, :root .show-attendance-summary { transition: none; }
+  :root .show-card:active { transform: none; }
+}

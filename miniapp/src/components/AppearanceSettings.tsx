@@ -1,5 +1,6 @@
 import React from "react";
-import { Button, Modal, Paper, SegmentedControl, Stack, Text, Title } from "@mantine/core";
+import { Button, Modal, Paper, Stack, Text, Title } from "@mantine/core";
+import { TelegramTabs } from "./TelegramTabs";
 import type { ThemePreference } from "../types";
 
 export function AppearanceSettings({ value, onChange, onReset }: { value: ThemePreference; onChange: (value: ThemePreference) => void; onReset: () => void }) {
@@ -10,11 +11,11 @@ export function AppearanceSettings({ value, onChange, onReset }: { value: ThemeP
         <Title order={3}>Тема оформления</Title>
         <Text size="sm" c="dimmed">Системная тема следует настройке Telegram и меняется вместе с ней.</Text>
       </div>
-      <SegmentedControl
-        fullWidth
+      <TelegramTabs
+        label="Тема оформления"
         value={value}
-        onChange={(next) => onChange(next as ThemePreference)}
-        data={[
+        onChange={onChange}
+        items={[
           { label: "Системная", value: "system" },
           { label: "Светлая", value: "light" },
           { label: "Тёмная", value: "dark" },

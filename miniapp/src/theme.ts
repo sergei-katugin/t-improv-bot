@@ -3,6 +3,10 @@ import { createTheme } from "@mantine/core";
 export const theme = createTheme({
   primaryColor: "blue",
   defaultRadius: "md",
+  components: {
+    // Screen transitions own the motion; a second modal fade causes flashes.
+    Modal: { defaultProps: { transitionProps: { duration: 0 } } },
+  },
   colors: {
     dark: [
       "#fafafa", "#f5f5f5", "#e5e5e5", "#a3a3a3", "#737373",

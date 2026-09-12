@@ -10,15 +10,14 @@ logger = get_project_logger(__name__)
 
 async def arrival_stats(session, show):
     booked = await crud.count_active_registrations(session, show.id)
-    if show.checkin_mode == "counter":
-        arrived = show.checkin_counter or 0
-    else:
-        arrived = int(await session.scalar(select(func.coalesce(func.sum(Registration.checked_in_count), 0)).where(
-            Registration.show_id == show.id, Registration.is_cancelled == False,
-        )) or 0) + int(await session.scalar(select(func.coalesce(func.sum(ManualAttendee.checked_in_count), 0)).where(
-            ManualAttendee.show_id == show.id,
-        )) or 0)
-    return {"arrived": arrived, "booked": booked, "remaining": max(0, booked - arrived),
+    named = int(await session.scalar(select(func.coalesce(func.sum(Registration.checked_in_count), 0)).where(
+        Registration.show_id == show.id, Registration.is_cancelled == False,
+    )) or 0) + int(await session.scalar(select(func.coalesce(func.sum(ManualAttendee.checked_in_count), 0)).where(
+        ManualAttendee.show_id == show.id,
+    )) or 0)
+    unidentified = show.checkin_counter or 0
+    arrived = named + unidentified
+    return {"arrived": arrived, "identified": named, "unidentified": unidentified, "booked": booked, "remaining": max(0, booked - arrived),
             "percent": round(arrived * 100 / booked, 1) if booked else 0}
 
 

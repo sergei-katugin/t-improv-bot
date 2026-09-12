@@ -4,6 +4,7 @@ import { ShowNavigation } from "./ShowNavigation";
 import { OccupancyProgress } from "./OccupancyProgress";
 import { ChevronRight } from "./ChevronRight";
 import { TeamTag, teamColor } from "./TeamTag";
+import { PageHeader } from "./PageHeader";
 
 export function ShowDetails({ show, descriptionOpened, onToggleDescription, onAttendees, onEdit, onAnnouncement, onAnalytics, onRegistration, onMore }: {
   show: Show;
@@ -23,8 +24,8 @@ export function ShowDetails({ show, descriptionOpened, onToggleDescription, onAt
           <Badge color={show.isPast ? "gray" : show.isActive ? "green" : "red"} variant="light">{show.isPast ? "Прошедшее" : show.isActive ? "Запись открыта" : "Отменено"}</Badge>
           {show.hasPublished === false && <Badge color="orange" variant="light">Черновик</Badge>}
         </div>
-        <div className="page-heading show-heading"><Title order={1}>{show.title}</Title></div>
-        <div className="show-card-tags"><TeamTag name={show.teamName} /><Badge color="gray" variant="outline" radius="sm">{show.city}</Badge></div>
+        <PageHeader title={show.title} subtitle={<TeamTag name={show.teamName} />} />
+        <div className="show-card-tags"><Badge color="gray" variant="outline" radius="sm">{show.city}</Badge></div>
         <Text className="date">{show.showDateLabel}</Text>
         {show.locationUrl ? <Anchor className="place-link" href={show.locationUrl} target="_blank">{show.location} ↗</Anchor> : <Text className="place">{show.location}</Text>}
       </div>
