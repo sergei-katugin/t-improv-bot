@@ -30,11 +30,5 @@ export function ShowAutomationSwitches({ feedbackEnabled, checkinEnabled, onFeed
       checked={feedbackEnabled}
       onChange={onFeedbackChange}
     />
-    <AutomationSwitch
-      label="Включить check-in"
-      description="Организаторы смогут отмечать пришедших зрителей по именам или вести простой счётчик на входе."
-      checked={checkinEnabled}
-      onChange={onCheckinChange}
-    />
   </Stack>;
 }

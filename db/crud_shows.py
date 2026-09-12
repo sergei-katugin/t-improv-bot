@@ -35,7 +35,7 @@ async def create_show(
     registration_closes_at: datetime | None = None,
     registrar_id: int | None = None,
     registrar_username: str | None = None,
-    checkin_enabled: bool = False, checkin_mode: str = "named", checkin_report_every: int = 10,
+    checkin_enabled: bool = True, checkin_mode: str = "named", checkin_report_every: int = 10,
     feedback_enabled: bool = True,
 ) -> Show:
     show = Show(
@@ -55,7 +55,7 @@ async def create_show(
         creator_id=creator_id,
         registrar_id=registrar_id,
         registrar_username=registrar_username,
-        checkin_enabled=checkin_enabled, checkin_mode=checkin_mode, checkin_report_every=checkin_report_every,
+        checkin_enabled=True, checkin_mode=checkin_mode, checkin_report_every=checkin_report_every,
         feedback_enabled=feedback_enabled,
     )
     session.add(show)
@@ -292,7 +292,7 @@ async def update_show(session: AsyncSession, show_id: int, **fields) -> Show | N
     if "show_date" in fields:
         fields["registration_closes_at"] = fields["show_date"] - timedelta(minutes=5)
     for key, value in fields.items():
-        setattr(show, key, value)
+        setattr(show, key, True if key == "checkin_enabled" else value)
     show.updated_at = _utcnow()
     await session.commit()
     await session.refresh(show)

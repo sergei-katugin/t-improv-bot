@@ -18,3 +18,4 @@ html[data-keyboard="open"] .bottom-action-navigation { display: none; }
 html[data-keyboard="open"] .mantine-Input-input { scroll-margin-block: 70px; }
 /* Static form footers already belong to the resized scroll container. */
 :root .show-form > .bottom-action-bar { bottom: auto; }
+:root .show-detail { padding-top: 16px; }

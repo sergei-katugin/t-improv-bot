@@ -12,7 +12,7 @@ export function ShowsHeader({ status, onStatusChange, filtersOpened, activeFilte
   activeFilters: number;
   onToggleFilters: () => void;
 }) {
-  return <><PageHeader title="Мои афиши" /><header className="page-tabs-header">
+  return <div className="shows-header"><PageHeader title="Мои афиши" /><div className="page-tabs-header">
     <TelegramTabs value={status} onChange={onStatusChange} label="Период афиш"
       items={[{ value: "upcoming", label: "Будущие" }, { value: "past", label: "Прошедшие" }]} />
     <div className="header-actions">
@@ -21,5 +21,5 @@ export function ShowsHeader({ status, onStatusChange, filtersOpened, activeFilte
         {Boolean(activeFilters) && <span className="filter-indicator" />}
       </button>
     </div>
-  </header></>;
+  </div></div>;
 }

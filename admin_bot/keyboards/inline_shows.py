@@ -101,7 +101,6 @@ def show_section_kb(show: Show, section: str, can_delete: bool = False) -> Inlin
         if show.creator:
             creator_url = f"https://t.me/{show.creator.username}" if show.creator.username else f"tg://user?id={show.creator.telegram_id}"
             builder.button(text="✉️ Написать создателю", url=creator_url)
-        builder.button(text=f"🎟 Режим входа: {'вкл' if show.checkin_enabled else 'выкл'}", callback_data=AdminShowActionCb(action="toggle_checkin", show_id=show_id).pack())
         builder.button(text=f"⭐ Отзывы: {'вкл' if show.feedback_enabled else 'выкл'}", callback_data=AdminShowActionCb(action="toggle_feedback", show_id=show_id).pack())
         builder.button(text="⚠️ Управление шоу", callback_data=AdminShowActionCb(action="danger", show_id=show_id).pack())
     else:
@@ -215,7 +214,6 @@ def edit_show_fields_kb(show: Show, group: str | None = None) -> InlineKeyboardM
     for label, field in fields:
         builder.button(text=label, callback_data=AdminShowFieldCb(show_id=show_id, field=field).pack())
     if current_group == "extra":
-        builder.button(text=f"🎟 Режим входа: {'вкл' if show.checkin_enabled else 'выкл'}", callback_data=AdminShowFieldCb(show_id=show_id, field="checkin_enabled").pack())
         builder.button(text=f"⭐ Отзывы: {'вкл' if show.feedback_enabled else 'выкл'}", callback_data=AdminShowFieldCb(show_id=show_id, field="feedback_enabled").pack())
     if current_group == "registration":
         builder.button(
@@ -274,10 +272,6 @@ def confirm_with_back_kb(
     feedback_enabled: bool = False,
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.button(
-        text=f"🎟 Режим входа: {'вкл' if checkin_enabled else 'выкл'}",
-        callback_data="create_toggle_checkin",
-    )
     builder.button(
         text=f"⭐ Отзывы: {'вкл' if feedback_enabled else 'выкл'}",
         callback_data="create_toggle_feedback",

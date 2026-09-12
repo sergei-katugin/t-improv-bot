@@ -30,7 +30,7 @@ describe("AttendeesModal", () => {
 
   it("opens the manual attendee form", async () => {
     render(<AttendeesModal opened onClose={vi.fn()} show={show} demo backHandlerRef={createRef<(() => boolean) | null>()} onEdit={vi.fn()} onAnnouncement={vi.fn()} onAnalytics={vi.fn()} onRegistration={vi.fn()} onMore={vi.fn()} />, { wrapper });
-    fireEvent.click(screen.getByRole("button", { name: "➕ Добавить человека" }));
+    fireEvent.click(screen.getByRole("button", { name: "Добавить человека" }));
     const dialog = await screen.findByRole("dialog", { name: "Добавить человека" });
     expect(within(dialog).getByRole("textbox", { name: "Полное имя" })).toBeInTheDocument();
     expect(within(dialog).getByRole("textbox", { name: "Контакт" })).toHaveAttribute("placeholder", "@username");

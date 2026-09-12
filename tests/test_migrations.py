@@ -10,7 +10,7 @@ from alembic.script import ScriptDirectory
 
 def test_alembic_has_single_expected_head():
     scripts = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert scripts.get_heads() == ["0031"]
+    assert scripts.get_heads() == ["0032"]
 
 
 def test_full_migration_chain_upgrades_empty_sqlite_database(tmp_path):
@@ -34,11 +34,26 @@ def test_full_migration_chain_upgrades_empty_sqlite_database(tmp_path):
             column[1] for column in connection.execute("PRAGMA table_info(registrations)")
         }
         show_columns = {column[1] for column in connection.execute("PRAGMA table_info(shows)")}
-    assert version == ("0031",)
+    assert version == ("0032",)
     assert max_guests[4] == "'6'"
     assert "reminder_failure_reported_1d" in registration_columns
     assert "title_newcomer" in show_columns
     assert "checkin_report_every" in show_columns
+
+
+def test_entry_migration_enables_existing_shows_and_database_default(tmp_path):
+    database_path = tmp_path / "entry-default.db"
+    env = {**os.environ, "DATABASE_URL": f"sqlite+aiosqlite:///{database_path}"}
+    def migrate(target):
+        subprocess.run([sys.executable, "-m", "alembic", "upgrade", target], check=True, env=env, capture_output=True, text=True)
+    migrate("0031")
+    with sqlite3.connect(database_path) as connection:
+        connection.execute("INSERT INTO shows (title, team_name, show_date, location, city, max_seats, checkin_enabled) VALUES ('Test', 'Team', '2026-09-12 12:00:00', 'Venue', 'City', 80, 0)")
+    migrate("head")
+    with sqlite3.connect(database_path) as connection:
+        assert connection.execute("SELECT checkin_enabled FROM shows").fetchone() == (1,)
+        column = next(row for row in connection.execute("PRAGMA table_info(shows)") if row[1] == "checkin_enabled")
+        assert column[4] == "1"
 
 
 def test_timezone_migration_converts_existing_local_show_date(tmp_path):

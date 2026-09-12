@@ -10,8 +10,6 @@
 .telegram-page-title { padding: 16px 0 12px; background: var(--app-header-bg, var(--app-bg)); }
 .telegram-page-title h1, :root .mantine-Modal-title { font-size: 22px; font-weight: 700; letter-spacing: -.02em; line-height: 1.25; }
 .settings-list button { transition: background-color 160ms ease; }
-:root .bottom-action-navigation { width: min(calc(100% - 48px), 540px); border-radius: 28px; }
-:root .bottom-nav-selection { border-radius: 23px; background: color-mix(in srgb, var(--accent) 15%, var(--surface)); }
 :root .page-tabs-header { background: var(--app-header-bg, var(--app-bg)); }
 /* Avoid capturing a half-transparent Mantine enter animation. */
 html[data-screen-transition] .mantine-Modal-content { opacity: 1 !important; transform: none !important; }
