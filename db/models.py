@@ -46,7 +46,7 @@ class Show(Base):
     max_guests = Column(Integer, nullable=False, default=6, server_default="6")
     registration_closes_at = Column(DateTime, nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
-    checkin_enabled = Column(Boolean, default=False, nullable=False)
+    checkin_enabled = Column(Boolean, default=True, nullable=False)
     checkin_mode = Column(String(16), default="named", nullable=False)
     checkin_counter = Column(Integer, default=0, nullable=False)
     checkin_milestone = Column(Integer, default=0, nullable=False)

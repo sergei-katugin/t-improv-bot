@@ -22,3 +22,19 @@
 }
 :root .page-tabs-header { padding-top: 8px; }
 :root .shell { padding-top: var(--tg-content-safe-area-inset-top, 0px); }
+:root .shows-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  margin-inline: -16px;
+  margin-bottom: 14px;
+  padding-inline: 16px;
+  background: var(--app-header-bg, var(--app-bg));
+}
+:root .shows-header .page-header { background: inherit; }
+:root .shows-header .page-tabs-header {
+  position: static;
+  margin-bottom: 0;
+  border-bottom: 0;
+  background: inherit;
+}

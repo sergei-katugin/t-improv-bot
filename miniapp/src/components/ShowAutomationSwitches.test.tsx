@@ -5,7 +5,7 @@ import { expect, it, vi } from "vitest";
 import { ShowAutomationSwitches } from "./ShowAutomationSwitches";
 
 
-it("shows feedback first and explains both switches", () => {
+it("explains feedback without an entry-tracking switch", () => {
   render(<MantineProvider><ShowAutomationSwitches
     feedbackEnabled
     checkinEnabled={false}
@@ -19,5 +19,6 @@ it("shows feedback first and explains both switches", () => {
   const feedbackInfo = screen.getByRole("button", { name: /Что означает «Запрашивать отзывы/ });
   fireEvent.click(feedbackInfo);
   expect(feedbackInfo).toHaveAttribute("aria-expanded", "true");
-  expect(screen.getByRole("button", { name: /Что означает «Включить check-in/ })).toBeInTheDocument();
+  expect(switches).toHaveLength(1);
+  expect(screen.queryByLabelText("Включить check-in")).not.toBeInTheDocument();
 });

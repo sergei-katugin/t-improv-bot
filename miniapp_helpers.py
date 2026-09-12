@@ -185,7 +185,7 @@ def _show_fields(data: dict, *, require_all: bool) -> dict[str, object]:
                     text=json.dumps({"error": "invalid_field", "field": source}),
                     content_type="application/json",
                 )
-            result[target] = data[source]
+            result[target] = True if target == "checkin_enabled" else data[source]
     if "checkinMode" in data:
         if data["checkinMode"] not in ("named", "counter"):
             raise web.HTTPBadRequest()

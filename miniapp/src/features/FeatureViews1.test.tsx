@@ -97,7 +97,7 @@ describe("ShowForm", () => {
     fireEvent.change(screen.getByLabelText("Максимум дополнительных гостей"), { target: { value: "6" } });
     fireEvent.click(screen.getByRole("button", { name: "Шаг 4: Афиша" }));
     fireEvent.change(screen.getByLabelText("Профессиональное описание"), { target: { value: "Обновлённый текст" } });
-    fireEvent.click(screen.getByLabelText("Включить check-in"));
+    expect(screen.queryByLabelText("Включить check-in")).not.toBeInTheDocument();
     fireEvent.click(screen.getByLabelText("Запрашивать отзывы после шоу"));
     fireEvent.click(screen.getByRole("button", { name: "Показать предпросмотр" }));
     expect(screen.getAllByText("Обновлённый текст").length).toBeGreaterThan(1);

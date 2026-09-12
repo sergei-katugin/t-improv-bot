@@ -41,7 +41,8 @@ export function useAppTheme() {
       const background = toHexColor(getComputedStyle(document.body).backgroundColor);
       if (background) {
         document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute("content", background);
-        telegram?.setHeaderColor(preference === "system" ? toHexColor(telegram?.themeParams?.header_bg_color ?? "") ?? background : background);
+        const header = toHexColor(getComputedStyle(document.documentElement).getPropertyValue("--app-header-bg").trim()) ?? background;
+        telegram?.setHeaderColor(header);
         telegram?.setBackgroundColor(background);
         telegram?.setBottomBarColor?.(background);
       }

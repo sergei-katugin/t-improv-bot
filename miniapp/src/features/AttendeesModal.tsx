@@ -64,7 +64,7 @@ export function AttendeesModal({ opened, onClose, show, demo, backHandlerRef, on
   return <Modal opened={opened} onClose={onClose} title={`Зрители · ${show.title}`} fullScreen classNames={{ close: "fullscreen-modal-close" }}>
     {loading && <Stack><Skeleton height={100} /><Skeleton height={100} /></Stack>}
     {data && <Stack gap="md">
-      <Button onClick={() => setAddOpened(true)}>➕ Добавить человека</Button>
+      <Button leftSection={<PlusIcon />} onClick={() => setAddOpened(true)}>Добавить человека</Button>
       <TextInput aria-label="Фильтр зрителей" placeholder="Имя или @username" value={search} onChange={(event) => setSearch(event.currentTarget.value)} />
       <Title order={3}>Записались через бот</Title>
       <AttendeeList items={data.registrations} />
@@ -88,3 +88,4 @@ export function AttendeesModal({ opened, onClose, show, demo, backHandlerRef, on
     {data && <ShowNavigation show={show} onShow={onClose} onEdit={onEdit} onAnnouncement={onAnnouncement} onAnalytics={onAnalytics} onRegistration={onRegistration} onMore={onMore} />}
   </Modal>;
 }
+import { PlusIcon } from "../components/PlusIcon";
