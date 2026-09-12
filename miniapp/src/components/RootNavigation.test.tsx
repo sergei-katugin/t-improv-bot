@@ -13,4 +13,17 @@ describe("RootNavigation", () => {
     expect(onAdministration).toHaveBeenCalledOnce();
     expect(onSettings).toHaveBeenCalledOnce();
   });
+
+  it("moves one shared selection between tabs without replacing it", () => {
+    const actions = { onShows: vi.fn(), onCreate: vi.fn(), onAdministration: vi.fn(), onSettings: vi.fn() };
+    const view = render(<RootNavigation active="shows" {...actions} />);
+    const navigation = screen.getByRole("navigation");
+    const selection = navigation.querySelector(".bottom-nav-selection");
+    expect(navigation.style.getPropertyValue("--nav-count")).toBe("4");
+    expect(navigation.style.getPropertyValue("--nav-index")).toBe("0");
+    view.rerender(<RootNavigation active="settings" {...actions} />);
+    expect(navigation.style.getPropertyValue("--nav-index")).toBe("3");
+    expect(navigation.querySelector(".bottom-nav-selection")).toBe(selection);
+    expect(screen.getByRole("button", { name: "Настройки" })).toHaveAttribute("aria-current", "page");
+  });
 });

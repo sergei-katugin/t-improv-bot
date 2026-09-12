@@ -113,7 +113,8 @@ async def cmd_start(message: Message, state: FSMContext, db_user: User, session:
             admin_username = settings.ADMIN_BOT_USERNAME.lstrip("@")
             await message.answer(
                 "✅ Доступ сотрудника входа выдан только к этому шоу.\n\n"
-                "Открой служебного бота и запусти режим входа:",
+                "Открой служебного бота по кнопке ниже, затем нажми «Открыть панель управления». "
+                "Mini App покажет страницу отметки пришедших:",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
                     InlineKeyboardButton(
                         text="🚪 Открыть режим входа",

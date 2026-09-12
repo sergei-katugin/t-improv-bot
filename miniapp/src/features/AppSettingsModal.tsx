@@ -13,7 +13,6 @@ export function AppSettingsModal({ opened, onClose, onCreate, onAdministration, 
   onReset: () => void;
 }) {
   return <Modal opened={opened} onClose={onClose} title="Настройки" fullScreen classNames={{ close: "fullscreen-modal-close" }}>
-    <div className="page-heading"><div className="eyebrow">Приложение</div><h1>Настройки</h1></div>
     <AppearanceSettings value={value} onChange={onChange} onReset={onReset} />
     <RootNavigation active="settings" onShows={onClose} onCreate={onCreate ?? onClose} onAdministration={onAdministration ?? onClose} onSettings={() => undefined} />
   </Modal>;

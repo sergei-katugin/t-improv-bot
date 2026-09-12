@@ -9,6 +9,7 @@ import { api, authenticatedBlob } from "../lib/api";
 import { showNotification } from "../lib/notifications";
 import { telegramConfirm, telegramHaptic } from "../lib/telegram";
 import { useAppResume } from "../hooks/useAppResume";
+import { CheckinScreen } from "./CheckinScreen";
 import type { AccessUser, Attendees, AuditItem, Me, Options, Promotion, RegistrationChatOption, Show, ShowFormValue, ThemePreference } from "../types";
 
 export function ShowToolsModal({ mode, opened, onClose, show, registrationUrl, demo, canDeleteActive = false, backHandlerRef, onEdit, onAnalytics, onAnnouncement, onChanged, onDeleted }: {
@@ -30,6 +31,7 @@ export function ShowToolsModal({ mode, opened, onClose, show, registrationUrl, d
   const [savedChats, setSavedChats] = React.useState<RegistrationChatOption[]>([]);
   const [tasks, setTasks] = React.useState<{ key: string; label: string; description?: string; count: number }[]>([]);
   const [section, setSection] = React.useState<"menu" | "chat" | "registration" | "clone">("menu");
+  const [checkinOpened, setCheckinOpened] = React.useState(false);
 
   React.useEffect(() => {
     if (!opened) return;
@@ -41,6 +43,7 @@ export function ShowToolsModal({ mode, opened, onClose, show, registrationUrl, d
   React.useEffect(() => {
     if (!opened) { backHandlerRef.current = null; return; }
     backHandlerRef.current = () => {
+      if (checkinOpened) { setCheckinOpened(false); return true; }
       if (cancelConfirm) { setCancelConfirm(false); return true; }
       if (deleteConfirm) { setDeleteConfirm(false); return true; }
       if (disconnectChatConfirm) { setDisconnectChatConfirm(false); return true; }
@@ -48,7 +51,7 @@ export function ShowToolsModal({ mode, opened, onClose, show, registrationUrl, d
       return false;
     };
     return () => { backHandlerRef.current = null; };
-  }, [backHandlerRef, cancelConfirm, deleteConfirm, disconnectChatConfirm, mode, opened, section]);
+  }, [backHandlerRef, cancelConfirm, checkinOpened, deleteConfirm, disconnectChatConfirm, mode, opened, section]);
   useAppResume(() => {
     if (demo) return;
     api<{ items: { key: string; label: string; description?: string; count: number }[] }>(`/api/miniapp/shows/${show.id}/tasks`).then(({ items }) => setTasks(items)).catch(() => undefined);
@@ -176,6 +179,8 @@ export function ShowToolsModal({ mode, opened, onClose, show, registrationUrl, d
   >
     {section !== "menu" && section !== "chat" && mode === "all" && <Button className="back" variant="subtle" onClick={() => setSection("menu")}>← Все действия</Button>}
     {section === "menu" && <Stack gap="xs" className="tools-menu">
+      {!show.isPast && <button className="tools-menu-action" onClick={onEdit}><span><b>Изменить афишу</b><small>Название, описание и настройки</small></span><span>→</span></button>}
+      {show.checkinEnabled && <Button variant="default" onClick={() => setCheckinOpened(true)}>🚪 Вход: отметки, режим и приглашение</Button>}
       {visibleTasks.length > 0 && <><Text className="tools-section-label">Требуют внимания · {visibleTasks.length}</Text>{visibleTasks.map((task) => <button key={task.key} className="tools-menu-action attention" disabled={busy !== null} onClick={() => openTask(task.key)}><span><b>{task.label}</b><small>{task.description ?? (task.count > 1 ? `${task.count} элементов` : "Открыть и выполнить")}</small></span><span>→</span></button>)}</>}
       {!show.isPast && <button className="tools-menu-action" onClick={() => setSection("chat")}><span><b>Чат записей</b><small>{show.registrationChatId ? show.registrationChatTitle || "Подключён" : "Не подключён"}</small></span><span>→</span></button>}
       {!show.isPast && !show.hasPublished && <button className="tools-menu-action" onClick={onAnalytics}><span><b>Аналитика</b><small>Записи, посещаемость и отзывы</small></span><span>→</span></button>}
@@ -189,6 +194,7 @@ export function ShowToolsModal({ mode, opened, onClose, show, registrationUrl, d
     {section === "chat" && <BottomActionBar inline>{show.registrationChatId ? <Button color="red" variant="light" fullWidth loading={busy === "chat"} onClick={() => setDisconnectChatConfirm(true)}>Отключить чат</Button> : <Button className="primary" fullWidth disabled={!chatTarget.trim()} loading={busy === "chat"} onClick={() => void saveRegistrationChat()}>Подключить чат</Button>}</BottomActionBar>}
     {section === "clone" && <BottomActionBar><Button className="primary" fullWidth loading={busy === "clone"} onClick={() => void clone()}>Создать копию</Button></BottomActionBar>}
     {(section === "menu" || section === "registration") && <ShowNavigation show={show} active={section === "menu" ? "more" : "registration"} onShow={onClose} onEdit={onEdit} onAnnouncement={onAnnouncement} onAnalytics={onAnalytics} onRegistration={() => setSection("registration")} onMore={() => setSection("menu")} />}
+    <Modal opened={checkinOpened} onClose={() => setCheckinOpened(false)} fullScreen title="Подтверждение приходов">{checkinOpened && <CheckinScreen showId={show.id} canConfigure />}</Modal>
     <Modal opened={cancelConfirm} onClose={() => setCancelConfirm(false)} title="Точно отменить афишу?" centered><Text>Действие закроет новые записи и отправит уведомления зрителям.</Text><Group justify="flex-end" mt="lg"><Button variant="default" onClick={() => setCancelConfirm(false)}>Не отменять</Button><Button color="red" loading={busy === "cancel"} onClick={() => void cancelShow()}>Да, отменить</Button></Group></Modal>
     <Modal opened={deleteConfirm} onClose={() => setDeleteConfirm(false)} title="Удалить афишу навсегда?" centered><Text>Будут удалены записи, отзывы и история анонсов. Это действие нельзя отменить.</Text><Group justify="flex-end" mt="lg"><Button variant="default" onClick={() => setDeleteConfirm(false)}>Не удалять</Button><Button color="red" loading={busy === "delete"} onClick={() => void deleteShow()}>Удалить навсегда</Button></Group></Modal>
     <Modal opened={disconnectChatConfirm} onClose={() => setDisconnectChatConfirm(false)} title="Отключить чат записей?" centered><Text>Бот сообщит об отключении в рабочем чате. Новые записи и отмены больше не будут туда приходить.</Text><Group justify="flex-end" mt="lg"><Button variant="default" onClick={() => setDisconnectChatConfirm(false)}>Не отключать</Button><Button color="red" loading={busy === "chat"} onClick={() => void clearRegistrationChat()}>Отключить</Button></Group></Modal>

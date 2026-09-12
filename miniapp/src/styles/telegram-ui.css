@@ -1,0 +1,34 @@
+/* Opaque Telegram surfaces; native Mini App chrome remains owned by Telegram. */
+:root .mantine-Modal-header { background: var(--app-header-bg, var(--app-bg)); backdrop-filter: none; }
+:root .primary, :root .primary:hover, :root .bottom-action-bar .mantine-Button-root.primary { --button-bg: var(--app-button-bg, var(--mantine-primary-color-filled)); --button-color: var(--app-button-text, var(--mantine-color-white)); background: var(--app-button-bg, var(--mantine-primary-color-filled)); color: var(--app-button-text, var(--mantine-color-white)); }
+:root .page-heading { padding-block: 12px; }
+.telegram-page-title { padding: 16px 0 12px; background: var(--app-header-bg, var(--app-bg)); }
+.telegram-page-title h1, :root .mantine-Modal-title { font-size: 22px; font-weight: 700; letter-spacing: -.02em; line-height: 1.25; }
+.settings-list button { transition: background-color 160ms ease; }
+:root .bottom-action-navigation { width: min(calc(100% - 48px), 540px); border-radius: 28px; }
+:root .bottom-nav-selection { border-radius: 23px; background: color-mix(in srgb, var(--accent) 15%, var(--surface)); }
+:root .page-tabs-header { background: var(--app-header-bg, var(--app-bg)); }
+:root .tabs { border-radius: 22px; border: 0; }
+:root .tabs [role="tab"][aria-selected="true"] { border-radius: 18px; color: var(--accent); background: color-mix(in srgb, var(--accent) 15%, var(--surface)); }
+/* Avoid capturing a half-transparent Mantine enter animation. */
+html[data-screen-transition] .mantine-Modal-content { opacity: 1 !important; transform: none !important; }
+::view-transition-group(root) { animation-duration: 320ms; animation-timing-function: cubic-bezier(.22, 1, .36, 1); }
+::view-transition-old(root) { animation: screen-out-left 320ms cubic-bezier(.22, 1, .36, 1) both; }
+::view-transition-new(root) { animation: screen-in-right 320ms cubic-bezier(.22, 1, .36, 1) both; }
+html[data-screen-transition="back"]::view-transition-old(root), html[data-screen-transition="tab-back"]::view-transition-old(root) { animation-name: screen-out-right; }
+html[data-screen-transition="back"]::view-transition-new(root), html[data-screen-transition="tab-back"]::view-transition-new(root) { animation-name: screen-in-left; }
+html[data-screen-transition="sheet"]::view-transition-old(root) { animation-name: screen-dim; }
+html[data-screen-transition="sheet"]::view-transition-new(root) { animation-name: screen-in-bottom; }
+html[data-screen-transition="tab-forward"]::view-transition-old(root) { animation-name: tab-out-left; }
+html[data-screen-transition="tab-back"]::view-transition-new(root) { animation-name: tab-in-left; }
+::view-transition-group(app-navigation) { animation-duration: 280ms; }
+::view-transition-old(app-navigation), ::view-transition-new(app-navigation) { mix-blend-mode: normal; }
+@keyframes screen-out-left { to { transform: translateX(-25%); opacity: .6; } }
+@keyframes screen-in-right { from { transform: translateX(100%); } }
+@keyframes screen-out-right { to { transform: translateX(100%); } }
+@keyframes screen-in-left { from { transform: translateX(-25%); opacity: .6; } }
+@keyframes screen-in-bottom { from { transform: translateY(100%); } }
+@keyframes screen-dim { to { opacity: .6; } }
+@keyframes tab-out-left { to { transform: translateX(-100%); } }
+@keyframes tab-in-left { from { transform: translateX(-100%); } }
+@media (prefers-reduced-motion: reduce) { ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; } }

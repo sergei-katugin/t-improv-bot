@@ -50,6 +50,10 @@ async def miniapp_update_show(request: web.Request) -> web.Response:
         show = await crud.get_show(session, show_id)
         if show is None or not can_manage_owned(show.creator_id, db_user, request["miniapp_is_admin"]):
             raise web.HTTPNotFound()
+        from checkin_service import arrival_stats
+        await session.refresh(show, with_for_update=True)
+        if fields.get("checkin_mode", show.checkin_mode) != show.checkin_mode and (await arrival_stats(session, show))["arrived"]:
+            raise web.HTTPConflict(text="Нельзя менять режим после начала входа")
         if "registrar_username" in fields:
             username = fields["registrar_username"]
             registrar = await crud.get_user_by_username(session, str(username)) if username else None

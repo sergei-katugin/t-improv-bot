@@ -170,12 +170,7 @@ async def test_registration_chat_notification_includes_total_occupancy():
     assert "Источник: public_bot" in message
     assert "Мест в записи: 2" in message
     assert "Заполнено: <b>17 / 80</b>" in message
-    markup = admin_bot.send_message.await_args.kwargs["reply_markup"]
-    button = markup.inline_keyboard[0][0]
-    assert button.text == "➕ Добавить запись вручную"
-    assert button.callback_data == registration.AdminShowActionCb(
-        action="chat_add_manual", show_id=show.id
-    ).pack()
+    assert admin_bot.send_message.await_args.kwargs.get("reply_markup") is None
 
 
 @pytest.mark.asyncio

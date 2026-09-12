@@ -23,30 +23,30 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">65.14% </span>
+                <span class="strong">64.08% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>114/175</span>
+                <span class='fraction'>116/181</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">81.39% </span>
+                <span class="strong">80.29% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>105/129</span>
+                <span class='fraction'>110/137</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">63.79% </span>
+                <span class="strong">61.66% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>37/58</span>
+                <span class='fraction'>37/60</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">75.83% </span>
+                <span class="strong">75% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>91/120</span>
+                <span class='fraction'>93/124</span>
             </div>
         
             
@@ -259,7 +259,14 @@
 <a name='L194'></a><a href='#L194'>194</a>
 <a name='L195'></a><a href='#L195'>195</a>
 <a name='L196'></a><a href='#L196'>196</a>
-<a name='L197'></a><a href='#L197'>197</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L197'></a><a href='#L197'>197</a>
+<a name='L198'></a><a href='#L198'>198</a>
+<a name='L199'></a><a href='#L199'>199</a>
+<a name='L200'></a><a href='#L200'>200</a>
+<a name='L201'></a><a href='#L201'>201</a>
+<a name='L202'></a><a href='#L202'>202</a>
+<a name='L203'></a><a href='#L203'>203</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -282,6 +289,7 @@
 <span class="cline-any cline-yes">17x</span>
 <span class="cline-any cline-yes">17x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">55x</span>
 <span class="cline-any cline-yes">55x</span>
 <span class="cline-any cline-yes">55x</span>
 <span class="cline-any cline-yes">55x</span>
@@ -302,6 +310,7 @@
 <span class="cline-any cline-yes">55x</span>
 <span class="cline-any cline-yes">33x</span>
 <span class="cline-any cline-yes">29x</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
@@ -437,6 +446,8 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-yes">8x</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -449,6 +460,7 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
@@ -466,6 +478,7 @@ import { api, authenticatedBlob } from "../lib/api";
 import { showNotification } from "../lib/notifications";
 import { telegramConfirm, telegramHaptic } from "../lib/telegram";
 import { useAppResume } from "../hooks/useAppResume";
+import { CheckinScreen } from "./CheckinScreen";
 import type { AccessUser, Attendees, AuditItem, Me, Options, Promotion, RegistrationChatOption, Show, ShowFormValue, ThemePreference } from "../types";
 &nbsp;
 export function ShowToolsModal({ mode, opened, onClose, show, registrationUrl, demo, canDeleteActive = false, backHandlerRef, onEdit, onAnalytics, onAnnouncement, onChanged, onDeleted }: {
@@ -487,6 +500,7 @@ export function ShowToolsModal({ mode, opened, onClose, show, registrationUrl, d
   const [savedChats, setSavedChats] = React.useState&lt;RegistrationChatOption[]&gt;([]);
   const [tasks, setTasks] = React.useState&lt;{ key: string; label: string; description?: string; count: number }[]&gt;([]);
   const [section, setSection] = React.useState&lt;"menu" | "chat" | "registration" | "clone"&gt;("menu");
+  const [checkinOpened, setCheckinOpened] = React.useState(false);
 &nbsp;
   React.useEffect(() =&gt; {
     if (!opened) return;
@@ -498,6 +512,7 @@ export function ShowToolsModal({ mode, opened, onClose, show, registrationUrl, d
   React.useEffect(() =&gt; {
     if (!opened) { backHandlerRef.current = null; return; }
     backHandlerRef.current = () =&gt; {
+      <span class="missing-if-branch" title="if path not taken" >I</span>if (checkinOpened) { <span class="cstat-no" title="statement not covered" >setCheckinOpened(false); <span class="cstat-no" title="statement not covered" >r</span>eturn true; }</span>
       <span class="missing-if-branch" title="if path not taken" >I</span>if (cancelConfirm) { <span class="cstat-no" title="statement not covered" >setCancelConfirm(false); <span class="cstat-no" title="statement not covered" >r</span>eturn true; }</span>
       <span class="missing-if-branch" title="if path not taken" >I</span>if (deleteConfirm) { <span class="cstat-no" title="statement not covered" >setDeleteConfirm(false); <span class="cstat-no" title="statement not covered" >r</span>eturn true; }</span>
       <span class="missing-if-branch" title="if path not taken" >I</span>if (disconnectChatConfirm) { <span class="cstat-no" title="statement not covered" >setDisconnectChatConfirm(false); <span class="cstat-no" title="statement not covered" >r</span>eturn true; }</span>
@@ -505,7 +520,7 @@ export function ShowToolsModal({ mode, opened, onClose, show, registrationUrl, d
 <span class="cstat-no" title="statement not covered" >      return false;</span>
     };
     return () =&gt; { backHandlerRef.current = null; };
-  }, [backHandlerRef, cancelConfirm, deleteConfirm, disconnectChatConfirm, mode, opened, section]);
+  }, [backHandlerRef, cancelConfirm, checkinOpened, deleteConfirm, disconnectChatConfirm, mode, opened, section]);
 <span class="fstat-no" title="function not covered" >  useAppResume(() =&gt; {</span>
 <span class="cstat-no" title="statement not covered" >    if (demo) <span class="cstat-no" title="statement not covered" >return;</span></span>
 <span class="cstat-no" title="statement not covered" >    api&lt;{ items: { key: string; label: string; description?: string; count: number }[] }&gt;(`/api/miniapp/shows/${show.id}/tasks`).<span class="fstat-no" title="function not covered" >then(({</span> items }) =&gt; <span class="cstat-no" title="statement not covered" >setTasks(items))</span>.<span class="fstat-no" title="function not covered" >catch(() =&gt; <span class="cstat-no" title="statement not covered" >u</span>ndefined)</span>;</span>
@@ -633,6 +648,8 @@ export function ShowToolsModal({ mode, opened, onClose, show, registrationUrl, d
   &gt;
     {section !== "menu" &amp;&amp; section !== "chat" &amp;&amp; mode === "all" &amp;&amp; &lt;Button className="back" variant="subtle" onClick={() =&gt; setSection("menu")}&gt;← Все действия&lt;/Button&gt;}
     {section === "menu" &amp;&amp; &lt;Stack gap="xs" className="tools-menu"&gt;
+      {!show.isPast &amp;&amp; &lt;button className="tools-menu-action" onClick={onEdit}&gt;&lt;span&gt;&lt;b&gt;Изменить афишу&lt;/b&gt;&lt;small&gt;Название, описание и настройки&lt;/small&gt;&lt;/span&gt;&lt;span&gt;→&lt;/span&gt;&lt;/button&gt;}
+      {show.checkinEnabled &amp;&amp; <span class="branch-1 cbranch-no" title="branch not covered" >&lt;Button variant="default" <span class="fstat-no" title="function not covered" >onClick={() =&gt; <span class="cstat-no" title="statement not covered" >s</span>etCheckinOpened(true)}&gt;�</span>� Вход: отметки, режим и приглашение&lt;/Button&gt;}</span>
       {visibleTasks.length &gt; 0 &amp;&amp; &lt;&gt;&lt;Text className="tools-section-label"&gt;Требуют внимания · {visibleTasks.length}&lt;/Text&gt;{visibleTasks.map((task) =&gt; &lt;button key={task.key} className="tools-menu-action attention" disabled={busy !== null} onClick={() =&gt; openTask(task.key)}&gt;&lt;span&gt;&lt;b&gt;{task.label}&lt;/b&gt;&lt;small&gt;{task.description ?? (task.count &gt; 1 ? `${task.count} элементов` : "Открыть и выполнить")}&lt;/small&gt;&lt;/span&gt;&lt;span&gt;→&lt;/span&gt;&lt;/button&gt;)}&lt;/&gt;}
       {!show.isPast &amp;&amp; &lt;button className="tools-menu-action" <span class="fstat-no" title="function not covered" >onClick={() =&gt; <span class="cstat-no" title="statement not covered" >s</span>etSection("chat")}&gt;&lt;</span>span&gt;&lt;b&gt;Чат записей&lt;/b&gt;&lt;small&gt;{show.registrationChatId ? show.registrationChatTitle || <span class="branch-1 cbranch-no" title="branch not covered" >"Подключён" : "</span>Не подключён"}&lt;/small&gt;&lt;/span&gt;&lt;span&gt;→&lt;/span&gt;&lt;/button&gt;}
       {!show.isPast &amp;&amp; !show.hasPublished &amp;&amp; &lt;button className="tools-menu-action" onClick={onAnalytics}&gt;&lt;span&gt;&lt;b&gt;Аналитика&lt;/b&gt;&lt;small&gt;Записи, посещаемость и отзывы&lt;/small&gt;&lt;/span&gt;&lt;span&gt;→&lt;/span&gt;&lt;/button&gt;}
@@ -646,6 +663,7 @@ export function ShowToolsModal({ mode, opened, onClose, show, registrationUrl, d
     {section === "chat" &amp;&amp; &lt;BottomActionBar inline&gt;{show.registrationChatId ? &lt;Button color="red" variant="light" fullWidth loading={busy === "chat"} onClick={() =&gt; setDisconnectChatConfirm(true)}&gt;Отключить чат&lt;/Button&gt; : &lt;Button className="primary" fullWidth disabled={!chatTarget.trim()} loading={busy === "chat"} <span class="fstat-no" title="function not covered" >onClick={() =&gt; <span class="cstat-no" title="statement not covered" >v</span>oid saveRegistrationChat()}&gt;П</span>одключить чат&lt;/Button&gt;}&lt;/BottomActionBar&gt;}
     {section === "clone" &amp;&amp; &lt;BottomActionBar&gt;&lt;Button className="primary" fullWidth loading={busy === "clone"} onClick={() =&gt; void clone()}&gt;Создать копию&lt;/Button&gt;&lt;/BottomActionBar&gt;}
     {(section === "menu" || section === "registration") &amp;&amp; &lt;ShowNavigation show={show} active={section === "menu" ? "more" : "registration"} onShow={onClose} onEdit={onEdit} onAnnouncement={onAnnouncement} onAnalytics={onAnalytics} <span class="fstat-no" title="function not covered" >onRegistration={() =&gt; <span class="cstat-no" title="statement not covered" >s</span>etSection("registration")} <span class="fstat-no" title="function not covered" >o</span>nMore={() =&gt; <span class="cstat-no" title="statement not covered" >s</span>etSection("menu")} /&gt;</span>}
+    &lt;Modal opened={checkinOpened} <span class="fstat-no" title="function not covered" >onClose={() =&gt; <span class="cstat-no" title="statement not covered" >s</span>etCheckinOpened(false)} f</span>ullScreen title="Подтверждение приходов"&gt;{checkinOpened &amp;&amp; <span class="branch-1 cbranch-no" title="branch not covered" >&lt;CheckinScreen showId={show.id} canConfigure /&gt;}&lt;/Modal&gt;</span>
     &lt;Modal opened={cancelConfirm} <span class="fstat-no" title="function not covered" >onClose={() =&gt; <span class="cstat-no" title="statement not covered" >s</span>etCancelConfirm(false)} t</span>itle="Точно отменить афишу?" centered&gt;&lt;Text&gt;Действие закроет новые записи и отправит уведомления зрителям.&lt;/Text&gt;&lt;Group justify="flex-end" mt="lg"&gt;&lt;Button variant="default" <span class="fstat-no" title="function not covered" >onClick={() =&gt; <span class="cstat-no" title="statement not covered" >s</span>etCancelConfirm(false)}&gt;Н</span>е отменять&lt;/Button&gt;&lt;Button color="red" loading={busy === "cancel"} onClick={() =&gt; void cancelShow()}&gt;Да, отменить&lt;/Button&gt;&lt;/Group&gt;&lt;/Modal&gt;
     &lt;Modal opened={deleteConfirm} <span class="fstat-no" title="function not covered" >onClose={() =&gt; <span class="cstat-no" title="statement not covered" >s</span>etDeleteConfirm(false)} t</span>itle="Удалить афишу навсегда?" centered&gt;&lt;Text&gt;Будут удалены записи, отзывы и история анонсов. Это действие нельзя отменить.&lt;/Text&gt;&lt;Group justify="flex-end" mt="lg"&gt;&lt;Button variant="default" <span class="fstat-no" title="function not covered" >onClick={() =&gt; <span class="cstat-no" title="statement not covered" >s</span>etDeleteConfirm(false)}&gt;Н</span>е удалять&lt;/Button&gt;&lt;Button color="red" loading={busy === "delete"} onClick={() =&gt; void deleteShow()}&gt;Удалить навсегда&lt;/Button&gt;&lt;/Group&gt;&lt;/Modal&gt;
     &lt;Modal opened={disconnectChatConfirm} <span class="fstat-no" title="function not covered" >onClose={() =&gt; <span class="cstat-no" title="statement not covered" >s</span>etDisconnectChatConfirm(false)} t</span>itle="Отключить чат записей?" centered&gt;&lt;Text&gt;Бот сообщит об отключении в рабочем чате. Новые записи и отмены больше не будут туда приходить.&lt;/Text&gt;&lt;Group justify="flex-end" mt="lg"&gt;&lt;Button variant="default" <span class="fstat-no" title="function not covered" >onClick={() =&gt; <span class="cstat-no" title="statement not covered" >s</span>etDisconnectChatConfirm(false)}&gt;Н</span>е отключать&lt;/Button&gt;&lt;Button color="red" loading={busy === "chat"} onClick={() =&gt; void clearRegistrationChat()}&gt;Отключить&lt;/Button&gt;&lt;/Group&gt;&lt;/Modal&gt;
@@ -658,7 +676,7 @@ export function ShowToolsModal({ mode, opened, onClose, show, registrationUrl, d
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-09-11T17:13:32.381Z
+                at 2026-09-12T09:49:36.752Z
             </div>
         <script src="../../prettify.js"></script>
         <script>

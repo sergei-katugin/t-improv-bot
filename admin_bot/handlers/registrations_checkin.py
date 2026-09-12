@@ -155,19 +155,8 @@ async def find_checkin_attendee(message: Message, state: FSMContext, session: As
 
 
 async def _notify_checkin_milestones(bot, session: AsyncSession, show, arrived: int) -> None:
-    claim = await crud.claim_checkin_milestones(session, show.id, arrived)
-    if claim is None:
-        return
-    previous, highest, chat_id, title = claim
-    try:
-        for milestone in range(previous + 10, highest + 1, 10):
-            await bot.send_message(
-                chat_id,
-                f"🎟 На шоу «{h(title)}» пришли уже <b>{milestone}</b> человек.",
-            )
-    except Exception:
-        await crud.release_checkin_milestones(session, show.id, highest, previous)
-        logger.exception("failed to send check-in milestone show_id=%s", show.id)
+    from checkin_service import arrival_stats, notify_arrivals
+    await notify_arrivals(bot, session, show, await arrival_stats(session, show))
 
 
 async def _named_arrived_total(session: AsyncSession, show_id: int) -> int:

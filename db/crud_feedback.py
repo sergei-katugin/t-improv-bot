@@ -37,7 +37,8 @@ async def claim_checkin_milestones(session: AsyncSession, show_id: int, arrived:
     if show is None or not show.registration_chat_id:
         return None
     previous = show.checkin_milestone or 0
-    highest = (arrived // 10) * 10
+    step = show.checkin_report_every or 10
+    highest = (arrived // step) * step
     if highest <= previous:
         return None
     show.checkin_milestone = highest

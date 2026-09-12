@@ -17,6 +17,7 @@ from miniapp_catalog import miniapp_update_team
 from miniapp_catalog import miniapp_update_venue
 from miniapp_core import miniapp_audit_log
 from miniapp_core import miniapp_me
+from miniapp_checkin import miniapp_checkin, miniapp_checkin_shows, miniapp_checkin_update, miniapp_checkin_config, miniapp_checkin_invite
 from miniapp_media import miniapp_access_users
 from miniapp_media import miniapp_create_access_invite
 from miniapp_media import miniapp_options
@@ -69,6 +70,11 @@ def register_miniapp_routes(app: web.Application) -> None:
     app.middlewares.append(miniapp_auth_middleware)
     app.middlewares.append(miniapp_rate_limit_middleware)
     app.router.add_get("/api/miniapp/me", miniapp_me)
+    app.router.add_get("/api/miniapp/checkin/shows", miniapp_checkin_shows)
+    app.router.add_get("/api/miniapp/shows/{show_id}/checkin", miniapp_checkin)
+    app.router.add_post("/api/miniapp/shows/{show_id}/checkin", miniapp_checkin_update)
+    app.router.add_put("/api/miniapp/shows/{show_id}/checkin/config", miniapp_checkin_config)
+    app.router.add_post("/api/miniapp/shows/{show_id}/checkin/invite", miniapp_checkin_invite)
     app.router.add_get("/api/miniapp/shows", miniapp_shows)
     app.router.add_post("/api/miniapp/shows", miniapp_create_show)
     app.router.add_get("/api/miniapp/shows/{show_id}", miniapp_show_detail)

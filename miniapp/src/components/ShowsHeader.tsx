@@ -11,7 +11,7 @@ export function ShowsHeader({ status, onStatusChange, filtersOpened, activeFilte
   activeFilters: number;
   onToggleFilters: () => void;
 }) {
-  return <header className="page-tabs-header">
+  return <><div className="telegram-page-title"><h1>Мои афиши</h1></div><header className="page-tabs-header">
     <Tabs value={status} onChange={(value) => onStatusChange(value as "upcoming" | "past")} className="tabs">
       <Tabs.List grow><Tabs.Tab value="upcoming">Будущие</Tabs.Tab><Tabs.Tab value="past">Прошедшие</Tabs.Tab></Tabs.List>
     </Tabs>
@@ -21,5 +21,5 @@ export function ShowsHeader({ status, onStatusChange, filtersOpened, activeFilte
         {Boolean(activeFilters) && <span className="filter-indicator" />}
       </button>
     </div>
-  </header>;
+  </header></>;
 }

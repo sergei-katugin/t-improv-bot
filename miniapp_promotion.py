@@ -208,7 +208,7 @@ async def miniapp_clone_show(request: web.Request) -> web.Response:
             max_guests=source.max_guests,
             registration_closes_at=show_date - timedelta(minutes=5),
             registrar_id=source.registrar_id, registrar_username=source.registrar_username,
-            checkin_enabled=source.checkin_enabled, feedback_enabled=source.feedback_enabled,
+            checkin_enabled=source.checkin_enabled, checkin_mode=source.checkin_mode, checkin_report_every=source.checkin_report_every, feedback_enabled=source.feedback_enabled,
         )
         clone_id = clone.id
     await _record_audit(request, "show.cloned", "show", clone_id, {"sourceShowId": show_id})

@@ -35,7 +35,7 @@ async def create_show(
     registration_closes_at: datetime | None = None,
     registrar_id: int | None = None,
     registrar_username: str | None = None,
-    checkin_enabled: bool = False,
+    checkin_enabled: bool = False, checkin_mode: str = "named", checkin_report_every: int = 10,
     feedback_enabled: bool = True,
 ) -> Show:
     show = Show(
@@ -55,7 +55,7 @@ async def create_show(
         creator_id=creator_id,
         registrar_id=registrar_id,
         registrar_username=registrar_username,
-        checkin_enabled=checkin_enabled,
+        checkin_enabled=checkin_enabled, checkin_mode=checkin_mode, checkin_report_every=checkin_report_every,
         feedback_enabled=feedback_enabled,
     )
     session.add(show)

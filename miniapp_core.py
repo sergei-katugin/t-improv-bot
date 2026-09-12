@@ -16,7 +16,7 @@ async def miniapp_me(request: web.Request) -> web.Response:
             "username": user.username,
             "firstName": user.first_name,
             "lastName": user.last_name,
-            "role": user.role.value,
+            "role": "checkin" if request.get("miniapp_checkin_only") else user.role.value,
             "isSuperAdmin": bool(request.get("miniapp_is_super_admin", False)),
         })
 
@@ -50,5 +50,4 @@ async def miniapp_audit_log(request: web.Request) -> web.Response:
         } for item, actor in items],
         "hasMore": len(rows) > limit, "nextOffset": offset + len(items),
     })
-
 

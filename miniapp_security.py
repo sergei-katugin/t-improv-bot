@@ -52,6 +52,8 @@ class MiniAppRateLimiter:
 
 def _miniapp_rate_policy(request: web.Request) -> tuple[str, int, int] | None:
     path = request.path
+    if request.method == "POST" and path.endswith("/checkin"):
+        return "checkin", 240, 60
     if request.method == "POST" and path.endswith("/poster"):
         return "poster_upload", 3, 60
     if (
@@ -73,7 +75,7 @@ async def miniapp_rate_limit_middleware(request: web.Request, handler):
     user_id = request["miniapp_user_id"]
     limiter = request.app[MINIAPP_RATE_LIMITER_KEY]
     now = time.monotonic()
-    policies = [("all", 120, 60)]
+    policies = [("all", 600 if request.path.endswith("/checkin") else 120, 60)]
     specific = _miniapp_rate_policy(request)
     if specific:
         policies.append(specific)
@@ -171,9 +173,13 @@ async def miniapp_auth_middleware(request: web.Request, handler):
     if not request.path.startswith("/api/miniapp/"):
         return await handler(request)
     init_data = _extract_init_data(request)
+    # A door shift outlives the usual 15-minute admin session. Permissions and
+    # per-show expiry are still checked in the database on every request.
+    door_session = request.path.endswith("/checkin") or request.path == "/api/miniapp/checkin/shows"
     try:
         telegram_user = validate_telegram_init_data(
             init_data, settings.ADMIN_BOT_TOKEN,
+            max_age_seconds=12 * 60 * 60 if door_session else MAX_INIT_DATA_AGE_SECONDS,
         )
     except MiniAppAuthError as exc:
         logger.warning(
@@ -189,12 +195,20 @@ async def miniapp_auth_middleware(request: web.Request, handler):
         db_user = await session.scalar(
             select(User).where(User.telegram_id == telegram_user.telegram_id)
         )
-        if db_user is None or db_user.role not in (UserRole.organizer, UserRole.admin):
+        staff = bool(db_user and await crud.has_any_checkin_access(session, db_user.id))
+        privileged = bool(db_user and (db_user.role in (UserRole.organizer, UserRole.admin) or telegram_user.telegram_id in ADMIN_ID_LIST))
+        if db_user is None or not (privileged or staff):
             raise web.HTTPForbidden(
                 text=json.dumps({"error": "organizer_access_required"}),
                 content_type="application/json",
             )
         request["miniapp_user_id"] = db_user.id
+        request["miniapp_checkin_only"] = not privileged
+        if not privileged and request.path != "/api/miniapp/me" and not (
+            request.path == "/api/miniapp/checkin/shows" or
+            re.fullmatch(r"/api/miniapp/shows/\d+/checkin", request.path)
+        ):
+            raise web.HTTPForbidden()
         request["miniapp_telegram_id"] = telegram_user.telegram_id
         request["miniapp_is_super_admin"] = telegram_user.telegram_id in ADMIN_ID_LIST
         request["miniapp_is_admin"] = (

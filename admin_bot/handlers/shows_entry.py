@@ -23,10 +23,10 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession, 
         if show is None or not show.checkin_enabled:
             await message.answer("⛔ Доступ к режиму входа недействителен.")
             return
-        from admin_bot.keyboards.inline import checkin_mode_kb
         await message.answer(
-            f"🚪 <b>Вход: {h(show.title)}</b>\n\nВыбери режим учёта:",
-            reply_markup=checkin_mode_kb(show.id),
+            f"🚪 <b>Вход: {h(show.title)}</b>\n\nНажми «Открыть панель управления» ниже. "
+            "В Mini App откроется страница отметки пришедших. Доступ выдан только к этому шоу.",
+            reply_markup=miniapp_launch_kb(),
         )
         return
     if not user.onboarding_done:
